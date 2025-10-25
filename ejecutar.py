@@ -934,22 +934,15 @@ signal.signal(signal.SIGINT, delowyss_signal_handler)
 if __name__ == "__main__":
     print("🚀 INICIANDO DELOWYSS TRADING PROFESSIONAL...")
     
-    # Verificar entorno Render
+    # En producción (Render), solo ejecutar servidor web
     if os.environ.get("RENDER"):
-        print("🌐 [Delowyss] Entorno Render - Sistema profesional activo")
-        print("🤖 [Delowyss] Iniciando plataforma de trading...")
-        
-        # Servidor web Delowyss
-        server_thread = threading.Thread(target=run_delowyss_server, daemon=True)
-        server_thread.start()
-        
-        # Espera inicial
-        time.sleep(2)
-        
-        # Sistema principal Delowyss
-        try:
-            assistant = DelowyssTradingAssistant()
-            assistant.run_professional_assistant()
+        print("🌐 MODO PRODUCCIÓN - Iniciando solo servidor web...")
+        run_flask_app()  # Solo servidor web, sin interfaz de consola
+    else:
+        # Modo local con interfaz interactiva
+        print("💻 MODO LOCAL - Iniciando interfaz completa...")
+        assistant = DelowyssTradingAssistant()
+        assistant.run_professional_assistant()
             
             # Mantener sistema activo
             print("💤 [Delowyss] Análisis completado. Sistema activo...")

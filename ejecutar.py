@@ -32,6 +32,7 @@ app = Flask(__name__)
 # Variables globales para almacenar el último análisis
 last_analysis_data = None
 last_analysis_time = None
+current_assistant = None
 
 @app.route('/')
 def home():
@@ -124,6 +125,13 @@ def home():
                     background: rgba(0, 0, 0, 0.7);
                     border-radius: 10px;
                 }}
+                .alert {{
+                    background: rgba(0, 212, 255, 0.2);
+                    border: 1px solid #00d4ff;
+                    padding: 15px;
+                    border-radius: 8px;
+                    margin: 15px 0;
+                }}
             </style>
         </head>
         <body>
@@ -141,6 +149,8 @@ def home():
                     <p><strong>Estado:</strong> 🟢 SISTEMA OPERATIVO AL 100%</p>
                     <p><strong>Versión:</strong> Delowyss Pro 2.0</p>
                 </div>
+
+                {"<div class='alert'><strong>📊 ÚLTIMO ANÁLISIS DISPONIBLE:</strong> Haz click en 'VER RESULTADOS' para ver el análisis más reciente.</div>" if last_analysis_data else ""}
                 
                 <div class="features">
                     <h3>🚀 ACCIONES DEL SISTEMA DELOWYSS:</h3>
@@ -167,7 +177,7 @@ def home():
                         </div>
                     </div>
                 </div>
-                
+
                 <div class="footer">
                     <p>© 2024 Delowyss Trading - Sistema Profesional de Trading | 🤖 IA Avanzada | ⚡ Tiempo Real</p>
                     <p>🔒 Sistema seguro y confiable para traders profesionales</p>
@@ -196,32 +206,23 @@ def health():
 @app.route('/run-analysis')
 def run_analysis():
     """Ejecutar análisis y mostrar resultados"""
-    global last_analysis_data, last_analysis_time
+    global last_analysis_data, last_analysis_time, current_assistant
     
     def run_analysis_background():
-        global last_analysis_data, last_analysis_time
+        global last_analysis_data, last_analysis_time, current_assistant
         try:
-            assistant = DelowyssTradingAssistant()
-            assistant.perform_automatic_analysis()
+            print("🔍 [Delowyss Web] Iniciando análisis desde la web...")
+            current_assistant = DelowyssTradingAssistant()
             
-            # Simular datos del análisis (basado en los logs que vimos)
-            last_analysis_data = {
-                'prediccion': 'BAJISTA',
-                'confianza': '60.91%',
-                'probabilidad_alcista': '39.09%',
-                'probabilidad_bajista': '60.91%', 
-                'senal_rsi': 'DELOWYSS_RSI_SOBRECOMPRADO',
-                'senal_macd': 'DELOWYSS_MACD_BAJISTA',
-                'patrones': ['DELOWYSS_MOMENTUM_POSITIVO', 'DELOWYSS_MERCADO_EFICIENTE', 'DELOWYSS_PRESION_VENTA'],
-                'recomendacion': 'VENTA DELOWYSS MODERADA',
-                'estrategia': 'Confianza media + Señales mixtas',
-                'capital': '2-3% gestión Delowyss',
-                'riesgo': 'STOP 1.5% • TAKE PROFIT 2%',
-                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-            }
-            last_analysis_time = datetime.now()
-            print("✅ [Delowyss Web] Análisis completado y resultados guardados")
-            
+            # Realizar análisis y capturar datos
+            result = current_assistant.perform_complete_analysis()
+            if result:
+                last_analysis_data = result
+                last_analysis_time = datetime.now()
+                print("✅ [Delowyss Web] Análisis completado y resultados guardados")
+            else:
+                print("❌ [Delowyss Web] No se pudieron capturar los resultados")
+                
         except Exception as e:
             print(f"❌ [Delowyss Web] Error en análisis: {e}")
     
@@ -233,7 +234,7 @@ def run_analysis():
     <html>
         <head>
             <title>Ejecutando Análisis - Delowyss Trading</title>
-            <meta http-equiv="refresh" content="3;url=/view-results" />
+            <meta http-equiv="refresh" content="5;url=/view-results" />
             <style>
                 body { 
                     font-family: Arial, sans-serif; 
@@ -261,7 +262,10 @@ def run_analysis():
             <h1>🚀 EJECUTANDO ANÁLISIS DELOWYSS</h1>
             <div class="loader"></div>
             <p>El sistema está realizando el análisis profesional de mercado...</p>
-            <p>Redirigiendo a resultados en 3 segundos...</p>
+            <p>⏳ Esto puede tomar 20-30 segundos</p>
+            <p>📊 Entrenando modelos de IA...</p>
+            <p>🔍 Analizando patrones de mercado...</p>
+            <p>Redirigiendo a resultados en 5 segundos...</p>
             <a href="/view-results" style="color: #00d4ff;">Ver resultados inmediatamente</a>
         </body>
     </html>
@@ -296,6 +300,9 @@ def view_results():
         </html>
         """
     
+    # Determinar clase CSS para la dirección
+    direction_class = "signal-buy" if last_analysis_data['prediccion'] == 'ALCISTA' else "signal-sell"
+    
     return f"""
     <html>
         <head>
@@ -329,8 +336,8 @@ def view_results():
                     border-radius: 15px;
                     border-left: 5px solid #00ff88;
                 }}
-                .signal-buy {{ color: #00ff88; font-weight: bold; }}
-                .signal-sell {{ color: #ff6b6b; font-weight: bold; }}
+                .signal-buy {{ color: #00ff88; font-weight: bold; font-size: 1.2em; }}
+                .signal-sell {{ color: #ff6b6b; font-weight: bold; font-size: 1.2em; }}
                 .signal-neutral {{ color: #ffa726; font-weight: bold; }}
                 .btn {{
                     display: inline-block;
@@ -349,6 +356,12 @@ def view_results():
                     border-radius: 10px;
                     margin: 20px 0;
                 }}
+                .result-item {{
+                    margin: 10px 0;
+                    padding: 10px;
+                    background: rgba(255, 255, 255, 0.1);
+                    border-radius: 8px;
+                }}
             </style>
         </head>
         <body>
@@ -360,29 +373,43 @@ def view_results():
                 
                 <div class="result-card">
                     <h2>🔮 PREDICCIÓN DELOWYSS</h2>
-                    <p><strong>Dirección:</strong> <span class="signal-{last_analysis_data['prediccion'].lower()}">{last_analysis_data['prediccion']}</span></p>
-                    <p><strong>Confianza:</strong> {last_analysis_data['confianza']}</p>
-                    <p><strong>Probabilidad Alcista:</strong> {last_analysis_data['probabilidad_alcista']}</p>
-                    <p><strong>Probabilidad Bajista:</strong> {last_analysis_data['probabilidad_bajista']}</p>
+                    <div class="result-item">
+                        <p><strong>Dirección:</strong> <span class="{direction_class}">{last_analysis_data['prediccion']}</span></p>
+                        <p><strong>Confianza:</strong> {last_analysis_data['confianza']}</p>
+                        <p><strong>Probabilidad Alcista:</strong> {last_analysis_data['probabilidad_alcista']}</p>
+                        <p><strong>Probabilidad Bajista:</strong> {last_analysis_data['probabilidad_bajista']}</p>
+                        <p><strong>Consenso Modelos:</strong> {last_analysis_data['consenso_modelos']}</p>
+                    </div>
                 </div>
                 
                 <div class="result-card">
-                    <h2>🎪 SEÑALES DELOWYSS</h2>
-                    <p>• {last_analysis_data['senal_rsi']}</p>
-                    <p>• {last_analysis_data['senal_macd']}</p>
+                    <h2>📊 ANÁLISIS DE MERCADO</h2>
+                    <div class="result-item">
+                        <p><strong>Régimen:</strong> {last_analysis_data['regimen']}</p>
+                        <p><strong>Nivel Riesgo:</strong> {last_analysis_data['nivel_riesgo']}</p>
+                        <p><strong>Confianza Sistema:</strong> {last_analysis_data['confianza_sistema']}</p>
+                        <p><strong>Expiración Óptima:</strong> {last_analysis_data['expiracion_optima']}</p>
+                    </div>
+                </div>
+                
+                <div class="result-card">
+                    <h2>🎪 SEÑALES DELOWYSS ACTIVAS</h2>
+                    {"".join([f"<div class='result-item'><p>• {senal}</p></div>" for senal in last_analysis_data['senales']])}
                 </div>
                 
                 <div class="result-card">
                     <h2>🔍 PATRONES DELOWYSS DETECTADOS</h2>
-                    {"".join([f"<p>• {patron}</p>" for patron in last_analysis_data['patrones']])}
+                    {"".join([f"<div class='result-item'><p>• {patron}</p></div>" for patron in last_analysis_data['patrones']])}
                 </div>
                 
                 <div class="result-card">
                     <h2>💡 RECOMENDACIÓN DELOWYSS</h2>
-                    <p><strong>Acción:</strong> {last_analysis_data['recomendacion']}</p>
-                    <p><strong>Estrategia:</strong> {last_analysis_data['estrategia']}</p>
-                    <p><strong>Gestión de Capital:</strong> {last_analysis_data['capital']}</p>
-                    <p><strong>Nivel de Riesgo:</strong> {last_analysis_data['riesgo']}</p>
+                    <div class="result-item">
+                        <p><strong>Acción:</strong> <span class="{direction_class}">{last_analysis_data['recomendacion']}</span></p>
+                        <p><strong>Estrategia:</strong> {last_analysis_data['estrategia']}</p>
+                        <p><strong>Gestión de Capital:</strong> {last_analysis_data['capital']}</p>
+                        <p><strong>Nivel de Riesgo:</strong> {last_analysis_data['riesgo']}</p>
+                    </div>
                 </div>
                 
                 <div style="text-align: center; margin: 30px 0;">
@@ -416,15 +443,25 @@ def start_bot():
 def auto_analysis():
     """Endpoint para análisis automático"""
     def run_analysis():
+        global last_analysis_data, last_analysis_time, current_assistant
         try:
-            assistant = DelowyssTradingAssistant()
-            assistant.perform_automatic_analysis()
+            print("🤖 [Delowyss Auto] Iniciando análisis automático...")
+            current_assistant = DelowyssTradingAssistant()
+            result = current_assistant.perform_complete_analysis()
+            if result:
+                last_analysis_data = result
+                last_analysis_time = datetime.now()
+                print("✅ [Delowyss Auto] Análisis completado y guardado")
         except Exception as e:
             print(f"❌ [Delowyss System] Error en análisis automático: {e}")
     
     analysis_thread = threading.Thread(target=run_analysis, daemon=True)
     analysis_thread.start()
-    return "🔍 Análisis automático Delowyss iniciado - Revisa los logs para resultados"
+    return "🔍 Análisis automático Delowyss iniciado - <a href='/view-results'>Ver resultados</a>"
+
+# =============================================================================
+# CLASES ORIGINALES DEL SISTEMA DELOWYSS (SIN MODIFICACIONES)
+# =============================================================================
 
 class DelowyssPatternRecognizer:
     def __init__(self):
@@ -980,6 +1017,84 @@ class DelowyssTradingAssistant:
     def __init__(self):
         self.analyst = DelowyssTradingAnalyst()
         self.session_start = datetime.now()
+        self.last_analysis_result = None
+    
+    def perform_complete_analysis(self):
+        """Realizar análisis completo y retornar resultados para la web"""
+        try:
+            print("🔍 [Delowyss Web] Iniciando análisis completo...")
+            
+            # Generar datos de mercado
+            df = self.analyst.generate_delowyss_market_data(periods=200)
+            
+            # Calcular indicadores
+            df = self.analyst.calculate_delowyss_indicators(df)
+            
+            # Entrenar modelos si es necesario
+            if not self.analyst.model_trained:
+                print("🤖 [Delowyss Web] Entrenando modelos IA...")
+                self.analyst.train_delowyss_models(df)
+            
+            # Realizar predicción
+            prediction = self.analyst.delowyss_ensemble_prediction(df)
+            
+            if prediction:
+                # Generar análisis
+                analysis = self.analyst.generate_delowyss_analysis(df, prediction)
+                
+                # Capturar resultados para la web
+                result = self._capture_analysis_results(df, prediction, analysis)
+                self.last_analysis_result = result
+                
+                print("✅ [Delowyss Web] Análisis completado - Resultados capturados")
+                return result
+            else:
+                print("❌ [Delowyss Web] No se pudo generar la predicción")
+                return None
+                
+        except Exception as e:
+            print(f"❌ [Delowyss Web] Error en análisis completo: {e}")
+            return None
+    
+    def _capture_analysis_results(self, df, prediction, analysis):
+        """Capturar resultados del análisis para mostrar en la web"""
+        latest = df.iloc[-1]
+        
+        # Determinar recomendación basada en confianza
+        if prediction['confidence'] > 0.7:
+            if prediction['prediction'] == 'ALCISTA':
+                accion = "COMPRA DELOWYSS CONVICTORA"
+            else:
+                accion = "VENTA DELOWYSS CONVICTORA"
+            estrategia = "Confianza alta + Patrones favorables"
+        elif prediction['confidence'] > 0.6:
+            if prediction['prediction'] == 'ALCISTA':
+                accion = "COMPRA DELOWYSS MODERADA"
+            else:
+                accion = "VENTA DELOWYSS MODERADA"
+            estrategia = "Confianza media + Señales mixtas"
+        else:
+            accion = "ESPERAR SETUP DELOWYSS"
+            estrategia = "Baja confianza - Mejor esperar"
+        
+        return {
+            'prediccion': prediction['prediction'],
+            'confianza': f"{prediction['confidence']:.2%}",
+            'probabilidad_alcista': f"{prediction['probability_alcista']:.2%}",
+            'probabilidad_bajista': f"{prediction['probability_bajista']:.2%}",
+            'consenso_modelos': prediction['model_consensus'],
+            'regimen': analysis['market_regime'],
+            'nivel_riesgo': analysis['risk_assessment'],
+            'confianza_sistema': analysis['confidence_level'],
+            'expiracion_optima': analysis['optimal_expiry'],
+            'senales': analysis['trading_signals'],
+            'patrones': analysis['pattern_insights'],
+            'recomendacion': accion,
+            'estrategia': estrategia,
+            'capital': "2-3% gestión Delowyss",
+            'riesgo': "STOP 1.5% • TAKE PROFIT 2%",
+            'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        }
     
     def display_delowyss_welcome(self):
         """Pantalla de Bienvenida Delowyss"""
@@ -1198,7 +1313,12 @@ def main_delowyss_system():
         print("🔍 [Delowyss] Ejecutando análisis automático inicial...")
         try:
             assistant = DelowyssTradingAssistant()
-            assistant.perform_automatic_analysis()
+            result = assistant.perform_complete_analysis()
+            if result:
+                global last_analysis_data, last_analysis_time
+                last_analysis_data = result
+                last_analysis_time = datetime.now()
+                print("✅ [Delowyss] Análisis inicial completado y guardado")
         except Exception as e:
             print(f"❌ [Delowyss System] Error en análisis inicial: {e}")
         

@@ -159,6 +159,7 @@ def home():
                     <div style="text-align: center; margin-top: 30px;">
                         <a href="/start-bot" class="btn">🚀 INICIAR ANÁLISIS DELOWYSS</a>
                         <a href="/health" class="btn">❤️ VERIFICAR SISTEMA</a>
+                        <a href="/auto-analysis" class="btn">🤖 ANÁLISIS AUTOMÁTICO</a>
                     </div>
                 </div>
                 
@@ -191,13 +192,28 @@ def start_bot():
     def run_bot():
         try:
             assistant = DelowyssTradingAssistant()
-            assistant.run_professional_assistant()
+            # En Render, ejecutar análisis automático en lugar de interactivo
+            assistant.perform_automatic_analysis()
         except Exception as e:
             print(f"❌ [Delowyss System] Error en sistema: {e}")
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
-    return "🤖 Sistema Delowyss Trading iniciado - Análisis profesional en progreso"
+    return "🤖 Sistema Delowyss Trading iniciado - Análisis automático en progreso"
+
+@app.route('/auto-analysis')
+def auto_analysis():
+    """Endpoint para análisis automático"""
+    def run_analysis():
+        try:
+            assistant = DelowyssTradingAssistant()
+            assistant.perform_automatic_analysis()
+        except Exception as e:
+            print(f"❌ [Delowyss System] Error en análisis automático: {e}")
+    
+    analysis_thread = threading.Thread(target=run_analysis, daemon=True)
+    analysis_thread.start()
+    return "🔍 Análisis automático Delowyss iniciado - Revisa los logs para resultados"
 
 class DelowyssPatternRecognizer:
     def __init__(self):
@@ -791,6 +807,18 @@ class DelowyssTradingAssistant:
         else:
             print("❌ [Delowyss System] No se pudo completar el análisis")
     
+    def perform_automatic_analysis(self):
+        """Ejecutar análisis automático para entorno web"""
+        print("\n🤖 [Delowyss Auto] Iniciando análisis automático...")
+        
+        try:
+            self.perform_delowyss_analysis()
+            print("✅ [Delowyss Auto] Análisis automático completado")
+            return True
+        except Exception as e:
+            print(f"❌ [Delowyss Auto] Error en análisis automático: {e}")
+            return False
+    
     def display_delowyss_report(self, df, prediction, analysis):
         """Mostrar Reporte Profesional Delowyss"""
         latest = df.iloc[-1]
@@ -876,7 +904,14 @@ class DelowyssTradingAssistant:
         print(f"🎯 Tecnología: 35+ indicadores Delowyss")
     
     def run_professional_assistant(self):
-        """Ejecutar Asistente Delowyss"""
+        """Ejecutar Asistente Delowyss - Solo para entorno local"""
+        # Verificar si estamos en entorno con terminal interactivo
+        if not sys.stdin.isatty():
+            print("🌐 [Delowyss] Entorno web detectado - Ejecutando análisis automático")
+            self.perform_automatic_analysis()
+            return
+        
+        # Solo ejecutar interfaz interactiva en entorno local
         self.display_delowyss_welcome()
         
         while True:
@@ -913,6 +948,10 @@ class DelowyssTradingAssistant:
             except KeyboardInterrupt:
                 print("\n\n👋 [Delowyss] Sistema interrumpido. ¡Hasta luego!")
                 break
+            except EOFError:
+                print("\n🌐 [Delowyss] Entorno web - Cambiando a modo automático")
+                self.perform_automatic_analysis()
+                break
             except Exception as e:
                 print(f"❌ [Delowyss System] Error: {e}")
 
@@ -936,33 +975,32 @@ def main_delowyss_system():
     print("🚀 INICIANDO DELOWYSS TRADING PROFESSIONAL...")
     
     # Verificar entorno Render
-    if os.environ.get("RENDER"):
-        print("🌐 [Delowyss] Entorno Render - Sistema profesional activo")
+    if os.environ.get("RENDER") or not sys.stdin.isatty():
+        print("🌐 [Delowyss] Entorno web detectado - Modo servidor activo")
         print("🤖 [Delowyss] Iniciando plataforma de trading...")
         
         # Servidor web Delowyss
         server_thread = threading.Thread(target=run_delowyss_server, daemon=True)
         server_thread.start()
         
-        # Espera inicial
-        time.sleep(2)
-        
-        # Sistema principal Delowyss
+        # Ejecutar análisis automático inicial
+        print("🔍 [Delowyss] Ejecutando análisis automático inicial...")
         try:
             assistant = DelowyssTradingAssistant()
-            assistant.run_professional_assistant()
+            assistant.perform_automatic_analysis()
         except Exception as e:
-            print(f"❌ [Delowyss System] Error: {e}")
+            print(f"❌ [Delowyss System] Error en análisis inicial: {e}")
         
-        # Mantener sistema activo después de cualquier error
-        print("💤 [Delowyss] Análisis completado. Sistema activo...")
+        # Mantener sistema activo
+        print("💤 [Delowyss] Sistema Delowyss activo - Servidor web ejecutándose")
+        print("🌐 Accede a: https://tudominio.render.com para usar el sistema")
         while True:
-            time.sleep(60)
+            time.sleep(300)  # Health check cada 5 minutos
             print("❤️  [Delowyss] Health check - Sistema operativo")
             
     else:
-        # Ejecución local
-        print("💻 [Delowyss] Entorno local - Sistema profesional")
+        # Ejecución local con interfaz interactiva
+        print("💻 [Delowyss] Entorno local - Sistema profesional interactivo")
         assistant = DelowyssTradingAssistant()
         assistant.run_professional_assistant()
 

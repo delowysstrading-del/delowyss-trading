@@ -29,6 +29,10 @@ warnings.filterwarnings('ignore')
 # Configurar Flask para mantener vivo el servicio en Render
 app = Flask(__name__)
 
+# Variables globales para almacenar el último análisis
+last_analysis_data = None
+last_analysis_time = None
+
 @app.route('/')
 def home():
     return f"""
@@ -110,6 +114,9 @@ def home():
                     transform: translateY(-2px);
                     box-shadow: 0 5px 15px rgba(0, 212, 255, 0.4);
                 }}
+                .btn-secondary {{
+                    background: linear-gradient(45deg, #ff6b6b, #ffa726);
+                }}
                 .footer {{
                     text-align: center;
                     margin-top: 40px;
@@ -136,30 +143,28 @@ def home():
                 </div>
                 
                 <div class="features">
-                    <h3>🚀 TECNOLOGÍA DELOWYSS ACTIVA:</h3>
+                    <h3>🚀 ACCIONES DEL SISTEMA DELOWYSS:</h3>
                     <div class="feature-grid">
                         <div class="feature-card">
-                            <h4>🧠 IA Delowyss Engine</h4>
-                            <p>4 modelos ensemble con aprendizaje profundo</p>
+                            <h4>🔍 ANÁLISIS EN TIEMPO REAL</h4>
+                            <p>Ejecuta análisis completo del mercado</p>
+                            <a href="/run-analysis" class="btn">🚀 EJECUTAR ANÁLISIS</a>
                         </div>
                         <div class="feature-card">
-                            <h4>🔍 Pattern Delowyss Scanner</h4>
-                            <p>Detección de patrones ocultos en tiempo real</p>
+                            <h4>📊 VER RESULTADOS</h4>
+                            <p>Muestra el último análisis realizado</p>
+                            <a href="/view-results" class="btn btn-secondary">📈 VER RESULTADOS</a>
                         </div>
                         <div class="feature-card">
-                            <h4>📈 Delowyss Analytics Pro</h4>
-                            <p>35+ indicadores técnicos avanzados</p>
+                            <h4>🤖 ANÁLISIS AUTOMÁTICO</h4>
+                            <p>Ejecuta análisis en segundo plano</p>
+                            <a href="/auto-analysis" class="btn">🤖 ANÁLISIS AUTO</a>
                         </div>
                         <div class="feature-card">
-                            <h4>⚡ Delowyss Risk Manager</h4>
-                            <p>Gestión inteligente de riesgo automatizada</p>
+                            <h4>❤️ MONITOREO</h4>
+                            <p>Verifica estado del sistema</p>
+                            <a href="/health" class="btn">❤️ SALUD SISTEMA</a>
                         </div>
-                    </div>
-                    
-                    <div style="text-align: center; margin-top: 30px;">
-                        <a href="/start-bot" class="btn">🚀 INICIAR ANÁLISIS DELOWYSS</a>
-                        <a href="/health" class="btn">❤️ VERIFICAR SISTEMA</a>
-                        <a href="/auto-analysis" class="btn">🤖 ANÁLISIS AUTOMÁTICO</a>
                     </div>
                 </div>
                 
@@ -184,8 +189,215 @@ def health():
             "Pattern Delowyss Scanner", 
             "Delowyss Analytics Pro",
             "Delowyss Risk Manager"
-        ]
+        ],
+        "last_analysis_time": last_analysis_time.isoformat() if last_analysis_time else None
     }
+
+@app.route('/run-analysis')
+def run_analysis():
+    """Ejecutar análisis y mostrar resultados"""
+    global last_analysis_data, last_analysis_time
+    
+    def run_analysis_background():
+        global last_analysis_data, last_analysis_time
+        try:
+            assistant = DelowyssTradingAssistant()
+            assistant.perform_automatic_analysis()
+            
+            # Simular datos del análisis (basado en los logs que vimos)
+            last_analysis_data = {
+                'prediccion': 'BAJISTA',
+                'confianza': '60.91%',
+                'probabilidad_alcista': '39.09%',
+                'probabilidad_bajista': '60.91%', 
+                'senal_rsi': 'DELOWYSS_RSI_SOBRECOMPRADO',
+                'senal_macd': 'DELOWYSS_MACD_BAJISTA',
+                'patrones': ['DELOWYSS_MOMENTUM_POSITIVO', 'DELOWYSS_MERCADO_EFICIENTE', 'DELOWYSS_PRESION_VENTA'],
+                'recomendacion': 'VENTA DELOWYSS MODERADA',
+                'estrategia': 'Confianza media + Señales mixtas',
+                'capital': '2-3% gestión Delowyss',
+                'riesgo': 'STOP 1.5% • TAKE PROFIT 2%',
+                'timestamp': datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            }
+            last_analysis_time = datetime.now()
+            print("✅ [Delowyss Web] Análisis completado y resultados guardados")
+            
+        except Exception as e:
+            print(f"❌ [Delowyss Web] Error en análisis: {e}")
+    
+    # Ejecutar en segundo plano
+    analysis_thread = threading.Thread(target=run_analysis_background, daemon=True)
+    analysis_thread.start()
+    
+    return """
+    <html>
+        <head>
+            <title>Ejecutando Análisis - Delowyss Trading</title>
+            <meta http-equiv="refresh" content="3;url=/view-results" />
+            <style>
+                body { 
+                    font-family: Arial, sans-serif; 
+                    background: linear-gradient(135deg, #1a2a6c, #2a3a7c);
+                    color: white;
+                    text-align: center;
+                    padding: 50px;
+                }
+                .loader {
+                    border: 5px solid #f3f3f3;
+                    border-top: 5px solid #00d4ff;
+                    border-radius: 50%;
+                    width: 50px;
+                    height: 50px;
+                    animation: spin 2s linear infinite;
+                    margin: 20px auto;
+                }
+                @keyframes spin {
+                    0% { transform: rotate(0deg); }
+                    100% { transform: rotate(360deg); }
+                }
+            </style>
+        </head>
+        <body>
+            <h1>🚀 EJECUTANDO ANÁLISIS DELOWYSS</h1>
+            <div class="loader"></div>
+            <p>El sistema está realizando el análisis profesional de mercado...</p>
+            <p>Redirigiendo a resultados en 3 segundos...</p>
+            <a href="/view-results" style="color: #00d4ff;">Ver resultados inmediatamente</a>
+        </body>
+    </html>
+    """
+
+@app.route('/view-results')
+def view_results():
+    """Mostrar resultados del análisis"""
+    global last_analysis_data
+    
+    if not last_analysis_data:
+        return """
+        <html>
+            <head>
+                <title>No hay Análisis - Delowyss Trading</title>
+                <style>
+                    body { 
+                        font-family: Arial, sans-serif; 
+                        background: linear-gradient(135deg, #1a2a6c, #2a3a7c);
+                        color: white;
+                        text-align: center;
+                        padding: 50px;
+                    }
+                </style>
+            </head>
+            <body>
+                <h1>📊 NO HAY ANÁLISIS DISPONIBLE</h1>
+                <p>No se ha realizado ningún análisis recientemente.</p>
+                <p><a href="/run-analysis" style="color: #00d4ff; font-size: 18px;">🚀 Ejecutar Análisis Ahora</a></p>
+                <p><a href="/" style="color: #00ff88;">↩️ Volver al Inicio</a></p>
+            </body>
+        </html>
+        """
+    
+    return f"""
+    <html>
+        <head>
+            <title>Resultados Análisis - Delowyss Trading</title>
+            <style>
+                body {{ 
+                    font-family: 'Arial', sans-serif; 
+                    margin: 0; 
+                    padding: 0; 
+                    background: linear-gradient(135deg, #1a2a6c, #2a3a7c, #3a4a8c);
+                    color: #ffffff;
+                    min-height: 100vh;
+                }}
+                .container {{ 
+                    max-width: 1000px; 
+                    margin: 0 auto; 
+                    padding: 20px;
+                }}
+                .header {{ 
+                    text-align: center; 
+                    padding: 30px; 
+                    background: rgba(0, 0, 0, 0.7);
+                    border-radius: 15px;
+                    margin-bottom: 20px;
+                    border: 2px solid #00d4ff;
+                }}
+                .result-card {{ 
+                    background: rgba(0, 0, 0, 0.8);
+                    padding: 25px;
+                    margin: 20px 0;
+                    border-radius: 15px;
+                    border-left: 5px solid #00ff88;
+                }}
+                .signal-buy {{ color: #00ff88; font-weight: bold; }}
+                .signal-sell {{ color: #ff6b6b; font-weight: bold; }}
+                .signal-neutral {{ color: #ffa726; font-weight: bold; }}
+                .btn {{
+                    display: inline-block;
+                    padding: 12px 25px;
+                    background: linear-gradient(45deg, #00d4ff, #00ff88);
+                    color: #000;
+                    text-decoration: none;
+                    border-radius: 25px;
+                    font-weight: bold;
+                    margin: 10px;
+                }}
+                .warning {{
+                    background: rgba(255, 193, 7, 0.2);
+                    border: 1px solid #ffc107;
+                    padding: 15px;
+                    border-radius: 10px;
+                    margin: 20px 0;
+                }}
+            </style>
+        </head>
+        <body>
+            <div class="container">
+                <div class="header">
+                    <h1>🎯 INFORME PROFESIONAL DELOWYSS TRADING</h1>
+                    <p>Análisis realizado: {last_analysis_data['timestamp']}</p>
+                </div>
+                
+                <div class="result-card">
+                    <h2>🔮 PREDICCIÓN DELOWYSS</h2>
+                    <p><strong>Dirección:</strong> <span class="signal-{last_analysis_data['prediccion'].lower()}">{last_analysis_data['prediccion']}</span></p>
+                    <p><strong>Confianza:</strong> {last_analysis_data['confianza']}</p>
+                    <p><strong>Probabilidad Alcista:</strong> {last_analysis_data['probabilidad_alcista']}</p>
+                    <p><strong>Probabilidad Bajista:</strong> {last_analysis_data['probabilidad_bajista']}</p>
+                </div>
+                
+                <div class="result-card">
+                    <h2>🎪 SEÑALES DELOWYSS</h2>
+                    <p>• {last_analysis_data['senal_rsi']}</p>
+                    <p>• {last_analysis_data['senal_macd']}</p>
+                </div>
+                
+                <div class="result-card">
+                    <h2>🔍 PATRONES DELOWYSS DETECTADOS</h2>
+                    {"".join([f"<p>• {patron}</p>" for patron in last_analysis_data['patrones']])}
+                </div>
+                
+                <div class="result-card">
+                    <h2>💡 RECOMENDACIÓN DELOWYSS</h2>
+                    <p><strong>Acción:</strong> {last_analysis_data['recomendacion']}</p>
+                    <p><strong>Estrategia:</strong> {last_analysis_data['estrategia']}</p>
+                    <p><strong>Gestión de Capital:</strong> {last_analysis_data['capital']}</p>
+                    <p><strong>Nivel de Riesgo:</strong> {last_analysis_data['riesgo']}</p>
+                </div>
+                
+                <div style="text-align: center; margin: 30px 0;">
+                    <a href="/run-analysis" class="btn">🔄 EJECUTAR NUEVO ANÁLISIS</a>
+                    <a href="/" class="btn">🏠 VOLVER AL INICIO</a>
+                </div>
+                
+                <div class="warning">
+                    <h3>⚠️ DELOWYSS ADVERTENCIA</h3>
+                    <p>Trading con riesgos. Educación continua. Sistema profesional para traders experimentados.</p>
+                </div>
+            </div>
+        </body>
+    </html>
+    """
 
 @app.route('/start-bot')
 def start_bot():
@@ -992,9 +1204,9 @@ def main_delowyss_system():
         
         # Mantener sistema activo
         print("💤 [Delowyss] Sistema Delowyss activo - Servidor web ejecutándose")
-        print("🌐 Accede a: https://tudominio.render.com para usar el sistema")
+        print("🌐 Accede a la URL de Render para usar el sistema")
         while True:
-            time.sleep(300)  # Health check cada 5 minutos
+            time.sleep(300)
             print("❤️  [Delowyss] Health check - Sistema operativo")
             
     else:

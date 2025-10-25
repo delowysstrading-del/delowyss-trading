@@ -931,31 +931,40 @@ def delowyss_signal_handler(signum, frame):
 signal.signal(signal.SIGTERM, delowyss_signal_handler)
 signal.signal(signal.SIGINT, delowyss_signal_handler)
 
-if __name__ == "__main__":
+def main_delowyss_system():
+    """Sistema principal Delowyss"""
     print("🚀 INICIANDO DELOWYSS TRADING PROFESSIONAL...")
     
-    # En producción (Render), solo ejecutar servidor web
+    # Verificar entorno Render
     if os.environ.get("RENDER"):
-        print("🌐 MODO PRODUCCIÓN - Iniciando solo servidor web...")
-        run_flask_app()  # Solo servidor web, sin interfaz de consola
-    else:
-        # Modo local con interfaz interactiva
-        print("💻 MODO LOCAL - Iniciando interfaz completa...")
-        assistant = DelowyssTradingAssistant()
-        assistant.run_professional_assistant()
-            
-            # Mantener sistema activo
-            print("💤 [Delowyss] Análisis completado. Sistema activo...")
-            while True:
-                time.sleep(60)
-                print("❤️  [Delowyss] Health check - Sistema operativo")
-                
+        print("🌐 [Delowyss] Entorno Render - Sistema profesional activo")
+        print("🤖 [Delowyss] Iniciando plataforma de trading...")
+        
+        # Servidor web Delowyss
+        server_thread = threading.Thread(target=run_delowyss_server, daemon=True)
+        server_thread.start()
+        
+        # Espera inicial
+        time.sleep(2)
+        
+        # Sistema principal Delowyss
+        try:
+            assistant = DelowyssTradingAssistant()
+            assistant.run_professional_assistant()
         except Exception as e:
             print(f"❌ [Delowyss System] Error: {e}")
-            print("🔄 [Delowyss] Continuando con servidor web...")
+        
+        # Mantener sistema activo después de cualquier error
+        print("💤 [Delowyss] Análisis completado. Sistema activo...")
+        while True:
+            time.sleep(60)
+            print("❤️  [Delowyss] Health check - Sistema operativo")
             
     else:
         # Ejecución local
         print("💻 [Delowyss] Entorno local - Sistema profesional")
         assistant = DelowyssTradingAssistant()
         assistant.run_professional_assistant()
+
+if __name__ == "__main__":
+    main_delowyss_system()

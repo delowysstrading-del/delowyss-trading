@@ -31,25 +31,25 @@ app = Flask(__name__)
 
 @app.route('/')
 def home():
-    return """
+    return f"""
     <html>
         <head>
             <title>🚀 Delowyss Trading - Sistema Profesional</title>
             <style>
-                body { 
+                body {{ 
                     font-family: 'Arial', sans-serif; 
                     margin: 0; 
                     padding: 0; 
                     background: linear-gradient(135deg, #1a2a6c, #2a3a7c, #3a4a8c);
                     color: #ffffff;
                     min-height: 100vh;
-                }
-                .container { 
+                }}
+                .container {{ 
                     max-width: 1200px; 
                     margin: 0 auto; 
                     padding: 20px;
-                }
-                .header { 
+                }}
+                .header {{ 
                     text-align: center; 
                     padding: 40px 20px; 
                     background: rgba(0, 0, 0, 0.7);
@@ -57,45 +57,45 @@ def home():
                     margin-bottom: 30px;
                     border: 2px solid #00d4ff;
                     box-shadow: 0 0 30px rgba(0, 212, 255, 0.3);
-                }
-                .logo { 
+                }}
+                .logo {{ 
                     font-size: 3.5em; 
                     font-weight: bold; 
                     color: #00d4ff;
                     text-shadow: 0 0 20px rgba(0, 212, 255, 0.7);
                     margin-bottom: 10px;
-                }
-                .tagline {
+                }}
+                .tagline {{
                     font-size: 1.4em;
                     color: #00ff88;
                     margin-bottom: 20px;
-                }
-                .status { 
+                }}
+                .status {{ 
                     background: rgba(0, 0, 0, 0.8); 
                     padding: 30px; 
                     margin: 20px 0; 
                     border-radius: 15px;
                     border-left: 5px solid #00ff88;
-                }
-                .features { 
+                }}
+                .features {{ 
                     background: rgba(0, 0, 0, 0.8); 
                     padding: 30px; 
                     border-radius: 15px;
                     border-left: 5px solid #ff6b6b;
-                }
-                .feature-grid {
+                }}
+                .feature-grid {{
                     display: grid;
                     grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
                     gap: 20px;
                     margin-top: 20px;
-                }
-                .feature-card {
+                }}
+                .feature-card {{
                     background: rgba(255, 255, 255, 0.1);
                     padding: 20px;
                     border-radius: 10px;
                     border: 1px solid rgba(255, 255, 255, 0.2);
-                }
-                .btn {
+                }}
+                .btn {{
                     display: inline-block;
                     padding: 15px 30px;
                     background: linear-gradient(45deg, #00d4ff, #00ff88);
@@ -105,18 +105,18 @@ def home():
                     font-weight: bold;
                     margin: 10px;
                     transition: all 0.3s ease;
-                }
-                .btn:hover {
+                }}
+                .btn:hover {{
                     transform: translateY(-2px);
                     box-shadow: 0 5px 15px rgba(0, 212, 255, 0.4);
-                }
-                .footer {
+                }}
+                .footer {{
                     text-align: center;
                     margin-top: 40px;
                     padding: 20px;
                     background: rgba(0, 0, 0, 0.7);
                     border-radius: 10px;
-                }
+                }}
             </style>
         </head>
         <body>
@@ -130,7 +130,7 @@ def home():
                 <div class="status">
                     <h2>✅ SISTEMA DELOWYSS ACTIVO - VERSIÓN PROFESIONAL</h2>
                     <p><strong>Servidor:</strong> Render - Infrastructure Delowyss</p>
-                    <p><strong>Última actualización:</strong> {}</p>
+                    <p><strong>Última actualización:</strong> {datetime.now().strftime("%Y-%m-%d %H:%M:%S")}</p>
                     <p><strong>Estado:</strong> 🟢 SISTEMA OPERATIVO AL 100%</p>
                     <p><strong>Versión:</strong> Delowyss Pro 2.0</p>
                 </div>
@@ -170,7 +170,7 @@ def home():
             </div>
         </body>
     </html>
-    """.format(datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+    """
 
 @app.route('/health')
 def health():
@@ -192,14 +192,13 @@ def start_bot():
     def run_bot():
         try:
             assistant = DelowyssTradingAssistant()
-            # En Render, ejecutar análisis automático en lugar de interactivo
-            assistant.perform_automatic_analysis()
+            assistant.run_professional_assistant()
         except Exception as e:
             print(f"❌ [Delowyss System] Error en sistema: {e}")
     
     bot_thread = threading.Thread(target=run_bot, daemon=True)
     bot_thread.start()
-    return "🤖 Sistema Delowyss Trading iniciado - Análisis automático en progreso"
+    return "🤖 Sistema Delowyss Trading iniciado - Análisis profesional en progreso"
 
 @app.route('/auto-analysis')
 def auto_analysis():

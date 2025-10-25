@@ -7,6 +7,6 @@ services:
     startCommand: python ejecutar.py
     envVars:
       - key: PYTHON_VERSION
-        value: 3.10.0
+        value: 3.9.0
     healthCheckPath: /health
     autoDeploy: true

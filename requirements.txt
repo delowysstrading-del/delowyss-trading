@@ -8,3 +8,6 @@ seaborn==0.12.2
 yfinance==0.2.18
 pandas-ta==0.3.14b0
 xgboost==2.0.3
+lightgbm==4.3.0
+threadpoolctl==3.5.0
+joblib==1.4.2

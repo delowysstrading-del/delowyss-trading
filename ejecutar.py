@@ -12,12 +12,13 @@ import joblib
 # ML
 from sklearn.preprocessing import StandardScaler
 from sklearn.ensemble import RandomForestClassifier
+from sklearn.model_selection import train_test_split
 import xgboost as xgb
 
 # Keras for neural network
 import tensorflow as tf
 from tensorflow.keras import Sequential
-from tensorflow.keras.layers import Dense, Dropout, LSTM
+from tensorflow.keras.layers import Dense, Dropout
 from tensorflow.keras.callbacks import EarlyStopping
 
 # Indicators
@@ -26,65 +27,47 @@ from ta.trend import EMAIndicator, MACD, ADXIndicator
 from ta.momentum import RSIIndicator, StochasticOscillator
 from ta.volatility import BollingerBands, AverageTrueRange
 
-# IQ Option API (non-official)
+# IQ Option API
 from iqoptionapi.stable_api import IQ_Option
 
 # Web API
-from fastapi import FastAPI, BackgroundTasks, HTTPException
+from fastapi import FastAPI, BackgroundTasks
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 
 # Scheduler
 from apscheduler.schedulers.background import BackgroundScheduler
 
 # -----------------------
-# Enhanced Logging
+# Configuration for Render
 # -----------------------
-logging.basicConfig(
-    level=logging.INFO, 
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('delowyss.log')
-    ]
-)
-logger = logging.getLogger("DelowyssProV3")
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logger = logging.getLogger("DelowyssProRender")
 
-# -----------------------
-# Enhanced Configuration
-# -----------------------
+# Environment variables
 IQ_EMAIL = os.getenv("IQ_EMAIL", "")
-IQ_PASSWORD = os.getenv("IQ_PASSWORD", "")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD", "") 
 IQ_MODE = os.getenv("IQ_MODE", "PRACTICE")
-
-# Render-specific settings
 PORT = int(os.getenv("PORT", 10000))
-MODEL_DIR = os.getenv("MODEL_DIR", "./models")
+
+# Create models directory
+MODEL_DIR = "./models"
 os.makedirs(MODEL_DIR, exist_ok=True)
 
-# Enhanced asset list with priorities
-ASSETS = [
-    {"name": "EURUSD-OTC", "priority": 1, "timeframe": 1},
-    {"name": "EURUSD", "priority": 2, "timeframe": 1},
-    {"name": "GBPUSD-OTC", "priority": 3, "timeframe": 1},
-    {"name": "USDJPY-OTC", "priority": 4, "timeframe": 1}
-]
-
-# Training configuration
+# Assets to analyze
+ASSETS = ["EURUSD-OTC", "EURUSD"]
 RETRAIN_INTERVAL_MIN = 30
-MIN_TRAINING_SAMPLES = 100
 
-# -----------------------
-# Enhanced Model Management
-# -----------------------
+# Model files
 XGB_FILE = os.path.join(MODEL_DIR, "xgboost_model.joblib")
 RF_FILE = os.path.join(MODEL_DIR, "rf_model.joblib")
 SCALER_FILE = os.path.join(MODEL_DIR, "scaler.joblib")
 NN_FILE = os.path.join(MODEL_DIR, "nn_model.h5")
-ENSEMBLE_FILE = os.path.join(MODEL_DIR, "ensemble_weights.joblib")
 
-class EnhancedIQConnector:
+# -----------------------
+# IQ Connector (Optimized)
+# -----------------------
+class IQConnector:
     def __init__(self, email: str, password: str, mode: str = "PRACTICE"):
         self.email = email
         self.password = password
@@ -92,55 +75,68 @@ class EnhancedIQConnector:
         self.api = None
         self.connected = False
         self.available_assets = {}
-        self.balance = 0
         self._connect()
 
     def _connect(self):
-        """Enhanced connection with retry mechanism"""
-        max_retries = 3
-        for attempt in range(max_retries):
-            try:
-                logger.info(f"Conectando a IQ Option (intento {attempt + 1}/{max_retries})...")
-                self.api = IQ_Option(self.email, self.password)
-                connected = self.api.connect()
-                
-                if not connected:
-                    logger.warning(f"Intento {attempt + 1} falló")
-                    time.sleep(2)
-                    continue
-                    
-                self.connected = True
-                
-                # Set account mode
-                if self.mode.upper() == "REAL":
-                    self.api.change_balance("REAL")
-                else:
-                    self.api.change_balance("PRACTICE")
-                
-                # Get account info
-                self.balance = self.api.get_balance()
-                self.available_assets = self.api.get_all_open_time()
-                
-                logger.info(f"✅ Conectado exitosamente a IQ Option")
-                logger.info(f"💰 Balance: {self.balance}")
-                logger.info(f"📊 Activos disponibles: {len(self.available_assets)}")
+        try:
+            logger.info("🔗 Conectando a IQ Option...")
+            self.api = IQ_Option(self.email, self.password)
+            connected = self.api.connect()
+            
+            if not connected:
+                logger.error("❌ No se pudo conectar a IQ Option")
+                self.connected = False
                 return
                 
-            except Exception as e:
-                logger.error(f"Error en intento {attempt + 1}: {str(e)}")
-                time.sleep(3)
-        
-        logger.error("❌ No se pudo conectar después de todos los intentos")
-        self.connected = False
+            self.connected = True
+            
+            # Set account mode
+            if self.mode.upper() == "REAL":
+                self.api.change_balance("REAL")
+            else:
+                self.api.change_balance("PRACTICE")
+                
+            self.available_assets = self.api.get_all_open_time()
+            logger.info("✅ Conectado exitosamente a IQ Option")
+            
+        except Exception as e:
+            logger.error(f"❌ Error de conexión: {e}")
+            self.connected = False
 
-    def get_realtime_candles(self, asset: str, timeframe_min: int = 1, count: int = 200):
-        """Get candles with enhanced error handling"""
+    def get_candles(self, asset: str, timeframe_min: int = 1, count: int = 200):
         try:
             if not self.connected:
-                self._connect()  # Try to reconnect
-                if not self.connected:
-                    return None
+                logger.error("No conectado a IQ Option")
+                return None
+                
+            # Get candles using IQ Option API
+            candles = self.api.get_candles(asset, timeframe_min * 60, count, time.time())
+            
+            if not candles:
+                return None
+                
+            # Convert to DataFrame
+            df = pd.DataFrame([{
+                'timestamp': datetime.fromtimestamp(c['from']),
+                'open': c['open'],
+                'high': c['max'],
+                'low': c['min'],
+                'close': c['close'],
+                'volume': c['volume']
+            } for c in candles])
+            
+            return df
+            
+        except Exception as e:
+            logger.error(f"Error obteniendo velas: {e}")
+            return None
 
+    def get_realtime_candles(self, asset: str, timeframe_min: int = 1, count: int = 200):
+        """Get real-time candles for better accuracy"""
+        try:
+            if not self.connected:
+                return None
+                
             # Start real-time stream
             self.api.start_candles_stream(asset, timeframe_min * 60, count)
             time.sleep(2)  # Wait for data
@@ -166,155 +162,102 @@ class EnhancedIQConnector:
             return pd.DataFrame(candles)
             
         except Exception as e:
-            logger.error(f"Error obteniendo velas en tiempo real: {str(e)}")
+            logger.error(f"Error en velas tiempo real: {e}")
             return None
         finally:
-            # Always stop the stream
+            # Clean up stream
             try:
                 self.api.stop_candles_stream(asset, timeframe_min * 60)
             except:
                 pass
 
-    def place_trade(self, asset: str, action: str, amount: float, expiration: int = 1):
-        """Place trade with enhanced error handling"""
-        try:
-            if not self.connected:
-                return False, "No conectado"
-            
-            direction = "put" if action.upper() == "PUT" else "call"
-            status, order_id = self.api.buy(amount, asset, direction, expiration)
-            
-            return status, order_id
-            
-        except Exception as e:
-            return False, str(e)
-
 # -----------------------
-# Enhanced Feature Engineering
+# Feature Engineering
 # -----------------------
-def compute_enhanced_indicators(df: pd.DataFrame) -> pd.DataFrame:
-    """Enhanced technical indicators with more features"""
+def compute_indicators(df: pd.DataFrame) -> pd.DataFrame:
     df = df.copy()
     df.sort_values("timestamp", inplace=True)
     df.reset_index(drop=True, inplace=True)
 
-    # Price-based features
-    df['price_change'] = df['close'].pct_change()
-    df['high_low_ratio'] = (df['high'] - df['low']) / df['close']
-    df['close_open_ratio'] = (df['close'] - df['open']) / df['open']
-    
-    # Multiple EMAs
-    for period in [5, 8, 13, 21]:
-        df[f'ema_{period}'] = EMAIndicator(close=df['close'], window=period).ema_indicator()
-        df[f'ema_ratio_{period}'] = df['close'] / df[f'ema_{period}']
+    # EMA
+    df['ema_fast'] = EMAIndicator(close=df['close'], window=5).ema_indicator()
+    df['ema_slow'] = EMAIndicator(close=df['close'], window=15).ema_indicator()
 
-    # Enhanced MACD
-    macd = MACD(close=df['close'], window_fast=8, window_slow=21, window_sign=5)
+    # MACD
+    macd = MACD(close=df['close'], window_fast=10, window_slow=20, window_sign=7)
     df['macd'] = macd.macd()
     df['macd_signal'] = macd.macd_signal()
     df['macd_hist'] = macd.macd_diff()
-    df['macd_trend'] = (df['macd'] > df['macd_signal']).astype(int)
 
-    # Multiple RSI periods
-    for period in [7, 14, 21]:
-        df[f'rsi_{period}'] = RSIIndicator(close=df['close'], window=period).rsi()
+    # RSI
+    df['rsi'] = RSIIndicator(close=df['close'], window=12).rsi()
 
     # Stochastic
-    st = StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=14)
+    st = StochasticOscillator(high=df['high'], low=df['low'], close=df['close'], window=12)
     df['stoch_k'] = st.stoch()
     df['stoch_d'] = st.stoch_signal()
-    df['stoch_cross'] = (df['stoch_k'] > df['stoch_d']).astype(int)
 
-    # ADX with trend strength
+    # ADX
     adx = ADXIndicator(high=df['high'], low=df['low'], close=df['close'], window=14)
     df['adx'] = adx.adx()
     df['di_plus'] = adx.adx_pos()
     df['di_minus'] = adx.adx_neg()
-    df['adx_trend'] = (df['di_plus'] > df['di_minus']).astype(int)
 
-    # Multiple Bollinger Bands
-    for period in [14, 20]:
-        bb = BollingerBands(close=df['close'], window=period, window_dev=2)
-        df[f'bb_upper_{period}'] = bb.bollinger_hband()
-        df[f'bb_lower_{period}'] = bb.bollinger_lband()
-        df[f'bb_pos_{period}'] = (df['close'] - df[f'bb_lower_{period}']) / (df[f'bb_upper_{period}'] - df[f'bb_lower_{period}'] + 1e-8)
+    # Bollinger
+    bb = BollingerBands(close=df['close'], window=18, window_dev=2)
+    df['bb_upper'] = bb.bollinger_hband()
+    df['bb_lower'] = bb.bollinger_lband()
+    df['bb_pos'] = (df['close'] - df['bb_lower']) / (df['bb_upper'] - df['bb_lower'] + 1e-8)
 
-    # Volatility features
-    df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=14).average_true_range()
-    df['volatility'] = df['close'].rolling(20).std()
+    # ATR
+    df['atr'] = AverageTrueRange(high=df['high'], low=df['low'], close=df['close'], window=12).average_true_range()
 
-    # Volume features
-    df['volume_sma'] = df['volume'].rolling(20).mean()
-    df['volume_ratio'] = df['volume'] / df['volume_sma']
+    # Candle features
+    df['body'] = (df['close'] - df['open']) / (df['open'] + 1e-8)
+    df['upper_shadow'] = (df['high'] - df[['open', 'close']].max(axis=1)) / (df['open'] + 1e-8)
+    df['lower_shadow'] = (df[['open', 'close']].min(axis=1) - df['low']) / (df['open'] + 1e-8)
 
-    # Candle patterns
-    df['body_size'] = abs(df['close'] - df['open']) / df['open']
-    df['upper_shadow'] = (df['high'] - df[['open', 'close']].max(axis=1)) / df['open']
-    df['lower_shadow'] = (df[['open', 'close']].min(axis=1) - df['low']) / df['open']
-    df['is_doji'] = (df['body_size'] < 0.001).astype(int)
-
-    # Lag features for temporal patterns
-    for lag in [1, 2, 3, 5]:
+    # Lags
+    for lag in [1,2,3]:
         df[f'close_lag_{lag}'] = df['close'].shift(lag)
-        df[f'volume_lag_{lag}'] = df['volume'].shift(lag)
-        df[f'rsi_lag_{lag}'] = df['rsi_14'].shift(lag)
+        df[f'rsi_lag_{lag}'] = df['rsi'].shift(lag)
+        df[f'adx_lag_{lag}'] = df['adx'].shift(lag)
 
-    # Rolling statistics
-    for window in [5, 10, 20]:
-        df[f'close_rolling_mean_{window}'] = df['close'].rolling(window).mean()
-        df[f'close_rolling_std_{window}'] = df['close'].rolling(window).std()
-        df[f'volume_rolling_mean_{window}'] = df['volume'].rolling(window).mean()
-
-    # Target: next candle direction with confidence
-    next_close = df['close'].shift(-1)
-    price_change_pct = (next_close - df['close']) / df['close']
-    df['target'] = (price_change_pct > 0).astype(int)
-    df['target_strength'] = abs(price_change_pct)  # Confidence measure
+    # Target: next candle direction
+    df['target'] = (df['close'].shift(-1) > df['close']).astype(int)
 
     return df.dropna()
 
 # -----------------------
-# Enhanced Model Manager
+# Model Manager
 # -----------------------
-class EnhancedModelManager:
+class ModelManager:
     def __init__(self):
         self.scaler = StandardScaler()
         self.xgb_model: Optional[xgb.XGBClassifier] = None
         self.rf_model: Optional[RandomForestClassifier] = None
         self.nn_model: Optional[tf.keras.Model] = None
-        self.ensemble_weights = np.array([0.4, 0.3, 0.3])  # XGB, RF, NN
         self.model_lock = threading.Lock()
-        self.training_history = []
         self._load_models_if_exist()
 
     def _load_models_if_exist(self):
-        """Enhanced model loading with fallbacks"""
         try:
             if os.path.exists(SCALER_FILE):
                 self.scaler = joblib.load(SCALER_FILE)
-                logger.info("✅ Scaler cargado")
-            
+                logger.info("📊 Scaler cargado")
             if os.path.exists(XGB_FILE):
                 self.xgb_model = joblib.load(XGB_FILE)
-                logger.info("✅ XGBoost cargado")
-            
+                logger.info("🌳 XGBoost cargado")
             if os.path.exists(RF_FILE):
                 self.rf_model = joblib.load(RF_FILE)
-                logger.info("✅ RandomForest cargado")
-            
+                logger.info("🌲 RandomForest cargado")
             if os.path.exists(NN_FILE):
                 self.nn_model = tf.keras.models.load_model(NN_FILE)
-                logger.info("✅ Red Neuronal cargada")
-                
-            if os.path.exists(ENSEMBLE_FILE):
-                self.ensemble_weights = joblib.load(ENSEMBLE_FILE)
-                logger.info("✅ Pesos del ensemble cargados")
-                
+                logger.info("🧠 Red Neuronal cargada")
         except Exception as e:
-            logger.warning(f"⚠️ Error cargando modelos: {e}. Se entrenarán nuevos modelos.")
+            logger.warning(f"⚠️ Error cargando modelos: {e}")
 
     def save_models(self):
-        """Enhanced model saving"""
         try:
             with self.model_lock:
                 if self.xgb_model is not None:
@@ -324,152 +267,65 @@ class EnhancedModelManager:
                 joblib.dump(self.scaler, SCALER_FILE)
                 if self.nn_model is not None:
                     self.nn_model.save(NN_FILE, include_optimizer=False)
-                joblib.dump(self.ensemble_weights, ENSEMBLE_FILE)
-            logger.info("💾 Modelos guardados correctamente")
+            logger.info("💾 Modelos guardados")
         except Exception as e:
             logger.error(f"❌ Error guardando modelos: {e}")
 
-    def build_enhanced_models(self, df_features: pd.DataFrame) -> bool:
-        """Enhanced model training with validation"""
+    def build_and_train(self, df_features: pd.DataFrame) -> bool:
         try:
             with self.model_lock:
-                if len(df_features) < MIN_TRAINING_SAMPLES:
-                    logger.warning(f"❌ No hay suficientes datos: {len(df_features)}/{MIN_TRAINING_SAMPLES}")
-                    return False
-
-                X = df_features.drop(columns=['target', 'target_strength'])
+                X = df_features.drop(columns=['target'])
                 y = df_features['target'].astype(int)
-                
-                # Enhanced feature selection
-                feature_importance = self._calculate_feature_importance(X, y)
-                top_features = feature_importance.head(30)['feature'].tolist()
-                X = X[top_features]
 
                 # Scale features
                 X_scaled = self.scaler.fit_transform(X)
 
                 # Split data
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_scaled, y, test_size=0.2, random_state=42, stratify=y
-                )
+                X_train, X_test, y_train, y_test = train_test_split(X_scaled, y, test_size=0.2, random_state=42)
 
-                # 1. XGBoost with hyperparameter tuning
+                # 1. XGBoost
                 xgb_clf = xgb.XGBClassifier(
-                    n_estimators=150,
-                    max_depth=8,
-                    learning_rate=0.1,
-                    subsample=0.8,
-                    colsample_bytree=0.8,
-                    reg_alpha=0.1,
-                    reg_lambda=0.1,
-                    use_label_encoder=False,
-                    eval_metric='logloss',
-                    random_state=42
+                    n_estimators=120, max_depth=6, learning_rate=0.08,
+                    subsample=0.8, colsample_bytree=0.8, use_label_encoder=False,
+                    eval_metric='logloss', random_state=42
                 )
                 xgb_clf.fit(X_train, y_train)
-                xgb_score = xgb_clf.score(X_test, y_test)
                 self.xgb_model = xgb_clf
 
-                # 2. Random Forest
-                rf_clf = RandomForestClassifier(
-                    n_estimators=150,
-                    max_depth=12,
-                    min_samples_split=5,
-                    min_samples_leaf=2,
-                    random_state=42
-                )
+                # 2. RandomForest
+                rf_clf = RandomForestClassifier(n_estimators=120, max_depth=10, random_state=42)
                 rf_clf.fit(X_train, y_train)
-                rf_score = rf_clf.score(X_test, y_test)
                 self.rf_model = rf_clf
 
-                # 3. Enhanced Neural Network
-                input_dim = X_train.shape[1]
+                # 3. Neural Network
+                input_dim = X_scaled.shape[1]
                 nn = Sequential([
-                    Dense(256, activation='relu', input_shape=(input_dim,)),
-                    Dropout(0.3),
-                    Dense(128, activation='relu'),
+                    Dense(128, activation='relu', input_shape=(input_dim,)),
                     Dropout(0.2),
                     Dense(64, activation='relu'),
                     Dropout(0.1),
                     Dense(1, activation='sigmoid')
                 ])
-                nn.compile(
-                    optimizer=tf.keras.optimizers.Adam(learning_rate=0.001),
-                    loss='binary_crossentropy',
-                    metrics=['accuracy', 'AUC']
-                )
-                
-                es = EarlyStopping(
-                    monitor='val_accuracy',
-                    patience=10,
-                    restore_best_weights=True,
-                    verbose=0
-                )
-                
-                history = nn.fit(
-                    X_train, y_train,
-                    epochs=100,
-                    batch_size=32,
-                    validation_data=(X_test, y_test),
-                    callbacks=[es],
-                    verbose=0
-                )
-                nn_score = max(history.history['val_accuracy'])
+                nn.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+                es = EarlyStopping(monitor='val_loss', patience=5, restore_best_weights=True, verbose=0)
+                nn.fit(X_train, y_train, epochs=50, batch_size=32, validation_split=0.15, callbacks=[es], verbose=0)
                 self.nn_model = nn
 
-                # Dynamic ensemble weighting based on performance
-                scores = np.array([xgb_score, rf_score, nn_score])
-                self.ensemble_weights = scores / scores.sum()
-
-                # Log training results
-                training_info = {
-                    'timestamp': datetime.now(),
-                    'samples': len(X),
-                    'xgb_score': xgb_score,
-                    'rf_score': rf_score,
-                    'nn_score': nn_score,
-                    'ensemble_weights': self.ensemble_weights.tolist()
-                }
-                self.training_history.append(training_info)
-
-                logger.info(f"🎯 Entrenamiento completado:")
-                logger.info(f"   XGBoost: {xgb_score:.3f}")
-                logger.info(f"   Random Forest: {rf_score:.3f}") 
-                logger.info(f"   Red Neuronal: {nn_score:.3f}")
-                logger.info(f"   Pesos Ensemble: {self.ensemble_weights}")
-
+                logger.info("✅ Entrenamiento completado: XGB + RF + NN")
                 self.save_models()
                 return True
-
+                
         except Exception as e:
             logger.error(f"❌ Error en entrenamiento: {e}")
             return False
 
-    def _calculate_feature_importance(self, X, y):
-        """Calculate feature importance for selection"""
-        from sklearn.ensemble import RandomForestClassifier
-        rf = RandomForestClassifier(n_estimators=50, random_state=42)
-        rf.fit(X, y)
-        importance_df = pd.DataFrame({
-            'feature': X.columns,
-            'importance': rf.feature_importances_
-        }).sort_values('importance', ascending=False)
-        return importance_df
-
-    def predict_enhanced(self, df_features: pd.DataFrame) -> Dict[str, Any]:
-        """Enhanced prediction with confidence intervals"""
+    def predict(self, df_features: pd.DataFrame) -> Dict[str, Any]:
         try:
             with self.model_lock:
                 if self.xgb_model is None or self.rf_model is None or self.nn_model is None:
                     return {"error": "Modelos no entrenados"}
 
-                X = df_features.drop(columns=['target', 'target_strength'])
-                
-                # Use top features
-                feature_importance = self._calculate_feature_importance(X, df_features['target'])
-                top_features = feature_importance.head(30)['feature'].tolist()
-                X = X[top_features]
-                
+                X = df_features.drop(columns=['target'])
                 X_scaled = self.scaler.transform(X)
                 last = X_scaled[-1:].copy()
 
@@ -479,165 +335,105 @@ class EnhancedModelManager:
                 nn_pred = float(self.nn_model.predict(last, verbose=0).ravel()[0])
 
                 # Ensemble prediction
+                weights = np.array([0.4, 0.3, 0.3])
                 probs = np.array([xgb_pred, rf_pred, nn_pred])
-                ensemble_prob = float(np.dot(self.ensemble_weights, probs))
+                ensemble_prob = float(np.dot(weights, probs))
 
-                # Confidence calculation
-                confidence = abs(ensemble_prob - 0.5) * 2  # 0-1 scale
-                
-                # Signal strength
-                if ensemble_prob >= 0.6:
-                    signal = "FUERTE_COMPRA"
-                    direction = "ALCISTA"
-                elif ensemble_prob >= 0.55:
-                    signal = "COMPRA"
-                    direction = "ALCISTA" 
-                elif ensemble_prob <= 0.4:
-                    signal = "FUERTE_VENTA"
-                    direction = "BAJISTA"
-                elif ensemble_prob <= 0.45:
-                    signal = "VENTA"
-                    direction = "BAJISTA"
-                else:
-                    signal = "NEUTRAL"
-                    direction = "LATERAL"
+                # Determine direction and confidence
+                direction = "ALCISTA" if ensemble_prob >= 0.5 else "BAJISTA"
+                confidence = ensemble_prob if ensemble_prob >= 0.5 else 1 - ensemble_prob
 
                 return {
                     "direction": direction,
-                    "signal": signal,
                     "confidence": float(confidence),
                     "probability": float(ensemble_prob),
                     "xgb": float(xgb_pred),
                     "rf": float(rf_pred),
                     "nn": float(nn_pred),
-                    "weights": self.ensemble_weights.tolist(),
                     "timestamp": datetime.now().isoformat()
                 }
-
+                
         except Exception as e:
             logger.error(f"❌ Error en predicción: {e}")
             return {"error": str(e)}
 
 # -----------------------
-# Enhanced Assistant
+# Trading Assistant
 # -----------------------
-class EnhancedDelowyssAssistant:
-    def __init__(self, iq_connector: EnhancedIQConnector, model_manager: EnhancedModelManager):
+class DelowyssAssistant:
+    def __init__(self, iq_connector: IQConnector, model_manager: ModelManager):
         self.iq = iq_connector
         self.models = model_manager
         self.analysis_lock = threading.Lock()
         self.last_analysis = None
         self.enabled = True
-        self.performance_metrics = {
-            'total_predictions': 0,
-            'correct_predictions': 0,
-            'accuracy': 0.0
-        }
 
     def toggle_enabled(self):
         with self.analysis_lock:
             self.enabled = not self.enabled
-            status = "ACTIVADO" if self.enabled else "DESACTIVADO"
-            logger.info(f"🔧 Asistente {status}")
+            status = "activado" if self.enabled else "desactivado"
+            logger.info(f"🔧 Sistema {status}")
             return self.enabled
 
-    def run_enhanced_analysis(self, asset: str = "EURUSD-OTC", candles: int = 300) -> Dict[str, Any]:
-        """Enhanced analysis with real-time data"""
+    def run_analysis_once(self, asset: str = "EURUSD-OTC", candles: int = 200) -> Dict[str, Any]:
         if not self.enabled:
-            return {"error": "ANALYSIS_DISABLED"}
+            return {"error": "Sistema desactivado"}
 
         if not self.iq.connected:
-            return {"error": "IQ_NOT_CONNECTED"}
+            return {"error": "IQ Option no conectado"}
 
         with self.analysis_lock:
-            try:
-                # Get real-time data
-                df = self.iq.get_realtime_candles(asset, timeframe_min=1, count=candles)
-                if df is None or df.empty:
-                    return {"error": "NO_DATA"}
+            # Try real-time data first, fallback to historical
+            df = self.iq.get_realtime_candles(asset, timeframe_min=1, count=candles)
+            if df is None or df.empty:
+                df = self.iq.get_candles(asset, timeframe_min=1, count=candles)
+                
+            if df is None or df.empty:
+                return {"error": "No se pudieron obtener datos"}
 
-                # Compute indicators
-                df_ind = compute_enhanced_indicators(df)
-                if len(df_ind) < MIN_TRAINING_SAMPLES:
-                    return {"error": "NOT_ENOUGH_DATA"}
+            # Compute indicators
+            df_ind = compute_indicators(df)
+            feature_cols = [c for c in df_ind.columns if c not in ['timestamp', 'target']]
+            features = df_ind[feature_cols + ['target']].dropna()
+            
+            if len(features) < 60:
+                return {"error": "Datos insuficientes para análisis"}
 
-                # Prepare features
-                feature_cols = [c for c in df_ind.columns if c not in ['timestamp', 'target', 'target_strength']]
-                features = df_ind[feature_cols + ['target', 'target_strength']].dropna()
+            # Train models
+            trained = self.models.build_and_train(features)
+            if not trained:
+                return {"error": "Error en entrenamiento de modelos"}
 
-                # Train models
-                trained = self.models.build_enhanced_models(features)
-                if not trained:
-                    return {"error": "TRAINING_FAILED"}
+            # Make prediction
+            prediction = self.models.predict(features)
 
-                # Make prediction
-                prediction = self.models.predict_enhanced(features)
+            # Store results
+            self.last_analysis = {
+                "asset": asset,
+                "timestamp": datetime.now(),
+                "prediction": prediction,
+                "data_points": len(features),
+                "current_price": df_ind['close'].iloc[-1]
+            }
 
-                # Store analysis results
-                self.last_analysis = {
-                    "asset": asset,
-                    "timestamp": datetime.now(),
-                    "prediction": prediction,
-                    "data_points": len(features),
-                    "current_price": df_ind['close'].iloc[-1]
-                }
-
-                # Update performance metrics
-                self._update_performance_metrics(prediction)
-
-                logger.info(f"📊 Análisis completado para {asset}")
-                logger.info(f"   Señal: {prediction.get('signal', 'N/A')}")
-                logger.info(f"   Confianza: {prediction.get('confidence', 0):.2f}")
-
-                return self.last_analysis
-
-            except Exception as e:
-                logger.error(f"❌ Error en análisis: {e}")
-                return {"error": str(e)}
-
-    def _update_performance_metrics(self, prediction):
-        """Update prediction performance metrics"""
-        # This would need actual trade results to calculate real accuracy
-        # For now, we'll just track the number of predictions
-        self.performance_metrics['total_predictions'] += 1
-
-    def get_system_status(self):
-        """Get comprehensive system status"""
-        return {
-            "enabled": self.enabled,
-            "iq_connected": self.iq.connected,
-            "balance": self.iq.balance,
-            "models_ready": all([
-                self.models.xgb_model is not None,
-                self.models.rf_model is not None, 
-                self.models.nn_model is not None
-            ]),
-            "last_analysis": self.last_analysis,
-            "performance": self.performance_metrics,
-            "training_history": len(self.models.training_history)
-        }
+            logger.info(f"📊 Análisis completado: {prediction.get('direction', 'N/A')}")
+            return self.last_analysis
 
 # -----------------------
-# Enhanced FastAPI App
+# FastAPI Application
 # -----------------------
-iq_conn = EnhancedIQConnector(IQ_EMAIL, IQ_PASSWORD, mode=IQ_MODE)
-model_mgr = EnhancedModelManager()
-assistant = EnhancedDelowyssAssistant(iq_conn, model_mgr)
+iq_conn = IQConnector(IQ_EMAIL, IQ_PASSWORD, mode=IQ_MODE)
+model_mgr = ModelManager()
+assistant = DelowyssAssistant(iq_conn, model_mgr)
 
-app = FastAPI(
-    title="Delowyss Assistant Pro V3",
-    description="Sistema de Trading con IA Avanzada",
-    version="3.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
+app = FastAPI(title="Delowyss Pro", version="2.0")
 
 # Enhanced Web Interface
 HTML_INDEX = """
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Delowyss Assistant Pro V3</title>
+    <title>Delowyss Pro - Trading con IA</title>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <style>
@@ -647,7 +443,6 @@ HTML_INDEX = """
             background: linear(135deg, #667eea 0%, #764ba2 100%);
             min-height: 100vh;
             padding: 20px;
-            color: #333;
         }
         .container { 
             max-width: 1200px; 
@@ -727,169 +522,125 @@ HTML_INDEX = """
             padding: 8px 0;
             border-bottom: 1px solid #ecf0f1;
         }
-        .progress-bar {
-            background: #ecf0f1;
-            border-radius: 10px;
-            height: 20px;
-            margin: 10px 0;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: linear(90deg, #27ae60, #2ecc71);
-            transition: width 0.3s ease;
-        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🧠 Delowyss Assistant Pro V3</h1>
-            <p>Sistema de Trading con IA Avanzada y Aprendizaje en Tiempo Real</p>
+            <h1>🧠 Delowyss Pro</h1>
+            <p>Sistema de Trading con Inteligencia Artificial</p>
         </div>
         
         <div class="grid">
-            <!-- System Status -->
+            <!-- System Control -->
             <div class="card">
-                <h3>📊 Estado del Sistema</h3>
-                <div id="system-status" class="status status-inactive">Cargando...</div>
+                <h3>⚙️ Control del Sistema</h3>
+                <div id="system-status" class="status status-active">ACTIVO</div>
                 <div class="analysis-item">
                     <span>IQ Option:</span>
-                    <span id="iq-status">Desconectado</span>
-                </div>
-                <div class="analysis-item">
-                    <span>Balance:</span>
-                    <span id="balance">$0.00</span>
+                    <span id="iq-status">Conectado</span>
                 </div>
                 <div class="analysis-item">
                     <span>Modelos IA:</span>
-                    <span id="models-status">No listos</span>
+                    <span id="models-status">Cargando...</span>
                 </div>
-                <div class="analysis-item">
-                    <span>Predicciones:</span>
-                    <span id="predictions-count">0</span>
-                </div>
-                <button class="btn btn-primary" onclick="toggleSystem()">Activar/Desactivar</button>
+                <button class="btn btn-warning" onclick="toggleSystem()">Activar/Desactivar</button>
+                <button class="btn btn-primary" onclick="runAnalysis()">Analizar y Predecir</button>
             </div>
 
-            <!-- Quick Analysis -->
+            <!-- Current Prediction -->
             <div class="card">
-                <h3>⚡ Análisis Rápido</h3>
-                <div class="input-group">
-                    <label>Activo:</label>
-                    <select id="asset-select">
-                        <option value="EURUSD-OTC">EURUSD-OTC</option>
-                        <option value="EURUSD">EURUSD</option>
-                        <option value="GBPUSD-OTC">GBPUSD-OTC</option>
-                        <option value="USDJPY-OTC">USDJPY-OTC</option>
-                    </select>
-                </div>
-                <button class="btn btn-success" onclick="runAnalysis()">Analizar y Predecir</button>
-                <button class="btn btn-warning" onclick="trainModels()">Entrenar IA</button>
-            </div>
-
-            <!-- Current Signal -->
-            <div class="card">
-                <h3>🎯 Señal Actual</h3>
+                <h3>🎯 Predicción Actual</h3>
                 <div id="current-signal" class="signal signal-neutral">ESPERANDO ANÁLISIS</div>
-                <div id="signal-details">
+                <div id="prediction-details">
                     <div class="analysis-item"><span>Dirección:</span><span id="direction">-</span></div>
                     <div class="analysis-item"><span>Confianza:</span><span id="confidence">-</span></div>
                     <div class="analysis-item"><span>Probabilidad:</span><span id="probability">-</span></div>
-                    <div class="analysis-item"><span>Última Actualización:</span><span id="last-update">-</span></div>
+                    <div class="analysis-item"><span>XGBoost:</span><span id="xgb-score">-</span></div>
+                    <div class="analysis-item"><span>Random Forest:</span><span id="rf-score">-</span></div>
+                    <div class="analysis-item"><span>Red Neuronal:</span><span id="nn-score">-</span></div>
                 </div>
             </div>
 
-            <!-- Model Details -->
+            <!-- Asset Selection -->
             <div class="card">
-                <h3>🤖 Detalles de la IA</h3>
-                <div class="analysis-item"><span>XGBoost:</span><span id="xgb-score">-</span></div>
-                <div class="analysis-item"><span>Random Forest:</span><span id="rf-score">-</span></div>
-                <div class="analysis-item"><span>Red Neuronal:</span><span id="nn-score">-</span></div>
-                <div class="analysis-item"><span>Pesos Ensemble:</span><span id="ensemble-weights">-</span></div>
-                <div class="analysis-item"><span>Entrenamientos:</span><span id="training-count">0</span></div>
+                <h3>📊 Configuración</h3>
+                <div class="analysis-item">
+                    <span>Activo:</span>
+                    <select id="asset-select" style="padding: 5px; border-radius: 5px;">
+                        <option value="EURUSD-OTC">EURUSD-OTC</option>
+                        <option value="EURUSD">EURUSD</option>
+                    </select>
+                </div>
+                <div class="analysis-item">
+                    <span>Velas:</span>
+                    <input type="number" id="candles-count" value="200" min="50" max="500" style="padding: 5px; border-radius: 5px; width: 80px;">
+                </div>
+                <button class="btn btn-success" onclick="trainModels()">Entrenar IA</button>
             </div>
 
-            <!-- Trading Actions -->
+            <!-- Last Analysis -->
             <div class="card">
-                <h3>💰 Acciones de Trading</h3>
-                <div class="input-group">
-                    <label>Monto:</label>
-                    <input type="number" id="trade-amount" value="1" min="1" max="10">
+                <h3>📈 Último Análisis</h3>
+                <div id="last-analysis">
+                    <div class="analysis-item"><span>Activo:</span><span id="last-asset">-</span></div>
+                    <div class="analysis-item"><span>Hora:</span><span id="last-time">-</span></div>
+                    <div class="analysis-item"><span>Precio:</span><span id="last-price">-</span></div>
+                    <div class="analysis-item"><span>Datos:</span><span id="last-data">-</span></div>
                 </div>
-                <button class="btn btn-success" onclick="placeTrade('CALL')">COMPRAR (CALL)</button>
-                <button class="btn btn-danger" onclick="placeTrade('PUT')">VENDER (PUT)</button>
-                <div id="trade-result" style="margin-top: 10px; padding: 10px; border-radius: 5px;"></div>
             </div>
+        </div>
 
-            <!-- Performance -->
-            <div class="card">
-                <h3>📈 Rendimiento</h3>
-                <div class="analysis-item"><span>Precisión:</span><span id="accuracy">0%</span></div>
-                <div class="analysis-item"><span>Total Predicciones:</span><span id="total-predictions">0</span></div>
-                <div class="analysis-item"><span>Correctas:</span><span id="correct-predictions">0</span></div>
-                <div class="progress-bar">
-                    <div id="accuracy-bar" class="progress-fill" style="width: 0%"></div>
-                </div>
-            </div>
+        <!-- Results Display -->
+        <div class="card" style="margin: 20px;">
+            <h3>📋 Resultados del Análisis</h3>
+            <pre id="results" style="background: #f8f9fa; padding: 15px; border-radius: 5px; overflow: auto; max-height: 400px;"></pre>
         </div>
     </div>
 
     <script>
-        let updateInterval;
-
-        async function updateSystemStatus() {
+        async function updateStatus() {
             try {
                 const response = await fetch('/api/status');
                 const data = await response.json();
                 
-                // System status
+                // Update system status
                 document.getElementById('system-status').textContent = data.enabled ? "ACTIVO" : "INACTIVO";
                 document.getElementById('system-status').className = data.enabled ? 'status status-active' : 'status status-inactive';
                 
-                // IQ Status
+                // Update IQ status
                 document.getElementById('iq-status').textContent = data.iq_connected ? "Conectado" : "Desconectado";
-                document.getElementById('balance').textContent = '$' + (data.balance || '0.00');
                 
-                // Models status
-                document.getElementById('models-status').textContent = data.models_ready ? "Listos" : "No listos";
+                // Update models status
+                const modelsReady = data.models_ready || false;
+                document.getElementById('models-status').textContent = modelsReady ? "Listos" : "Entrenando...";
                 
-                // Performance
-                document.getElementById('total-predictions').textContent = data.performance?.total_predictions || 0;
-                document.getElementById('correct-predictions').textContent = data.performance?.correct_predictions || 0;
-                document.getElementById('accuracy').textContent = (data.performance?.accuracy * 100 || 0).toFixed(1) + '%';
-                document.getElementById('accuracy-bar').style.width = (data.performance?.accuracy * 100 || 0) + '%';
-                
-                // Training history
-                document.getElementById('training-count').textContent = data.training_history || 0;
-                
-                // Last analysis
+                // Update last analysis
                 if (data.last_analysis) {
-                    const pred = data.last_analysis.prediction;
-                    if (pred && !pred.error) {
-                        // Update signal
+                    const la = data.last_analysis;
+                    document.getElementById('last-asset').textContent = la.asset || '-';
+                    document.getElementById('last-time').textContent = new Date(la.timestamp).toLocaleString();
+                    document.getElementById('last-price').textContent = la.current_price ? la.current_price.toFixed(4) : '-';
+                    document.getElementById('last-data').textContent = la.data_points || '-';
+                    
+                    // Update prediction if available
+                    if (la.prediction && !la.prediction.error) {
+                        const pred = la.prediction;
                         const signalElement = document.getElementById('current-signal');
-                        signalElement.textContent = pred.signal || 'NEUTRAL';
+                        signalElement.textContent = `${pred.direction} (${(pred.confidence * 100).toFixed(1)}%)`;
                         
-                        if (pred.signal?.includes('COMPRA')) {
+                        if (pred.direction === "ALCISTA") {
                             signalElement.className = 'signal signal-buy';
-                        } else if (pred.signal?.includes('VENTA')) {
-                            signalElement.className = 'signal signal-sell';
                         } else {
-                            signalElement.className = 'signal signal-neutral';
+                            signalElement.className = 'signal signal-sell';
                         }
                         
-                        // Update details
-                        document.getElementById('direction').textContent = pred.direction || '-';
+                        document.getElementById('direction').textContent = pred.direction;
                         document.getElementById('confidence').textContent = (pred.confidence * 100).toFixed(1) + '%';
                         document.getElementById('probability').textContent = (pred.probability * 100).toFixed(1) + '%';
-                        document.getElementById('last-update').textContent = new Date(pred.timestamp).toLocaleString();
-                        
-                        // Model scores
                         document.getElementById('xgb-score').textContent = (pred.xgb * 100).toFixed(1) + '%';
                         document.getElementById('rf-score').textContent = (pred.rf * 100).toFixed(1) + '%';
                         document.getElementById('nn-score').textContent = (pred.nn * 100).toFixed(1) + '%';
-                        document.getElementById('ensemble-weights').textContent = pred.weights?.map(w => w.toFixed(2)).join(', ') || '-';
                     }
                 }
                 
@@ -900,146 +651,117 @@ HTML_INDEX = """
 
         async function toggleSystem() {
             const response = await fetch('/api/toggle', { method: 'POST' });
-            const data = await response.json();
-            updateSystemStatus();
+            await updateStatus();
         }
 
         async function runAnalysis() {
             const asset = document.getElementById('asset-select').value;
+            const candles = document.getElementById('candles-count').value;
+            
             document.getElementById('current-signal').textContent = 'ANALIZANDO...';
+            document.getElementById('results').textContent = 'Ejecutando análisis...';
             
             const response = await fetch('/api/analyze', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ asset: asset })
+                body: JSON.stringify({ asset: asset, candles: parseInt(candles) })
             });
-            const data = await response.json();
             
-            updateSystemStatus();
+            const data = await response.json();
+            document.getElementById('results').textContent = JSON.stringify(data, null, 2);
+            await updateStatus();
         }
 
         async function trainModels() {
+            document.getElementById('results').textContent = 'Entrenando modelos de IA...';
             const response = await fetch('/api/train', { method: 'POST' });
             const data = await response.json();
-            alert(data.message || 'Entrenamiento completado');
-            updateSystemStatus();
-        }
-
-        async function placeTrade(action) {
-            const amount = document.getElementById('trade-amount').value;
-            const asset = document.getElementById('asset-select').value;
-            
-            const response = await fetch('/api/trade', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ 
-                    action: action,
-                    amount: parseFloat(amount),
-                    asset: asset
-                })
-            });
-            const data = await response.json();
-            
-            const resultElement = document.getElementById('trade-result');
-            if (data.success) {
-                resultElement.innerHTML = `<span style="color: green;">✅ ${data.message}</span>`;
-            } else {
-                resultElement.innerHTML = `<span style="color: red;">❌ ${data.message}</span>`;
-            }
+            document.getElementById('results').textContent = JSON.stringify(data, null, 2);
+            await updateStatus();
         }
 
         // Initialize
-        updateSystemStatus();
-        updateInterval = setInterval(updateSystemStatus, 5000);
+        updateStatus();
+        setInterval(updateStatus, 5000); // Update every 5 seconds
     </script>
 </body>
 </html>
 """
 
-@app.get("/", response_class=HTMLResponse)
+@app.get("/")
 def read_root():
-    return HTML_INDEX
+    return HTMLResponse(HTML_INDEX)
 
 @app.get("/api/status")
 def get_status():
-    return assistant.get_system_status()
+    return {
+        "enabled": assistant.enabled,
+        "iq_connected": iq_conn.connected,
+        "models_ready": all([
+            model_mgr.xgb_model is not None,
+            model_mgr.rf_model is not None,
+            model_mgr.nn_model is not None
+        ]),
+        "last_analysis": assistant.last_analysis
+    }
 
 @app.post("/api/toggle")
 def toggle_system():
     enabled = assistant.toggle_enabled()
-    return {"enabled": enabled, "message": f"Sistema {'activado' if enabled else 'desactivado'}"}
+    return {"enabled": enabled}
 
 @app.post("/api/analyze")
-async def analyze_asset(data: dict):
-    asset = data.get('asset', 'EURUSD-OTC')
-    result = assistant.run_enhanced_analysis(asset=asset, candles=300)
+async def analyze_asset(data: dict = None):
+    asset = "EURUSD-OTC"
+    candles = 200
+    
+    if data:
+        asset = data.get('asset', 'EURUSD-OTC')
+        candles = data.get('candles', 200)
+    
+    result = assistant.run_analysis_once(asset=asset, candles=candles)
     return result
 
 @app.post("/api/train")
 def train_models():
     # Force training with current data
-    asset = "EURUSD-OTC"
-    result = assistant.run_enhanced_analysis(asset=asset, candles=300)
+    result = assistant.run_analysis_once(asset="EURUSD-OTC", candles=300)
     if 'error' in result:
         return {"success": False, "message": f"Error: {result['error']}"}
     else:
         return {"success": True, "message": "Modelos entrenados exitosamente"}
 
-@app.post("/api/trade")
-def place_trade(data: dict):
-    asset = data.get('asset', 'EURUSD-OTC')
-    action = data.get('action', 'CALL')
-    amount = data.get('amount', 1.0)
-    
-    success, message = iq_conn.place_trade(asset, action, amount)
-    return {"success": success, "message": message}
-
-# Enhanced Scheduler
-scheduler = BackgroundScheduler()
-
-def scheduled_enhanced_training():
-    if not assistant.enabled:
-        logger.info("⏸️  Entrenamiento programado omitido (sistema desactivado)")
-        return
-    
-    logger.info("🔄 Iniciando entrenamiento programado...")
-    try:
-        for asset_info in ASSETS:
-            asset = asset_info['name']
-            result = assistant.run_enhanced_analysis(asset=asset, candles=300)
-            logger.info(f"📊 Entrenamiento {asset}: {'Éxito' if 'error' not in result else 'Fallido'}")
-            time.sleep(5)  # Wait between assets
-            
-    except Exception as e:
-        logger.error(f"❌ Error en entrenamiento programado: {e}")
-
-# Schedule enhanced training
-scheduler.add_job(
-    scheduled_enhanced_training,
-    'interval',
-    minutes=RETRAIN_INTERVAL_MIN,
-    next_run_time=datetime.now() + timedelta(minutes=1)
-)
-
-scheduler.start()
-logger.info(f"⏰ Programador iniciado: entrenamiento cada {RETRAIN_INTERVAL_MIN} minutos")
-
-# Health check endpoint for Render
+# Health check for Render
 @app.get("/health")
 def health_check():
     return {
-        "status": "healthy",
+        "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
-        "version": "3.0",
-        "system": "Delowyss Assistant Pro"
+        "service": "Delowyss Pro Trading AI"
     }
 
+# -----------------------
+# Scheduler for Auto-Training
+# -----------------------
+scheduler = BackgroundScheduler()
+
+def scheduled_training():
+    if not assistant.enabled:
+        return
+        
+    logger.info("🔄 Ejecutando entrenamiento programado...")
+    try:
+        for asset in ASSETS:
+            result = assistant.run_analysis_once(asset=asset, candles=300)
+            logger.info(f"📊 {asset}: {'✅' if 'error' not in result else '❌'}")
+            time.sleep(2)
+    except Exception as e:
+        logger.error(f"❌ Error en entrenamiento programado: {e}")
+
+scheduler.add_job(scheduled_training, 'interval', minutes=RETRAIN_INTERVAL_MIN)
+scheduler.start()
+logger.info(f"⏰ Programador iniciado - Entrenamiento cada {RETRAIN_INTERVAL_MIN} minutos")
+
 if __name__ == "__main__":
-    logger.info(f"🚀 Iniciando Delowyss Assistant Pro V3 en puerto {PORT}")
-    uvicorn.run(
-        "main:app",
-        host="0.0.0.0",
-        port=PORT,
-        log_level="info",
-        access_log=True
-    )
+    logger.info(f"🚀 Iniciando Delowyss Pro en puerto {PORT}")
+    uvicorn.run(app, host="0.0.0.0", port=PORT)

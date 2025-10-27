@@ -1,1 +1,1 @@
-web: gunicorn ejecutar:app
+web: bash start.sh

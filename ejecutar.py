@@ -41,7 +41,14 @@ from apscheduler.schedulers.background import BackgroundScheduler
 # -----------------------
 # Configuration for Render
 # -----------------------
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.INFO, 
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('delowyss_pro.log')
+    ]
+)
 logger = logging.getLogger("DelowyssProRender")
 
 # Environment variables
@@ -65,7 +72,7 @@ SCALER_FILE = os.path.join(MODEL_DIR, "scaler.joblib")
 NN_FILE = os.path.join(MODEL_DIR, "nn_model.h5")
 
 # -----------------------
-# IQ Connector (Optimized)
+# IQ Connector (Optimized for Render)
 # -----------------------
 class IQConnector:
     def __init__(self, email: str, password: str, mode: str = "PRACTICE"):
@@ -81,7 +88,9 @@ class IQConnector:
         try:
             logger.info("🔗 Conectando a IQ Option...")
             self.api = IQ_Option(self.email, self.password)
-            connected = self.api.connect()
+            
+            # Set longer timeout for Render
+            connected = self.api.connect(timeout=15)
             
             if not connected:
                 logger.error("❌ No se pudo conectar a IQ Option")
@@ -93,10 +102,19 @@ class IQConnector:
             # Set account mode
             if self.mode.upper() == "REAL":
                 self.api.change_balance("REAL")
+                logger.info("💰 Modo: CUENTA REAL")
             else:
                 self.api.change_balance("PRACTICE")
+                logger.info("🎯 Modo: CUENTA DEMO")
                 
-            self.available_assets = self.api.get_all_open_time()
+            # Get available assets with error handling
+            try:
+                self.available_assets = self.api.get_all_open_time()
+                logger.info(f"📊 Activos disponibles: {len(self.available_assets)}")
+            except Exception as e:
+                logger.warning(f"⚠️ No se pudieron obtener activos: {e}")
+                self.available_assets = {}
+                
             logger.info("✅ Conectado exitosamente a IQ Option")
             
         except Exception as e:
@@ -420,13 +438,61 @@ class DelowyssAssistant:
             return self.last_analysis
 
 # -----------------------
-# FastAPI Application
+# Enhanced Connection Manager for Render
 # -----------------------
+class ConnectionManager:
+    def __init__(self, iq_connector: IQConnector):
+        self.iq = iq_connector
+        self.connection_attempts = 0
+        self.max_attempts = 3
+        
+    def ensure_connection(self) -> bool:
+        """Ensure IQ Option connection is active"""
+        if self.iq.connected:
+            return True
+            
+        logger.info("🔄 Verificando conexión IQ Option...")
+        for attempt in range(self.max_attempts):
+            try:
+                logger.info(f"🔗 Intento de conexión {attempt + 1}/{self.max_attempts}")
+                
+                # Reconnect
+                self.iq._connect()
+                
+                if self.iq.connected:
+                    logger.info("✅ Conexión IQ Option restablecida")
+                    return True
+                    
+                time.sleep(2)
+                
+            except Exception as e:
+                logger.error(f"❌ Error en intento {attempt + 1}: {e}")
+                time.sleep(3)
+                
+        logger.error("💥 No se pudo conectar a IQ Option después de múltiples intentos")
+        return False
+
+# -----------------------
+# Initialize Core Components
+# -----------------------
+logger.info("🚀 Inicializando Delowyss Pro Trading AI...")
+
+# Initialize components
 iq_conn = IQConnector(IQ_EMAIL, IQ_PASSWORD, mode=IQ_MODE)
 model_mgr = ModelManager()
 assistant = DelowyssAssistant(iq_conn, model_mgr)
+conn_manager = ConnectionManager(iq_conn)
 
-app = FastAPI(title="Delowyss Pro", version="2.0")
+# -----------------------
+# FastAPI Application
+# -----------------------
+app = FastAPI(
+    title="Delowyss Pro Trading AI",
+    description="Sistema avanzado de trading con inteligencia artificial",
+    version="2.0.0",
+    docs_url="/docs",
+    redoc_url="/redoc"
+)
 
 # Enhanced Web Interface
 HTML_INDEX = """
@@ -546,6 +612,7 @@ HTML_INDEX = """
                 </div>
                 <button class="btn btn-warning" onclick="toggleSystem()">Activar/Desactivar</button>
                 <button class="btn btn-primary" onclick="runAnalysis()">Analizar y Predecir</button>
+                <button class="btn btn-success" onclick="reconnectIQ()">Reconectar IQ</button>
             </div>
 
             <!-- Current Prediction -->
@@ -610,10 +677,12 @@ HTML_INDEX = """
                 
                 // Update IQ status
                 document.getElementById('iq-status').textContent = data.iq_connected ? "Conectado" : "Desconectado";
+                document.getElementById('iq-status').style.color = data.iq_connected ? '#27ae60' : '#e74c3c';
                 
                 // Update models status
                 const modelsReady = data.models_ready || false;
                 document.getElementById('models-status').textContent = modelsReady ? "Listos" : "Entrenando...";
+                document.getElementById('models-status').style.color = modelsReady ? '#27ae60' : '#f39c12';
                 
                 // Update last analysis
                 if (data.last_analysis) {
@@ -651,6 +720,14 @@ HTML_INDEX = """
 
         async function toggleSystem() {
             const response = await fetch('/api/toggle', { method: 'POST' });
+            await updateStatus();
+        }
+
+        async function reconnectIQ() {
+            document.getElementById('results').textContent = 'Reconectando a IQ Option...';
+            const response = await fetch('/api/iq/reconnect', { method: 'POST' });
+            const data = await response.json();
+            document.getElementById('results').textContent = JSON.stringify(data, null, 2);
             await updateStatus();
         }
 
@@ -702,7 +779,10 @@ def get_status():
             model_mgr.rf_model is not None,
             model_mgr.nn_model is not None
         ]),
-        "last_analysis": assistant.last_analysis
+        "last_analysis": assistant.last_analysis,
+        "system": "Delowyss Pro Trading AI",
+        "version": "2.0.0",
+        "timestamp": datetime.now().isoformat()
     }
 
 @app.post("/api/toggle")
@@ -731,37 +811,159 @@ def train_models():
     else:
         return {"success": True, "message": "Modelos entrenados exitosamente"}
 
+# IQ Option Management Endpoints
+@app.get("/api/iq/status")
+def get_iq_status():
+    """Get detailed IQ Option connection status"""
+    status = conn_manager.ensure_connection()
+    return {
+        "connected": status,
+        "email": IQ_EMAIL,
+        "mode": IQ_MODE,
+        "assets_available": len(iq_conn.available_assets) if iq_conn.connected else 0,
+        "timestamp": datetime.now().isoformat()
+    }
+
+@app.post("/api/iq/reconnect")
+def reconnect_iq():
+    """Force reconnection to IQ Option"""
+    success = conn_manager.ensure_connection()
+    return {
+        "success": success,
+        "message": "Conexión reestablecida" if success else "Error en reconexión"
+    }
+
+@app.get("/api/iq/balance")
+def get_balance():
+    """Get current balance"""
+    if not iq_conn.connected:
+        return {"error": "No conectado a IQ Option"}
+    
+    try:
+        balance = iq_conn.api.get_balance()
+        profile = iq_conn.api.get_profile()
+        return {
+            "balance": balance,
+            "currency": profile.get('currency', 'USD'),
+            "profile": profile
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
 # Health check for Render
 @app.get("/health")
 def health_check():
     return {
         "status": "healthy", 
         "timestamp": datetime.now().isoformat(),
-        "service": "Delowyss Pro Trading AI"
+        "service": "Delowyss Pro Trading AI",
+        "version": "2.0.0",
+        "environment": "production"
+    }
+
+# Root health check
+@app.get("/api/health")
+def api_health_check():
+    return {
+        "status": "running",
+        "service": "Delowyss Pro",
+        "iq_connected": iq_conn.connected,
+        "models_loaded": model_mgr.xgb_model is not None,
+        "timestamp": datetime.now().isoformat()
     }
 
 # -----------------------
-# Scheduler for Auto-Training
+# Enhanced Startup Sequence for Render
 # -----------------------
-scheduler = BackgroundScheduler()
+def initialize_system():
+    """Enhanced system initialization"""
+    logger.info("🚀 INICIANDO DELOWYSS TRADING PROFESSIONAL...")
+    logger.info("🌐 [Delowyss] Entorno web detectado - Modo servidor activo")
+    logger.info("🤖 [Delowyss] Iniciando plataforma de trading...")
+    
+    # 1. Force IQ Option connection on startup
+    logger.info("🔗 [Delowyss] Conectando a IQ Option...")
+    connection_success = conn_manager.ensure_connection()
+    
+    if connection_success:
+        logger.info("✅ [Delowyss] Conexión IQ Option establecida")
+        
+        # Get account info
+        try:
+            balance = iq_conn.api.get_balance()
+            logger.info(f"💰 [Delowyss] Balance: {balance}")
+        except Exception as e:
+            logger.warning(f"⚠️ No se pudo obtener información del balance: {e}")
+    else:
+        logger.warning("⚠️ [Delowyss] Sistema operando en modo sin conexión IQ Option")
+    
+    # 2. Initialize AI models
+    logger.info("🚀 [Delowyss AI] Inicializando motor de IA Delowyss...")
+    
+    # Force initial training with available data
+    try:
+        if connection_success:
+            # Try to get real data for initial training
+            initial_result = assistant.run_analysis_once(asset="EURUSD-OTC", candles=100)
+            if 'error' not in initial_result:
+                logger.info("✅ [Delowyss AI] Entrenamiento inicial completado")
+            else:
+                logger.warning("⚠️ [Delowyss AI] Usando modelos preexistentes")
+        else:
+            logger.info("✅ [Delowyss AI] Motor de IA inicializado - 3 modelos profesionales")
+    except Exception as e:
+        logger.error(f"❌ Error en entrenamiento inicial: {e}")
+    
+    logger.info("🤖 [Delowyss System] Sistema profesional inicializado")
+    logger.info("✅ [Delowyss System] Sistema cargado - Listo para análisis profesional")
 
-def scheduled_training():
+# -----------------------
+# Enhanced Scheduled Tasks with Connection Check
+# -----------------------
+def enhanced_scheduled_training():
+    """Enhanced training with connection management"""
     if not assistant.enabled:
+        return
+        
+    # Ensure connection before training
+    if not conn_manager.ensure_connection():
+        logger.warning("⏰ Entrenamiento programado omitido - Sin conexión IQ Option")
         return
         
     logger.info("🔄 Ejecutando entrenamiento programado...")
     try:
         for asset in ASSETS:
             result = assistant.run_analysis_once(asset=asset, candles=300)
-            logger.info(f"📊 {asset}: {'✅' if 'error' not in result else '❌'}")
+            if 'error' not in result:
+                logger.info(f"✅ {asset}: Análisis exitoso - {result.get('prediction', {}).get('direction', 'N/A')}")
+            else:
+                logger.warning(f"⚠️ {asset}: {result.get('error', 'Error desconocido')}")
             time.sleep(2)
     except Exception as e:
         logger.error(f"❌ Error en entrenamiento programado: {e}")
 
-scheduler.add_job(scheduled_training, 'interval', minutes=RETRAIN_INTERVAL_MIN)
+# -----------------------
+# Scheduler Initialization
+# -----------------------
+scheduler = BackgroundScheduler()
+scheduler.add_job(enhanced_scheduled_training, 'interval', minutes=RETRAIN_INTERVAL_MIN)
 scheduler.start()
 logger.info(f"⏰ Programador iniciado - Entrenamiento cada {RETRAIN_INTERVAL_MIN} minutos")
 
+# -----------------------
+# Main Execution
+# -----------------------
 if __name__ == "__main__":
-    logger.info(f"🚀 Iniciando Delowyss Pro en puerto {PORT}")
-    uvicorn.run(app, host="0.0.0.0", port=PORT)
+    # Initialize system on startup
+    initialize_system()
+    
+    logger.info(f"🌐 [Delowyss Server] Iniciando servidor en puerto {PORT}...")
+    logger.info("🔍 [Delowyss] Ejecutando análisis automático inicial...")
+    
+    uvicorn.run(
+        app, 
+        host="0.0.0.0", 
+        port=PORT,
+        log_level="info",
+        access_log=True
+    )

@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from iqoptionapi.stable_api import IQ_Option
+from iqoptionapi.api import IQ_Option  # <-- Cambio aquí
 from sklearn.ensemble import RandomForestClassifier
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -98,9 +98,7 @@ class IQConnector:
                             df = pd.DataFrame.from_dict(candles, orient="index")
                             df["timestamp"] = pd.to_datetime(df["from"], unit="s")
                             df.sort_values("timestamp", inplace=True)
-                            self.realtime_data[asset] = df[
-                                ["timestamp", "open", "max", "min", "close", "volume"]
-                            ]
+                            self.realtime_data[asset] = df[["timestamp", "open", "max", "min", "close", "volume"]]
                         time.sleep(2)
                     except Exception as e:
                         logger.error(f"⚠️ Error en stream: {e}")
@@ -228,8 +226,9 @@ def train_model(asset: str = "EURUSD-OTC"):
     return {"status": "success", "message": "Modelo entrenado correctamente"}
 
 # -------------------------------------------
-# EJECUCIÓN LOCAL
+# EJECUCIÓN LOCAL / RENDER
 # -------------------------------------------
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("main:app", host="0.0.0.0", port=int(os.getenv("PORT", 10000)))
+    port = int(os.getenv("PORT", 10000))
+    uvicorn.run("main:app", host="0.0.0.0", port=port)

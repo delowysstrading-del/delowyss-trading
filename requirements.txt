@@ -1,7 +1,7 @@
+iqoptionapi==0.3.9
 fastapi
 uvicorn
 requests
-iqoptionapi
 pandas
 numpy
 scikit-learn

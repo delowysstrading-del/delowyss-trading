@@ -1,8 +1,8 @@
 fastapi
 uvicorn
+requests
+iqoptionapi
 pandas
 numpy
 scikit-learn
-iqoptionapi
-apscheduler
 python-dotenv

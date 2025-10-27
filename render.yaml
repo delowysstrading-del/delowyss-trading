@@ -1,12 +1,12 @@
 services:
   - type: web
-    name: delowyss-trading-pro
+    name: delowyss-trading
     env: python
     plan: free
     buildCommand: pip install -r requirements.txt
-    startCommand: python ejecutar.py
+    startCommand: bash start.sh
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.9.0
-    healthCheckPath: /health
-    autoDeploy: true
+      - key: IQ_EMAIL
+        value: tu_correo_iqoption@example.com
+      - key: IQ_PASSWORD
+        value: tu_password_segura

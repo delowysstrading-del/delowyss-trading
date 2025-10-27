@@ -9,7 +9,7 @@ import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
-from iqoptionapi.api import IQ_Option  # <-- Cambio aquí
+from iqoptionapi.api import IQ_Option  # <-- Cambio a la versión 0.5
 from sklearn.ensemble import RandomForestClassifier
 from apscheduler.schedulers.background import BackgroundScheduler
 

@@ -1,4 +1,5 @@
 # main.py
+
 import os
 import time
 import threading
@@ -8,7 +9,7 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from iqoptionapi.api import IQ_Option
+from iqoptionapi.stable_api import IQ_Option  # versión estable recomendada
 from sklearn.ensemble import RandomForestClassifier
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -58,7 +59,6 @@ class IQConnector:
                 self.connected = False
                 return
 
-            # Cambiar modo de cuenta
             if self.mode.upper() == "REAL":
                 self.api.change_balance("REAL")
                 logger.info("💰 Modo REAL activado")
@@ -186,7 +186,7 @@ def compute_indicators(df):
 # -------------------------------------------
 iq_conn = IQConnector(
     email=os.getenv("IQ_EMAIL", ""),
-    password=os.getenv("IQ_PASSWORD", "")
+    password=os.getenv("IQ_PASSWORD", ""),
 )
 model_mgr = ModelManager()
 

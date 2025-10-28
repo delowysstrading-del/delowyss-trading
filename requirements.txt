@@ -6,3 +6,4 @@ scikit-learn
 apscheduler
 iqoptionapi==0.5
 websocket-client
+requests

@@ -1,5 +1,4 @@
 # main.py
-
 import os
 import time
 import threading
@@ -9,7 +8,7 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from iqoptionapi.stable_api import IQ_Option  # versión estable recomendada
+from iqoptionapi.stable_api import IQ_Option   # ✅ Import corregido
 from sklearn.ensemble import RandomForestClassifier
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -21,7 +20,6 @@ logger = logging.getLogger("Delowyss")
 
 app = FastAPI(title="Delowyss Trading Professional")
 
-# Permitir CORS (para extensión Chrome o front-end)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -186,7 +184,7 @@ def compute_indicators(df):
 # -------------------------------------------
 iq_conn = IQConnector(
     email=os.getenv("IQ_EMAIL", ""),
-    password=os.getenv("IQ_PASSWORD", ""),
+    password=os.getenv("IQ_PASSWORD", "")
 )
 model_mgr = ModelManager()
 

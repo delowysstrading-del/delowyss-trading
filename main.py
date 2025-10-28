@@ -8,8 +8,7 @@ import pandas as pd
 import numpy as np
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-from iqoptionapi.api import IQ_Option  # <-- Cambio a la versión 0.5
+from iqoptionapi.api import IQ_Option
 from sklearn.ensemble import RandomForestClassifier
 from apscheduler.schedulers.background import BackgroundScheduler
 
@@ -59,7 +58,7 @@ class IQConnector:
                 self.connected = False
                 return
 
-            # Modo de cuenta
+            # Cambiar modo de cuenta
             if self.mode.upper() == "REAL":
                 self.api.change_balance("REAL")
                 logger.info("💰 Modo REAL activado")
@@ -111,11 +110,7 @@ class IQConnector:
             logger.error(f"❌ No se pudo iniciar stream: {e}")
 
     def get_realtime_candles(self, asset: str):
-        if asset in self.realtime_data:
-            return self.realtime_data[asset].copy()
-        else:
-            logger.warning(f"⚠️ No hay datos en tiempo real para {asset}")
-            return None
+        return self.realtime_data.get(asset, None)
 
     def get_candles(self, asset: str, timeframe_min: int = 1, count: int = 200):
         try:
@@ -189,7 +184,10 @@ def compute_indicators(df):
 # -------------------------------------------
 # INICIALIZACIÓN GLOBAL
 # -------------------------------------------
-iq_conn = IQConnector(email=os.getenv("IQ_EMAIL", ""), password=os.getenv("IQ_PASSWORD", ""))
+iq_conn = IQConnector(
+    email=os.getenv("IQ_EMAIL", ""),
+    password=os.getenv("IQ_PASSWORD", "")
+)
 model_mgr = ModelManager()
 
 if iq_conn.connected:

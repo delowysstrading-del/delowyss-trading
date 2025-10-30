@@ -3,7 +3,7 @@ uvicorn==0.24.0
 pandas==1.5.3
 numpy==1.24.3
 scikit-learn==1.2.2
-apscheduler==3.10.4
+apscheduler==3.10.1
 requests==2.31.0
 python-dateutil==2.8.2
 pytz==2023.3
@@ -20,11 +20,11 @@ annotated-types==0.6.0
 idna==3.4
 h11==0.14.0
 click==8.1.7
-tzlocal==5.2
+tzlocal==4.3.1
 sniffio==1.3.0
-scipy==1.11.3
+scipy==1.10.1
 charset-normalizer==3.3.2
-urllib3==2.1.0
+urllib3==2.0.7
 certifi==2023.11.17
 websocket-client==1.6.4
 python-dotenv==1.0.0

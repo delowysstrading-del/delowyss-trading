@@ -1,7 +1,6 @@
 # main.py
 import os
 import time
-import threading
 import logging
 from datetime import datetime
 import pandas as pd
@@ -35,7 +34,7 @@ app.add_middleware(
 )
 
 # -------------------------------------------
-# SIMULACIÓN DE DATOS (Para demo en Render)
+# SIMULACIÓN DE DATOS (Para demo)
 # -------------------------------------------
 class DataSimulator:
     def __init__(self):
@@ -47,7 +46,6 @@ class DataSimulator:
         dates = pd.date_range(end=datetime.now(), periods=count, freq='1min')
         np.random.seed(42)
         
-        # Precio base alrededor de 1.08500
         base_price = 1.08500
         prices = [base_price]
         
@@ -72,12 +70,9 @@ class DataSimulator:
         if asset not in self.realtime_data:
             return self.generate_sample_data(asset)
         return self.realtime_data[asset]
-    
-    def get_candles(self, asset, timeframe_min=1, count=200):
-        return self.generate_sample_data(asset, count)
 
 # -------------------------------------------
-# SISTEMA DE IA
+# SISTEMA DE IA SIMPLIFICADO
 # -------------------------------------------
 class TradingAI:
     def __init__(self):
@@ -92,7 +87,7 @@ class TradingAI:
                 return
                 
             df["target"] = np.where(df["close"].shift(-1) > df["close"], 1, 0)
-            X = df[["rsi", "ema", "macd", "bb_upper", "bb_lower"]].iloc[:-1]
+            X = df[["rsi", "ema", "macd"]].iloc[:-1]
             y = df["target"].iloc[:-1]
             
             self.model.fit(X, y)
@@ -103,7 +98,6 @@ class TradingAI:
 
     def predict(self, df):
         if not self.is_trained:
-            # Si no está entrenado, devolver predicción aleatoria para demo
             import random
             signal = random.choice(["CALL", "PUT"])
             confidence = random.uniform(0.6, 0.9)
@@ -115,7 +109,7 @@ class TradingAI:
             
         try:
             df = self._create_features(df)
-            last_row = df[["rsi", "ema", "macd", "bb_upper", "bb_lower"]].iloc[-1:].fillna(0)
+            last_row = df[["rsi", "ema", "macd"]].iloc[-1:].fillna(0)
             
             pred = self.model.predict(last_row)[0]
             proba = self.model.predict_proba(last_row)[0]
@@ -128,7 +122,6 @@ class TradingAI:
             }
         except Exception as e:
             logger.error(f"❌ Error en predicción: {e}")
-            # Fallback para demo
             import random
             return {
                 "signal": random.choice(["CALL", "PUT"]),
@@ -137,40 +130,30 @@ class TradingAI:
             }
 
     def _create_features(self, df):
-        df = compute_technical_indicators(df)
-        return df
-
-def compute_technical_indicators(df):
-    try:
-        # EMA
-        df["ema"] = df["close"].ewm(span=14, adjust=False).mean()
-        
-        # RSI
-        delta = df["close"].diff()
-        gain = delta.where(delta > 0, 0)
-        loss = -delta.where(delta < 0, 0)
-        avg_gain = gain.ewm(span=14, min_periods=14).mean()
-        avg_loss = loss.ewm(span=14, min_periods=14).mean()
-        rs = avg_gain / avg_loss
-        df["rsi"] = 100 - (100 / (1 + rs))
-        
-        # MACD
-        df["macd"] = df["close"].ewm(span=12, adjust=False).mean() - df["close"].ewm(span=26, adjust=False).mean()
-        
-        # Bollinger Bands
-        df["bb_middle"] = df["close"].rolling(20).mean()
-        df["bb_std"] = df["close"].rolling(20).std()
-        df["bb_upper"] = df["bb_middle"] + (df["bb_std"] * 2)
-        df["bb_lower"] = df["bb_middle"] - (df["bb_std"] * 2)
-        
-        df.dropna(inplace=True)
-        return df
-    except Exception as e:
-        logger.error(f"❌ Error calculando indicadores: {e}")
-        return df
+        try:
+            # EMA
+            df["ema"] = df["close"].ewm(span=14, adjust=False).mean()
+            
+            # RSI
+            delta = df["close"].diff()
+            gain = delta.where(delta > 0, 0)
+            loss = -delta.where(delta < 0, 0)
+            avg_gain = gain.ewm(span=14, min_periods=14).mean()
+            avg_loss = loss.ewm(span=14, min_periods=14).mean()
+            rs = avg_gain / avg_loss
+            df["rsi"] = 100 - (100 / (1 + rs))
+            
+            # MACD
+            df["macd"] = df["close"].ewm(span=12, adjust=False).mean() - df["close"].ewm(span=26, adjust=False).mean()
+            
+            df.dropna(inplace=True)
+            return df
+        except Exception as e:
+            logger.error(f"❌ Error calculando indicadores: {e}")
+            return df
 
 # -------------------------------------------
-# INTERFAZ WEB (Mismo código anterior)
+# INTERFAZ WEB (Mismo diseño)
 # -------------------------------------------
 html_interface = """
 <!DOCTYPE html>
@@ -364,7 +347,6 @@ html_interface = """
                 }
             } catch (error) {
                 showNotification('✅ Análisis demo completado', 'success');
-                // Simular respuesta para demo
                 const confidence = Math.round(Math.random() * 20 + 75);
                 document.getElementById('confidencePercentage').textContent = confidence + '%';
                 
@@ -440,7 +422,7 @@ ai_model = TradingAI()
 scheduler = BackgroundScheduler()
 scheduler.start()
 
-# Entrenar modelo inicial con datos de demo
+# Entrenar modelo inicial
 try:
     sample_data = data_simulator.generate_sample_data("EURUSD-OTC", 200)
     ai_model.train(sample_data)
@@ -474,7 +456,6 @@ async def analyze_and_predict(asset: str = "EURUSD-OTC"):
             "mode": "demo"
         }
     except Exception as e:
-        # Fallback para demo
         import random
         return {
             "status": "success",

@@ -1,30 +1,39 @@
-# main.py
-import os
 import time
+import threading
 import logging
 from datetime import datetime
+import os
 import pandas as pd
 import numpy as np
-from fastapi import FastAPI, HTTPException
+import socket
+from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import HTMLResponse
-from sklearn.ensemble import RandomForestClassifier
-from apscheduler.schedulers.background import BackgroundScheduler
-from dotenv import load_dotenv
-import warnings
-warnings.filterwarnings('ignore')
+from fastapi.responses import HTMLResponse, JSONResponse
+from iqoptionapi.stable_api import IQ_Option
+from sklearn.neural_network import MLPClassifier
+from sklearn.preprocessing import StandardScaler
+import uvicorn
+import joblib
 
-# ✅ Cargar variables de entorno
-load_dotenv()
+# --- INTENTO DE IMPORTAR TENSORFLOW (si falla, usa solo MLP) ---
+USE_TF = True
+try:
+    import tensorflow as tf
+    from tensorflow.keras.models import Sequential, load_model
+    from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
+    from tensorflow.keras.callbacks import EarlyStopping
+except Exception:
+    USE_TF = False
 
-# -------------------------------------------
-# CONFIGURACIÓN
-# -------------------------------------------
+# --- LOGGING ---
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
-logger = logging.getLogger("Delowyss Professional")
 
-app = FastAPI(title="Delowyss Trading AI Professional")
+# --- CREDENCIALES IQ OPTION ---
+EMAIL = "vozhechacancion1@gmail.com"
+PASSWORD = "Eduyesy1986/"
 
+# --- FASTAPI ---
+app = FastAPI()
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -33,482 +42,289 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# -------------------------------------------
-# SIMULACIÓN DE DATOS (Para demo)
-# -------------------------------------------
-class DataSimulator:
-    def __init__(self):
-        self.connected = True
-        self.realtime_data = {}
-        
-    def generate_sample_data(self, asset="EURUSD-OTC", count=100):
-        """Generar datos de muestra para demo"""
-        dates = pd.date_range(end=datetime.now(), periods=count, freq='1min')
-        np.random.seed(42)
-        
-        base_price = 1.08500
-        prices = [base_price]
-        
-        for i in range(1, count):
-            change = np.random.normal(0, 0.0005)
-            new_price = prices[-1] + change
-            prices.append(new_price)
-        
-        df = pd.DataFrame({
-            'timestamp': dates,
-            'open': [p - np.random.random() * 0.0002 for p in prices],
-            'high': [p + np.abs(np.random.random() * 0.0003) for p in prices],
-            'low': [p - np.abs(np.random.random() * 0.0003) for p in prices],
-            'close': prices,
-            'volume': np.random.randint(100, 1000, count)
-        })
-        
-        self.realtime_data[asset] = df
-        return df
-    
-    def get_realtime_candles(self, asset):
-        if asset not in self.realtime_data:
-            return self.generate_sample_data(asset)
-        return self.realtime_data[asset]
+# --- IA MODELOS ---
+mlp_model = MLPClassifier(hidden_layer_sizes=(256, 128, 64), max_iter=1500, activation='relu')
+scaler = StandardScaler()
+model_trained = False
+latest_candles = []
+IQ = None
 
-# -------------------------------------------
-# SISTEMA DE IA SIMPLIFICADO
-# -------------------------------------------
-class TradingAI:
-    def __init__(self):
-        self.model = RandomForestClassifier(n_estimators=50, random_state=42)
-        self.is_trained = False
-        
-    def train(self, df):
+# --- RUTAS Y CONFIGURACIONES ---
+MODELS_DIR = "models"
+os.makedirs(MODELS_DIR, exist_ok=True)
+SCALER_PATH = os.path.join(MODELS_DIR, "scaler.gz")
+MLP_PATH = os.path.join(MODELS_DIR, "mlp_joblib.gz")
+LSTM_PATH = os.path.join(MODELS_DIR, "lstm_model")
+SEQ_LEN = 30
+MIN_SAMPLES_TO_TRAIN = 60
+lstm_model = None
+lstm_ready = False
+
+# ---------------------------------------------------------------
+# ✅ CONEXIÓN A IQ OPTION
+# ---------------------------------------------------------------
+def conectar_iq():
+    global IQ
+    IQ = IQ_Option(EMAIL, PASSWORD)
+    for intento in range(5):
         try:
-            df = self._create_features(df)
-            df = df.dropna()
-            if len(df) < 10:
-                return
-                
-            df["target"] = np.where(df["close"].shift(-1) > df["close"], 1, 0)
-            X = df[["rsi", "ema", "macd"]].iloc[:-1]
-            y = df["target"].iloc[:-1]
-            
-            self.model.fit(X, y)
-            self.is_trained = True
-            logger.info("🧠 Modelo entrenado correctamente")
+            logging.info("🔗 Conectando a IQ Option...")
+            IQ.connect()
+            IQ.change_balance("PRACTICE")
+            logging.info("✅ Conectado a IQ Option (modo DEMO).")
+            return True
         except Exception as e:
-            logger.error(f"❌ Error en entrenamiento: {e}")
+            logging.error(f"❌ Error de conexión: {e}")
+            time.sleep(2)
+    return False
 
-    def predict(self, df):
-        if not self.is_trained:
-            import random
-            signal = random.choice(["CALL", "PUT"])
-            confidence = random.uniform(0.6, 0.9)
-            return {
-                "signal": signal,
-                "confidence": confidence,
-                "next_candle_prediction": "SUBIRÁ" if signal == "CALL" else "BAJARÁ"
-            }
-            
-        try:
-            df = self._create_features(df)
-            last_row = df[["rsi", "ema", "macd"]].iloc[-1:].fillna(0)
-            
-            pred = self.model.predict(last_row)[0]
-            proba = self.model.predict_proba(last_row)[0]
-            confidence = max(proba)
-            
-            return {
-                "signal": "CALL" if pred == 1 else "PUT",
-                "confidence": float(confidence),
-                "next_candle_prediction": "SUBIRÁ" if pred == 1 else "BAJARÁ"
-            }
-        except Exception as e:
-            logger.error(f"❌ Error en predicción: {e}")
-            import random
-            return {
-                "signal": random.choice(["CALL", "PUT"]),
-                "confidence": 0.75,
-                "next_candle_prediction": "SUBIRÁ"
-            }
+# ---------------------------------------------------------------
+# ✅ OBTENER VELAS
+# ---------------------------------------------------------------
+def obtener_velas(par="EURUSD-OTC", duracion=60, velas=200):
+    global latest_candles
+    try:
+        IQ.start_candles_stream(par, duracion, velas)
+        candles = IQ.get_candles(par, duracion, velas, time.time())
+        latest_candles = candles
+        return candles
+    except Exception as e:
+        logging.error(f"❌ Error obteniendo velas: {e}")
+        return []
 
-    def _create_features(self, df):
-        try:
-            # EMA
-            df["ema"] = df["close"].ewm(span=14, adjust=False).mean()
-            
-            # RSI
-            delta = df["close"].diff()
-            gain = delta.where(delta > 0, 0)
-            loss = -delta.where(delta < 0, 0)
-            avg_gain = gain.ewm(span=14, min_periods=14).mean()
-            avg_loss = loss.ewm(span=14, min_periods=14).mean()
-            rs = avg_gain / avg_loss
-            df["rsi"] = 100 - (100 / (1 + rs))
-            
-            # MACD
-            df["macd"] = df["close"].ewm(span=12, adjust=False).mean() - df["close"].ewm(span=26, adjust=False).mean()
-            
-            df.dropna(inplace=True)
-            return df
-        except Exception as e:
-            logger.error(f"❌ Error calculando indicadores: {e}")
-            return df
+# ---------------------------------------------------------------
+# ✅ INDICADORES TÉCNICOS
+# ---------------------------------------------------------------
+def calcular_indicadores(df):
+    df = df.copy()
+    if 'high' in df.columns and 'max' not in df.columns:
+        df.rename(columns={'high': 'max', 'low': 'min'}, inplace=True)
 
-# -------------------------------------------
-# INTERFAZ WEB (Mismo diseño)
-# -------------------------------------------
-html_interface = """
-<!DOCTYPE html>
-<html>
-<head>
-    <title>Delowyss Trading</title>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
-        body {
-            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-            background: linear-gradient(135deg, #0f1b2b 0%, #1a2b3c 100%);
-            color: white; min-height: 100vh; display: flex; justify-content: center; align-items: center; padding: 20px;
-        }
-        .trading-card {
-            background: rgba(30, 43, 60, 0.95); border-radius: 20px; padding: 30px; width: 100%; max-width: 400px;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.3); border: 1px solid rgba(255, 255, 255, 0.1); text-align: center;
-        }
-        .logo {
-            font-size: 28px; font-weight: bold; background: linear-gradient(45deg, #2563eb, #3b82f6);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 10px;
-        }
-        .asset-info {
-            background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 15px; margin-bottom: 25px;
-        }
-        .asset-name { font-size: 24px; font-weight: bold; margin-bottom: 5px; }
-        .time-info { font-size: 16px; opacity: 0.8; }
-        .candle-timer { font-size: 32px; font-weight: bold; margin: 10px 0; transition: all 0.3s ease; }
-        .timer-normal { color: #3b82f6; }
-        .timer-warning { color: #f59e0b; animation: pulse 1s infinite; }
-        .timer-critical { color: #10b981; animation: blink 0.5s infinite; font-weight: 900; }
-        @keyframes pulse { 0% { transform: scale(1); } 50% { transform: scale(1.05); } 100% { transform: scale(1); } }
-        @keyframes blink { 0%, 50% { opacity: 1; } 51%, 100% { opacity: 0.7; } }
-        .percentage {
-            font-size: 72px; font-weight: bold; background: linear-gradient(45deg, #10b981, #3b82f6);
-            -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin: 20px 0;
-            text-shadow: 0 5px 15px rgba(59, 130, 246, 0.3);
-        }
-        .trading-actions { display: grid; grid-template-columns: 1fr 1fr; gap: 15px; margin: 30px 0; }
-        .action-btn {
-            padding: 20px 15px; border: none; border-radius: 15px; font-weight: bold; cursor: pointer;
-            transition: all 0.3s ease; font-size: 16px; min-height: 80px; display: flex; flex-direction: column;
-            justify-content: center; align-items: center;
-        }
-        .action-analyze {
-            background: linear-gradient(45deg, #10b981, #34d399); color: white;
-            box-shadow: 0 10px 25px rgba(16, 185, 129, 0.4);
-        }
-        .action-exit {
-            background: linear-gradient(45deg, #ef4444, #f87171); color: white;
-            box-shadow: 0 10px 25px rgba(239, 68, 68, 0.4);
-        }
-        .action-btn:hover { transform: translateY(-2px); box-shadow: 0 15px 35px rgba(0, 0, 0, 0.6); }
-        .action-btn:active { transform: translateY(0); }
-        .btn-icon { font-size: 24px; margin-bottom: 8px; }
-        .btn-text { font-size: 14px; line-height: 1.2; }
-        .warning {
-            background: rgba(239, 68, 68, 0.2); border: 1px solid rgba(239, 68, 68, 0.5); padding: 15px;
-            border-radius: 10px; font-size: 12px; margin: 20px 0; text-align: left; line-height: 1.4;
-        }
-        .ceo-info {
-            margin-top: 25px; padding-top: 20px; border-top: 1px solid rgba(255, 255, 255, 0.1);
-            font-size: 14px; opacity: 0.8;
-        }
-        .prediction-result {
-            background: rgba(255, 255, 255, 0.1); padding: 15px; border-radius: 15px; margin: 15px 0;
-            font-size: 18px; font-weight: bold; min-height: 60px; display: flex; align-items: center; justify-content: center;
-        }
-        .signal-call { color: #10b981; border: 2px solid #10b981; }
-        .signal-put { color: #ef4444; border: 2px solid #ef4444; }
-        .signal-neutral { color: #6b7280; border: 2px solid #6b7280; }
-        .loading { opacity: 0.7; pointer-events: none; }
-        .status-indicator { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 8px; }
-        .status-connected { background: #10b981; }
-        .status-disconnected { background: #ef4444; }
-        .timer-container { margin: 10px 0; }
-        .timer-label { font-size: 12px; opacity: 0.8; margin-bottom: 5px; }
-    </style>
-</head>
-<body>
-    <div class="trading-card">
-        <div class="header">
-            <div class="logo">DELOWYSS TRADING</div>
-            <div class="status">
-                <span class="status-indicator status-connected"></span>
-                <span id="statusText">Conectado (Modo Demo)</span>
-            </div>
-        </div>
-        
-        <div class="asset-info">
-            <div class="asset-name">EUR/USD OTC</div>
-            <div class="time-info">MINUTE</div>
-            
-            <div class="timer-container">
-                <div class="timer-label">TIEMPO RESTANTE VELA</div>
-                <div class="candle-timer timer-normal" id="candleTimer">60s</div>
-            </div>
-        </div>
-        
-        <div class="percentage" id="confidencePercentage">--%</div>
-        
-        <div class="prediction-result signal-neutral" id="predictionResult">
-            ESPERANDO ANÁLISIS
-        </div>
-        
-        <div class="trading-actions">
-            <button class="action-btn action-analyze" onclick="analyzeAndPredict()" id="analyzeBtn">
-                <div class="btn-icon">✅</div>
-                <div class="btn-text">A. ANALIZA Y PREDICE<br>LA SIGUIENTE VELA</div>
-            </button>
-            <button class="action-btn action-exit" onclick="exitSystem()" id="exitBtn">
-                <div class="btn-icon">❌</div>
-                <div class="btn-text">B. SALIR DEL SISTEMA</div>
-            </button>
-        </div>
-        
-        <div class="warning">
-            ⚠️ Advertencia: El trading de opciones binarias es riesgoso y puede resultar en pérdida de su capital. Opere con precaución.
-        </div>
-        
-        <div class="ceo-info">
-            CEO Eduardo Solis<br>
-            <small>Sistema IA Avanzada - Análisis en Tiempo Real</small>
-        </div>
-    </div>
+    df['SMA_3'] = df['close'].rolling(3).mean()
+    df['SMA_5'] = df['close'].rolling(5).mean()
+    df['EMA_3'] = df['close'].ewm(span=3, adjust=False).mean()
+    df['EMA_5'] = df['close'].ewm(span=5, adjust=False).mean()
 
-    <script>
-        let candleTimer;
-        let secondsRemaining = 60;
-        
-        function startCandleTimer() {
-            secondsRemaining = 60;
-            updateCandleTimer();
-            
-            candleTimer = setInterval(() => {
-                secondsRemaining--;
-                updateCandleTimer();
-                
-                if (secondsRemaining <= 0) {
-                    secondsRemaining = 60;
-                    analyzeAndPredict();
-                }
+    delta = df['close'].diff()
+    gain = delta.clip(lower=0)
+    loss = -delta.clip(upper=0)
+    avg_gain = gain.rolling(14).mean()
+    avg_loss = loss.rolling(14).mean()
+    rs = avg_gain / avg_loss.replace(0, np.nan)
+    df['RSI'] = 100 - (100 / (1 + rs))
+    df['RSI'] = df['RSI'].fillna(50)
+
+    ema12 = df['close'].ewm(span=12, adjust=False).mean()
+    ema26 = df['close'].ewm(span=26, adjust=False).mean()
+    df['MACD'] = ema12 - ema26
+    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+
+    df['TR'] = pd.concat([
+        df['max'] - df['min'],
+        (df['max'] - df['close'].shift()).abs(),
+        (df['min'] - df['close'].shift()).abs()
+    ], axis=1).max(axis=1)
+    df['+DM'] = df['max'].diff().where(lambda x: x > 0, 0.0)
+    df['-DM'] = -df['min'].diff().where(lambda x: x < 0, 0.0)
+    tr14 = df['TR'].rolling(14).sum()
+    df['+DI'] = 100 * (df['+DM'].rolling(14).sum() / tr14.replace(0, np.nan))
+    df['-DI'] = 100 * (df['-DM'].rolling(14).sum() / tr14.replace(0, np.nan))
+    df['ADX'] = (abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI']).replace(0, np.nan)) * 100
+    df['ADX'] = df['ADX'].ewm(span=14).mean().fillna(0)
+
+    df['BB_middle'] = df['close'].rolling(20).mean()
+    df['BB_std'] = df['close'].rolling(20).std()
+    df['BB_upper'] = df['BB_middle'] + 2 * df['BB_std']
+    df['BB_lower'] = df['BB_middle'] - 2 * df['BB_std']
+    df['BB_width'] = (df['BB_upper'] - df['BB_lower']).fillna(0)
+
+    df['TP'] = (df['close'] + df['max'] + df['min']) / 3
+    df['CCI'] = (df['TP'] - df['TP'].rolling(20).mean()) / (0.015 * df['TP'].rolling(20).std()).replace(0, np.nan)
+
+    df['momentum'] = df['close'].diff(3).fillna(0)
+    df['ATR'] = df['TR'].rolling(14).mean().fillna(0)
+
+    df = df.replace([np.inf, -np.inf], np.nan).fillna(0)
+    return df
+
+# ---------------------------------------------------------------
+# ✅ PREPARAR FEATURES Y LABEL (CORREGIDO para predecir la siguiente vela)
+# ---------------------------------------------------------------
+def prepare_features_targets(df):
+    df = calcular_indicadores(df)
+    features = ['open','close','min','max','volume','SMA_3','SMA_5','EMA_3','EMA_5',
+                'RSI','MACD','MACD_signal','ADX','+DI','-DI','BB_upper','BB_lower','BB_width',
+                'CCI','momentum','ATR']
+    for f in features:
+        if f not in df.columns:
+            df[f] = 0.0
+    X = df[features]
+    # ✅ target = close(next) > open(next)
+    y = (df['close'].shift(-1) > df['open'].shift(-1)).astype(int).fillna(0)
+    return X, y, features
+
+# ---------------------------------------------------------------
+# ✅ CONSTRUIR MODELOS Y ENTRENAR
+# ---------------------------------------------------------------
+def build_lstm_model(n_features):
+    model = Sequential([
+        LSTM(128, input_shape=(SEQ_LEN, n_features), return_sequences=True),
+        Dropout(0.2),
+        BatchNormalization(),
+        LSTM(64, return_sequences=False),
+        Dropout(0.2),
+        BatchNormalization(),
+        Dense(64, activation='relu'),
+        Dense(1, activation='sigmoid')
+    ])
+    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
+    return model
+
+def entrenar_modelo():
+    global model_trained, latest_candles, scaler, mlp_model, lstm_model, lstm_ready
+    try:
+        if len(latest_candles) < MIN_SAMPLES_TO_TRAIN:
+            return
+        df = pd.DataFrame(latest_candles)
+        X_df, y_series, _ = prepare_features_targets(df)
+        if os.path.exists(SCALER_PATH):
+            scaler = joblib.load(SCALER_PATH)
+        else:
+            scaler.fit(X_df.values)
+            joblib.dump(scaler, SCALER_PATH)
+        X_scaled = scaler.transform(X_df.values)
+        mlp_model.fit(X_scaled, y_series.values)
+        joblib.dump(mlp_model, MLP_PATH)
+        model_trained = True
+        logging.info("✅ MLP entrenado.")
+
+        # Fine-tuning del LSTM
+        if USE_TF:
+            sequences = []
+            labels = []
+            for i in range(len(X_scaled) - SEQ_LEN - 1):
+                sequences.append(X_scaled[i:i+SEQ_LEN])
+                labels.append(y_series.values[i+SEQ_LEN])
+            X_seq = np.array(sequences)
+            y_seq = np.array(labels)
+            if len(X_seq) >= 20:
+                if lstm_model is None:
+                    lstm_model = build_lstm_model(X_seq.shape[2])
+                es = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
+                lstm_model.fit(X_seq, y_seq, epochs=5, batch_size=32, validation_split=0.1, callbacks=[es], verbose=0)
+                lstm_model.save(LSTM_PATH)
+                lstm_ready = True
+                logging.info("✅ LSTM entrenado o actualizado.")
+    except Exception as e:
+        logging.error(f"Error entrenando modelo: {e}")
+
+# ---------------------------------------------------------------
+# ✅ PREDICCIÓN SIGUIENTE VELA
+# ---------------------------------------------------------------
+def predecir_siguiente_vela():
+    if not model_trained or len(latest_candles) == 0:
+        return {"prediction": "N/A", "confidence": 0}
+    try:
+        df = pd.DataFrame(latest_candles)
+        X_df, _, _ = prepare_features_targets(df)
+        X_scaled = scaler.transform(X_df.values)
+        if USE_TF and lstm_ready and lstm_model is not None and len(X_scaled) >= SEQ_LEN:
+            seq = X_scaled[-SEQ_LEN:].reshape(1, SEQ_LEN, X_scaled.shape[1])
+            prob = float(lstm_model.predict(seq, verbose=0)[0][0])
+            pred = 1 if prob >= 0.5 else 0
+            conf = round(max(prob, 1 - prob) * 100, 2)
+            return {"prediction": pred, "confidence": conf}
+        else:
+            X_new = X_scaled[-1].reshape(1, -1)
+            prob_arr = mlp_model.predict_proba(X_new)[0]
+            pred = int(np.argmax(prob_arr))
+            conf = round(float(max(prob_arr) * 100), 2)
+            return {"prediction": pred, "confidence": conf}
+    except Exception as e:
+        logging.error(f"❌ Error prediciendo: {e}")
+        return {"prediction": "N/A", "confidence": 0}
+
+# ---------------------------------------------------------------
+# ✅ SERVIDOR Y FRONTEND (HTML CORREGIDO)
+# ---------------------------------------------------------------
+@app.get("/", response_class=HTMLResponse)
+async def home():
+    html = """
+    <html>
+    <head>
+        <title>Delowyss Trading - CEO Eduardo Solis</title>
+        <style>
+            body { font-family: Arial; text-align: center; background: #111; color: white; }
+            button { font-size: 20px; padding: 15px 30px; border-radius: 12px; border: none; cursor: pointer; }
+            #timer { font-size: 18px; margin-top: 10px; }
+            #result { font-size: 20px; margin-top: 15px; font-weight: bold; }
+        </style>
+    </head>
+    <body>
+        <h1>🚀 Delowyss Trading Bot - EUR/USD OTC</h1>
+        <button id="btn" onclick="analyze()">ANALIZAR Y PREDECIR</button>
+        <p id="timer">Tiempo restante: --s</p>
+        <p id="result"></p>
+
+        <script>
+        async function getServerSeconds() {
+            try {
+                const r = await fetch('/time');
+                const j = await r.json();
+                return j.seconds_remaining;
+            } catch { return 60; }
+        }
+
+        let timeLeft = 60;
+        const timerEl = document.getElementById('timer');
+        const btn = document.getElementById('btn');
+        async function syncAndStart() {
+            timeLeft = await getServerSeconds();
+            setInterval(() => {
+                timeLeft--;
+                if (timeLeft <= 0) syncAndStart();
+                timerEl.innerHTML = "Tiempo restante: " + Math.max(0, timeLeft) + "s";
+                btn.style.backgroundColor = timeLeft <= 10 ? "red" : "#333";
             }, 1000);
         }
-        
-        function updateCandleTimer() {
-            const timerElement = document.getElementById('candleTimer');
-            timerElement.textContent = secondsRemaining + 's';
-            
-            if (secondsRemaining <= 10) {
-                timerElement.className = 'candle-timer timer-critical';
-            } else if (secondsRemaining <= 20) {
-                timerElement.className = 'candle-timer timer-warning';
+        syncAndStart();
+
+        async function analyze() {
+            const res = await fetch('/predict');
+            const data = await res.json();
+            const div = document.getElementById('result');
+            if (data.prediction === "N/A") {
+                div.innerHTML = "Predicción: N/D | Confianza: 0%";
             } else {
-                timerElement.className = 'candle-timer timer-normal';
+                const txt = data.prediction === 1 ? "📈 SUBIRÁ ↑" : "📉 BAJARÁ ↓";
+                div.innerHTML = "Predicción: " + txt + " | Confianza: " + data.confidence + "%";
+                btn.style.backgroundColor = data.prediction === 1 ? "green" : "red";
             }
         }
-        
-        async function analyzeAndPredict() {
-            const analyzeBtn = document.getElementById('analyzeBtn');
-            const originalText = analyzeBtn.innerHTML;
-            
-            analyzeBtn.classList.add('loading');
-            analyzeBtn.innerHTML = '<div class="btn-icon">⏳</div><div class="btn-text">ANALIZANDO...</div>';
-            
-            try {
-                const response = await fetch('/api/analyze-and-predict', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' }
-                });
-                
-                const result = await response.json();
-                
-                if (result.status === 'success') {
-                    const confidence = Math.round(result.prediction.confidence * 100);
-                    document.getElementById('confidencePercentage').textContent = confidence + '%';
-                    
-                    const predictionElement = document.getElementById('predictionResult');
-                    predictionElement.textContent = `PREDICCIÓN: ${result.prediction.next_candle_prediction}`;
-                    
-                    if (result.prediction.signal === 'CALL') {
-                        predictionElement.className = 'prediction-result signal-call';
-                    } else {
-                        predictionElement.className = 'prediction-result signal-put';
-                    }
-                    
-                    showNotification('✅ Análisis completado correctamente', 'success');
-                } else {
-                    showNotification('❌ Error en el análisis: ' + result.message, 'error');
-                }
-            } catch (error) {
-                showNotification('✅ Análisis demo completado', 'success');
-                const confidence = Math.round(Math.random() * 20 + 75);
-                document.getElementById('confidencePercentage').textContent = confidence + '%';
-                
-                const predictionElement = document.getElementById('predictionResult');
-                const signal = Math.random() > 0.5 ? 'CALL' : 'PUT';
-                predictionElement.textContent = `PREDICCIÓN: ${signal === 'CALL' ? 'SUBIRÁ' : 'BAJARÁ'}`;
-                predictionElement.className = signal === 'CALL' ? 'prediction-result signal-call' : 'prediction-result signal-put';
-            } finally {
-                analyzeBtn.classList.remove('loading');
-                analyzeBtn.innerHTML = originalText;
-            }
-        }
-        
-        async function exitSystem() {
-            if (!confirm('¿Estás seguro de que quieres salir del sistema?')) return;
-            
-            const exitBtn = document.getElementById('exitBtn');
-            const originalText = exitBtn.innerHTML;
-            
-            exitBtn.classList.add('loading');
-            exitBtn.innerHTML = '<div class="btn-icon">⏳</div><div class="btn-text">CERRANDO...</div>';
-            
-            try {
-                await fetch('/api/close-all-trades', { method: 'POST' });
-                showNotification('✅ Sistema cerrado correctamente', 'success');
-                document.getElementById('confidencePercentage').textContent = '--%';
-                document.getElementById('predictionResult').textContent = 'SISTEMA CERRADO';
-                document.getElementById('predictionResult').className = 'prediction-result signal-neutral';
-            } catch (error) {
-                showNotification('✅ Sistema en modo demo cerrado', 'success');
-                document.getElementById('confidencePercentage').textContent = '--%';
-                document.getElementById('predictionResult').textContent = 'SISTEMA CERRADO';
-                document.getElementById('predictionResult').className = 'prediction-result signal-neutral';
-            } finally {
-                exitBtn.classList.remove('loading');
-                exitBtn.innerHTML = originalText;
-            }
-        }
-        
-        function showNotification(message, type) {
-            const notification = document.createElement('div');
-            notification.style.cssText = `
-                position: fixed; top: 20px; right: 20px; padding: 15px 20px; border-radius: 10px;
-                color: white; font-weight: bold; z-index: 1000; max-width: 300px;
-                box-shadow: 0 5px 15px rgba(0,0,0,0.3); transition: all 0.3s ease;
-            `;
-            
-            notification.style.background = type === 'success' 
-                ? 'linear-gradient(45deg, #10b981, #34d399)' 
-                : 'linear-gradient(45deg, #ef4444, #f87171)';
-            
-            notification.textContent = message;
-            document.body.appendChild(notification);
-            
-            setTimeout(() => {
-                notification.style.opacity = '0';
-                notification.style.transform = 'translateX(100%)';
-                setTimeout(() => document.body.removeChild(notification), 300);
-            }, 3000);
-        }
-        
-        window.addEventListener('load', startCandleTimer);
-    </script>
-</body>
-</html>
-"""
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(html)
 
-# -------------------------------------------
-# INICIALIZACIÓN
-# -------------------------------------------
-data_simulator = DataSimulator()
-ai_model = TradingAI()
-scheduler = BackgroundScheduler()
-scheduler.start()
+@app.get("/predict")
+async def predict():
+    return JSONResponse(predecir_siguiente_vela())
 
-# Entrenar modelo inicial
-try:
-    sample_data = data_simulator.generate_sample_data("EURUSD-OTC", 200)
-    ai_model.train(sample_data)
-    logger.info("✅ Modelo IA entrenado con datos de demo")
-except Exception as e:
-    logger.error(f"❌ Error entrenando modelo: {e}")
+@app.get("/time")
+async def time_endpoint():
+    now = time.time()
+    sec_remaining = int(60 - (now % 60))
+    return JSONResponse({"seconds_remaining": sec_remaining})
 
-# -------------------------------------------
-# ENDPOINTS
-# -------------------------------------------
-@app.get("/")
-async def root():
-    return {"status": "ok", "msg": "🚀 Delowyss Trading Professional - Modo Demo"}
+# ---------------------------------------------------------------
+# ✅ INICIO
+# ---------------------------------------------------------------
+def iniciar_bot():
+    conectar_iq()
+    obtener_velas()
+    threading.Thread(target=lambda: (obtener_velas(), entrenar_modelo()), daemon=True).start()
 
-@app.get("/interface", response_class=HTMLResponse)
-async def get_interface():
-    return html_interface
-
-@app.post("/api/analyze-and-predict")
-async def analyze_and_predict(asset: str = "EURUSD-OTC"):
-    """Analiza y predice la siguiente vela"""
-    try:
-        df = data_simulator.get_realtime_candles(asset)
-        prediction = ai_model.predict(df)
-        
-        return {
-            "status": "success",
-            "asset": asset,
-            "prediction": prediction,
-            "timestamp": datetime.now().isoformat(),
-            "mode": "demo"
-        }
-    except Exception as e:
-        import random
-        return {
-            "status": "success",
-            "asset": asset,
-            "prediction": {
-                "signal": random.choice(["CALL", "PUT"]),
-                "confidence": round(random.uniform(0.7, 0.9), 2),
-                "next_candle_prediction": random.choice(["SUBIRÁ", "BAJARÁ"])
-            },
-            "timestamp": datetime.now().isoformat(),
-            "mode": "demo_fallback"
-        }
-
-@app.post("/api/train-model")
-async def train_model():
-    """Reentrenar el modelo"""
-    try:
-        df = data_simulator.generate_sample_data("EURUSD-OTC", 200)
-        ai_model.train(df)
-        return {
-            "status": "success", 
-            "message": "Modelo reentrenado correctamente",
-            "timestamp": datetime.now().isoformat()
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "message": f"Error en entrenamiento: {str(e)}"
-        }
-
-@app.post("/api/close-all-trades")
-async def close_all_trades():
-    """Cerrar operaciones (simulado en demo)"""
-    return {
-        "status": "success",
-        "message": "Sistema cerrado en modo demo",
-        "timestamp": datetime.now().isoformat()
-    }
-
-@app.get("/api/system-status")
-async def system_status():
-    return {
-        "connected": True,
-        "model_trained": ai_model.is_trained,
-        "active_trades": 0,
-        "mode": "demo",
-        "timestamp": datetime.now().isoformat()
-    }
-
-# -------------------------------------------
-# CONFIGURACIÓN PARA RENDER
-# -------------------------------------------
 if __name__ == "__main__":
-    import uvicorn
-    port = int(os.getenv("PORT", 10000))
-    uvicorn.run(app, host="0.0.0.0", port=port)
+    iniciar_bot()
+    uvicorn.run(app, host="0.0.0.0", port=10000)

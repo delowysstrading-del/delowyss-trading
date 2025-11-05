@@ -311,7 +311,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor ------------------
+# ------------------ Predictor MEJORADO ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -397,7 +397,7 @@ class ProductionPredictor:
     def extract_features(self, metrics):
         try:
             features = [safe_float(metrics.get(k,0.0)) for k in self._feature_names()]
-            return np.array(features, dtype=np.float32)
+            return np.array(ffeatures, dtype=np.float32)
         except Exception:
             return np.zeros(len(self._feature_names()), dtype=np.float32)
 
@@ -472,128 +472,262 @@ class ProductionPredictor:
         except Exception as e:
             logging.error(f"❌ Error recording performance: {e}")
 
+    def _rule_based(self, metrics):
+        """SISTEMA DE REGLAS MEJORADO - CONFIANZA MÁS REALISTA"""
+        signals = []
+        confidences = []
+        reasons = []
+        
+        pr = metrics.get("pressure_ratio", 1.0)
+        mom = metrics.get("momentum", 0.0)
+        bp = metrics.get("buy_pressure", 0.5)
+        sp = metrics.get("sell_pressure", 0.5)
+        vol = metrics.get("volatility", 0.0)
+        ts = metrics.get("tick_speed", 0.0)
+        phase = metrics.get("market_phase", "neutral")
+        
+        # 1. PRESSURE RATIO - UMBRALES MÁS ESTRICTOS
+        if pr > 2.5:
+            signals.append(1)
+            confidences.append(min(90, 60 + (pr - 2.5) * 10))
+            reasons.append(f"Fuerte presión compra {pr:.1f}x")
+        elif pr > 1.8:
+            signals.append(1)
+            confidences.append(min(75, 50 + (pr - 1.8) * 15))
+            reasons.append(f"Presión compra {pr:.1f}x")
+        elif pr < 0.4:
+            signals.append(0)
+            confidences.append(min(90, 60 + (0.4 - pr) * 10))
+            reasons.append(f"Fuerte presión venta {pr:.1f}x")
+        elif pr < 0.6:
+            signals.append(0)
+            confidences.append(min(75, 50 + (0.6 - pr) * 15))
+            reasons.append(f"Presión venta {pr:.1f}x")
+        
+        # 2. MOMENTUM - UMBRALES MÁS ALTOS
+        if mom > 3.0:
+            signals.append(1)
+            confidences.append(min(85, 60 + min(mom, 10) * 2.5))
+            reasons.append(f"Momento alcista fuerte: {mom:.1f}pips")
+        elif mom > 1.5:
+            signals.append(1)
+            confidences.append(min(70, 45 + min(mom, 3) * 8))
+            reasons.append(f"Momento alcista: {mom:.1f}pips")
+        elif mom < -3.0:
+            signals.append(0)
+            confidences.append(min(85, 60 + min(abs(mom), 10) * 2.5))
+            reasons.append(f"Momento bajista fuerte: {mom:.1f}pips")
+        elif mom < -1.5:
+            signals.append(0)
+            confidences.append(min(70, 45 + min(abs(mom), 3) * 8))
+            reasons.append(f"Momento bajista: {mom:.1f}pips")
+        
+        # 3. BUY/SELL PRESSURE - MÁS CONSERVADOR
+        if bp > 0.75:
+            signals.append(1)
+            confidences.append(70)
+            reasons.append(f"Alta presión compra: {bp:.0%}")
+        elif sp > 0.75:
+            signals.append(0)
+            confidences.append(70)
+            reasons.append(f"Alta presión venta: {sp:.0%}")
+        elif bp > 0.65:
+            signals.append(1)
+            confidences.append(60)
+            reasons.append(f"Moderada presión compra: {bp:.0%}")
+        elif sp > 0.65:
+            signals.append(0)
+            confidences.append(60)
+            reasons.append(f"Moderada presión venta: {sp:.0%}")
+        
+        # 4. VOLATILIDAD + FASE MERCADO
+        if vol > 8.0 and phase == "strong_trend":
+            if mom > 0:
+                signals.append(1)
+                confidences.append(min(80, 50 + vol * 2))
+                reasons.append(f"Tendencia alcista volátil: {vol:.1f}pips")
+            elif mom < 0:
+                signals.append(0)
+                confidences.append(min(80, 50 + vol * 2))
+                reasons.append(f"Tendencia bajista volátil: {vol:.1f}pips")
+        elif vol < 2.0 and phase == "consolidation":
+            if signals:
+                confidences = [c * 0.7 for c in confidences]
+                reasons.append("Mercado en consolidación - confianza reducida")
+        
+        # 5. TICK SPEED - SOLO SI ES SIGNIFICATIVO
+        if ts > 10:
+            if mom > 2.0:
+                signals.append(1)
+                confidences.append(65)
+                reasons.append(f"Alta velocidad + momentum: {ts:.1f}tps")
+            elif mom < -2.0:
+                signals.append(0)
+                confidences.append(65)
+                reasons.append(f"Alta velocidad + momentum: {ts:.1f}tps")
+        
+        # DECISIÓN FINAL MEJORADA
+        if signals:
+            avg_confidence = sum(confidences) / len(confidences)
+            
+            buy_signals = sum(1 for s in signals if s == 1)
+            sell_signals = sum(1 for s in signals if s == 0)
+            
+            if buy_signals > 0 and sell_signals == 0:
+                direction = 1
+                final_confidence = min(95, avg_confidence * 1.2)
+                reasons.append("Consenso alcista claro")
+            elif sell_signals > 0 and buy_signals == 0:
+                direction = 0
+                final_confidence = min(95, avg_confidence * 1.2)
+                reasons.append("Consenso bajista claro")
+            else:
+                direction = 1 if buy_signals > sell_signals else 0
+                final_confidence = avg_confidence * 0.7
+                reasons.append("Señales mixtas - confianza reducida")
+                
+                conflict_ratio = min(buy_signals, sell_signals) / max(buy_signals, sell_signals)
+                if conflict_ratio > 0.6:
+                    final_confidence *= 0.6
+                    reasons.append("Alto conflicto de señales")
+        else:
+            price_change = metrics.get("price_change", 0)
+            if abs(price_change) > 1.0:
+                direction = 1 if price_change > 0 else 0
+                final_confidence = 40 + min(abs(price_change), 5) * 4
+                reasons.append(f"Predicción basada solo en precio: {price_change:.1f}pips")
+            else:
+                direction = 1 if metrics.get("price_change", 0) > 0 else 0
+                final_confidence = 35
+                reasons.append("Mercado sin dirección clara")
+        
+        # AJUSTE FINAL POR CALIDAD DE DATOS
+        total_ticks = metrics.get("total_ticks", 0)
+        if total_ticks < 10:
+            final_confidence *= 0.6
+            reasons.append(f"Datos insuficientes: {total_ticks} ticks")
+        elif total_ticks > 30:
+            final_confidence = min(95, final_confidence * 1.1)
+        
+        return {
+            "direction": "ALZA" if direction == 1 else "BAJA",
+            "confidence": round(final_confidence, 1),
+            "price": round(metrics.get("current_price", 0.0), 5),
+            "tick_count": metrics.get("total_ticks", 0),
+            "reasons": reasons,
+            "model_type": "RULES"
+        }
+
+    def _fuse(self, mlp_pred, rules_pred, metrics):
+        """FUSIÓN MEJORADA - MÁS CONSERVADORA"""
+        if not mlp_pred:
+            return rules_pred
+            
+        vol = metrics.get("volatility", 0.0)
+        phase = metrics.get("market_phase", "neutral")
+        total_ticks = metrics.get("total_ticks", 0)
+        
+        base_mlp_weight = 0.65
+        
+        if phase == "consolidation" and vol < 3.0:
+            mlp_weight = 0.5
+        elif phase == "strong_trend" and vol > 5.0 and total_ticks > 20:
+            mlp_weight = 0.8
+        elif vol > 8.0:
+            mlp_weight = 0.4
+        else:
+            mlp_weight = base_mlp_weight
+            
+        mlp_confidence = mlp_pred.get("confidence", 50)
+        if mlp_confidence < 60:
+            mlp_weight *= 0.8
+            
+        rules_weight = 1.0 - mlp_weight
+        
+        rules_up = 0.8 if rules_pred["direction"] == "ALZA" else 0.2
+        combined_up = mlp_pred["prob_up"] * mlp_weight + rules_up * rules_weight
+        
+        direction = "ALZA" if combined_up >= 0.5 else "BAJA"
+        
+        mlp_conf = mlp_pred.get("confidence", 50)
+        rules_conf = rules_pred.get("confidence", 50)
+        
+        fused_confidence = (mlp_conf * mlp_weight + rules_conf * rules_weight)
+        
+        if (mlp_pred["direction"] != rules_pred["direction"]):
+            fused_confidence *= 0.7
+        
+        fused_confidence = max(25, min(95, fused_confidence))
+        
+        reasons = [f"Fusión: MLP({mlp_pred.get('prob_up', 0):.2f}) {mlp_conf}% + Rules {rules_conf}%"]
+        reasons.extend(rules_pred.get("reasons", []))
+        
+        return {
+            "direction": direction,
+            "confidence": round(fused_confidence, 1),
+            "price": round(metrics.get("current_price", 0.0), 5),
+            "tick_count": metrics.get("total_ticks", 0),
+            "reasons": reasons,
+            "model_used": "HYBRID",
+            "mlp_confidence": mlp_conf,
+            "rules_confidence": rules_conf
+        }
+
     def predict_next_candle(self, seconds_remaining_norm=None):
+        """PREDICCIÓN MEJORADA - MÁS CONSERVADORA"""
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
         if not metrics:
-            return {"direction":"N/A","confidence":0.0,"reason":"insufficient_ticks","timestamp":now_iso()}
-        features = self.extract_features(metrics).reshape(1,-1)
+            return {
+                "direction": "N/A", 
+                "confidence": 0.0, 
+                "reason": "insufficient_data",
+                "timestamp": now_iso()
+            }
+            
+        total_ticks = metrics.get("total_ticks", 0)
+        if total_ticks < 5:
+            return {
+                "direction": "N/A",
+                "confidence": 0.0,
+                "reason": f"solo_{total_ticks}_ticks",
+                "timestamp": now_iso()
+            }
+        
+        features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
-        if self.model and self.scaler:
+        
+        if self.model and self.scaler and total_ticks >= 10:
             try:
                 Xs = self.scaler.transform(features)
                 proba = self.model.predict_proba(Xs)[0]
-                up_prob = float(proba[1]) if len(proba)>1 else float(proba[0])
+                up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                
+                mlp_confidence = round(max(up_prob, 1 - up_prob) * 100, 1)
+                
+                if abs(up_prob - 0.5) < 0.1:
+                    mlp_confidence *= 0.7
+                
                 mlp_pred = {
-                    "direction":"ALZA" if up_prob>=0.5 else "BAJA",
-                    "prob_up":up_prob,
-                    "confidence":round(max(up_prob,1-up_prob)*100,2),
-                    "model_type":"MLP"
+                    "direction": "ALZA" if up_prob >= 0.5 else "BAJA",
+                    "prob_up": up_prob,
+                    "confidence": mlp_confidence,
+                    "model_type": "MLP"
                 }
             except Exception as e:
                 logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
-        rules = self._rule_based(metrics)
-        final = self._fuse(mlp_pred, rules, metrics)
-        self.last_prediction = final.copy()
-        return final
-
-    def _rule_based(self, metrics):
-        signals=[]
-        confs=[]
-        pr=metrics.get("pressure_ratio",1.0)
-        mom=metrics.get("momentum",0.0)
-        bp=metrics.get("buy_pressure",0.5)
-        vol=metrics.get("volatility",0.0)
-        ts=metrics.get("tick_speed",0.0)
         
-        if pr>1.8: 
-            signals.append(1)
-            confs.append(min(85,(pr-1)*25))
-        elif pr<0.6: 
-            signals.append(0)
-            confs.append(min(85,(1-pr)*25))
+        rules_pred = self._rule_based(metrics)
         
-        if mom>1.0: 
-            signals.append(1)
-            confs.append(min(75,abs(mom)*12))
-        elif mom<-1.0: 
-            signals.append(0)
-            confs.append(min(75,abs(mom)*12))
-        
-        if bp>0.66: 
-            signals.append(1)
-            confs.append(65)
-        elif bp<0.34: 
-            signals.append(0)
-            confs.append(65)
-        
-        if ts>6: 
-            signals.append(1 if mom>0 else 0)
-            confs.append(55)
-            
-        if signals:
-            dir_ = 1 if sum(signals)/len(signals)>0.5 else 0
-            avg = sum(confs)/len(confs)
-            if len(set(signals))==1: 
-                avg=min(95,avg*1.2)
+        if mlp_pred and total_ticks >= 15:
+            final_pred = self._fuse(mlp_pred, rules_pred, metrics)
         else:
-            dir_=1 if metrics.get("price_change",0)>0 else 0
-            avg=45
-            
-        reasons=[]
-        if pr>1.5: 
-            reasons.append(f"Buy pressure {pr:.2f}x")
-        if pr<0.7: 
-            reasons.append(f"Sell pressure {pr:.2f}x")
-        if abs(mom)>1.0: 
-            reasons.append("Momentum strong")
-            
-        return {
-            "direction":"ALZA" if dir_==1 else "BAJA",
-            "confidence":round(avg,2),
-            "price":round(metrics.get("current_price",0.0),5),
-            "tick_count":metrics.get("total_ticks",0),
-            "reasons":reasons,
-            "model_type":"RULES"
-        }
-
-    def _fuse(self, mlp_pred, rules_pred, metrics):
-        if not mlp_pred:
-            res = rules_pred.copy()
-            res["model_used"]="RULES"
-            return res
-            
-        vol = metrics.get("volatility",0.0)
-        phase = metrics.get("market_phase","neutral")
-        mlp_weight=0.75
+            final_pred = rules_pred
+            if total_ticks < 15:
+                final_pred["reasons"].append("Fusión desactivada - datos insuficientes")
         
-        if phase=="consolidation": 
-            mlp_weight=0.6
-        elif phase=="strong_trend" and vol>2.0: 
-            mlp_weight=0.8
-            
-        if vol>3.0: 
-            mlp_weight=max(0.5, mlp_weight-0.1)
-            
-        rules_weight = 1.0-mlp_weight
-        rules_up = 0.8 if rules_pred["direction"]=="ALZA" else 0.2
-        combined_up = mlp_pred["prob_up"]*mlp_weight + rules_up*rules_weight
-        
-        direction = "ALZA" if combined_up>=0.5 else "BAJA"
-        confidence = round(max(combined_up,1-combined_up)*100,2)
-        
-        reasons = [f"Fusion MLP({mlp_pred.get('prob_up'):.3f})+Rules"] + rules_pred.get("reasons",[])
-        
-        return {
-            "direction":direction,
-            "confidence":confidence,
-            "price":round(metrics.get("current_price",0.0),5),
-            "tick_count":metrics.get("total_ticks",0),
-            "reasons":reasons,
-            "model_used":"HYBRID",
-            "mlp_confidence":mlp_pred.get("confidence"),
-            "rules_confidence":rules_pred.get("confidence")
-        }
+        self.last_prediction = final_pred.copy()
+        return final_pred
 
 # -------------- IQ CONNECTION COMPLETA --------------
 class IQOptionConnector:
@@ -621,7 +755,6 @@ class IQOptionConnector:
                 self.connected = True
                 logging.info("✅ Conectado exitosamente a IQ Option")
                 
-                # Encontrar el par correcto que funcione
                 self._find_working_pair()
                 
                 return self.iq
@@ -636,9 +769,9 @@ class IQOptionConnector:
     def _find_working_pair(self):
         """Encontrar un par que funcione"""
         test_pairs = [
-            "EURUSD",           # Forex estándar
-            "EURUSD-OTC",       # OTC
-            "EURUSD",           # Forex alternativo
+            "EURUSD",
+            "EURUSD-OTC", 
+            "EURUSD",
         ]
         
         for pair in test_pairs:
@@ -654,19 +787,17 @@ class IQOptionConnector:
             except Exception as e:
                 logging.debug(f"Par {pair} falló: {e}")
         
-        # Si no encontramos par, usar EURUSD por defecto
         self.actual_pair = "EURUSD"
         logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real - VERSIÓN COMPLETA"""
+        """Obtener ticks en tiempo real"""
         try:
             if not self.connected or not self.iq:
                 return None
 
             working_pair = self.actual_pair if self.actual_pair else "EURUSD"
             
-            # MÉTODO PRINCIPAL: get_candles
             try:
                 candles = self.iq.get_candles(working_pair, TIMEFRAME, 1, time.time())
                 if candles and len(candles) > 0:
@@ -677,7 +808,6 @@ class IQOptionConnector:
             except Exception as e:
                 logging.debug(f"get_candles falló: {e}")
 
-            # MÉTODO ALTERNATIVO: get_realtime_candles
             try:
                 realtime = self.iq.get_realtime_candles(working_pair, TIMEFRAME)
                 if realtime:
@@ -691,7 +821,6 @@ class IQOptionConnector:
             except Exception as e:
                 logging.debug(f"get_realtime_candles falló: {e}")
 
-            # Último precio conocido
             if self.last_price:
                 return self.last_price
 
@@ -706,7 +835,6 @@ class IQOptionConnector:
         self.last_tick_time = time.time()
         self.last_price = price
         
-        # Log cada 5 ticks para no saturar
         if self.tick_count <= 10 or self.tick_count % 5 == 0:
             pair_info = f" ({self.actual_pair})" if self.actual_pair else ""
             logging.info(f"💰 Tick #{self.tick_count}{pair_info}: {price:.5f}")
@@ -786,7 +914,7 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop COMPLETO CON ÚLTIMA MODIFICACIÓN ---------------
+# --------------- Main loop COMPLETO ---------------
 def professional_tick_analyzer():
     global current_prediction
     
@@ -794,18 +922,15 @@ def professional_tick_analyzer():
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
-    # Conexión inicial
     iq_connector.connect()
 
     while True:
         try:
-            # Obtener tick REAL
             price = iq_connector.get_realtime_ticks()
             
             if price is not None and price > 0:
                 tick_data = predictor.analyzer.add_tick(price)
                 
-                # ✅ ÚLTIMA MODIFICACIÓN: Actualizar estado global INMEDIATAMENTE
                 current_prediction.update({
                     "price": price,
                     "tick_count": predictor.analyzer.tick_count,
@@ -813,10 +938,8 @@ def professional_tick_analyzer():
                     "status": "CONECTADO"
                 })
                 
-                # ✅ SI HAY MÉTRICAS, ACTUALIZAR PREDICCIÓN BÁSICA
                 metrics = predictor.analyzer.get_candle_metrics()
                 if metrics and predictor.analyzer.tick_count >= 3:
-                    # Predicción simple basada en momentum inmediato
                     price_change = metrics.get("price_change", 0)
                     if price_change > 0.1:
                         current_prediction.update({
@@ -840,12 +963,10 @@ def professional_tick_analyzer():
                 time.sleep(1)
                 continue
                 
-            # Lógica de velas COMPLETA
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             
-            # Cambio de vela
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
@@ -854,7 +975,6 @@ def professional_tick_analyzer():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela iniciada")
                 
-            # Predicción COMPLETA
             if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
                 if predictor.analyzer.tick_count >= 3:
                     pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
@@ -872,7 +992,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO SIN GRÁFICO ---------------
+# --------------- FastAPI COMPLETO ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1004,8 +1124,6 @@ def home():
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
             
-            <!-- SE ELIMINÓ EL GRÁFICO "Movimiento de precios en tiempo real" -->
-            
             <div class="metrics-grid">
                 <div class="metric-cell">
                     <strong>Ejemplos de entrenamiento</strong>
@@ -1054,7 +1172,6 @@ def home():
                     now.toISOString().replace('T', ' ').substr(0, 19);
             }}
             
-            // Actualizar datos via AJAX
             function updateData() {{
                 fetch('/api/prediction')
                     .then(response => response.json())
@@ -1065,7 +1182,6 @@ def home():
                         const tickCount = data.tick_count || 0;
                         const reasons = data.reasons || [];
                         
-                        // Actualizar UI
                         document.querySelector('.prediction-card h2').textContent = 
                             `${{direction}} — ${{confidence}}% de confianza`;
                         document.querySelector('.prediction-card p:nth-child(2)').innerHTML = 
@@ -1073,16 +1189,13 @@ def home():
                         document.querySelector('.prediction-card p:nth-child(4)').innerHTML = 
                             `Marcas evaluadas: <strong>${{tickCount}}</strong>`;
                             
-                        // Actualizar flecha
                         const arrowEl = document.getElementById('direction-arrow');
                         arrowEl.innerHTML = direction === 'ALZA' ? '⬆️' : (direction === 'BAJA' ? '⬇️' : '⏸️');
                         
-                        // Actualizar color
                         const color = direction === 'ALZA' ? '#00ff88' : (direction === 'BAJA' ? '#ff4444' : '#ffbb33');
                         document.querySelector('.prediction-card').style.borderLeftColor = color;
                         document.querySelector('.prediction-card h2').style.color = color;
                         
-                        // Actualizar razones
                         const reasonsList = document.getElementById('reasons-list');
                         reasonsList.innerHTML = reasons.map(r => `<li>✅ ${{r}}</li>`).join('') || 
                                                 '<li>🔄 Analizando datos de mercado...</li>';
@@ -1173,10 +1286,8 @@ def start_background_tasks():
     trainer_thread.start()
     logging.info("🧠 Background trainer started")
 
-# Iniciar tareas automáticamente al importar
 start_background_tasks()
 
-# Para desarrollo local
 if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "10000"))

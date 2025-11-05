@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore")
 # ---------------- CONFIG ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD")
+PAR = os.getenv("PAIR", "EURUSD")  # Forzado a EURUSD estándar
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
@@ -230,7 +230,7 @@ class ProductionTickAnalyzer:
         return None
 
     def get_candle_metrics(self, seconds_remaining_norm: float = None):
-        if len(self.candle_ticks) < 2:  # Reducido de 5 a 2 para que funcione antes
+        if len(self.candle_ticks) < 2:  # Reducido para funcionar más rápido
             return None
             
         try:
@@ -609,7 +609,7 @@ class IQOptionConnector:
         self.last_tick_time = None
         self.tick_count = 0
         self.last_price = None
-        self.actual_pair = None
+        self.actual_pair = PAR  # Usar el par configurado directamente
         self.last_candle_time = None
         
     def connect(self):
@@ -617,7 +617,7 @@ class IQOptionConnector:
         try:
             if not IQ_EMAIL or not IQ_PASSWORD:
                 logging.warning("❌ Credenciales IQ no configuradas")
-                return None
+                return False
                 
             logging.info("🔗 Conectando a IQ Option...")
             self.iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
@@ -628,48 +628,64 @@ class IQOptionConnector:
                 self.connected = True
                 logging.info("✅ Conectado exitosamente a IQ Option")
                 
-                # Encontrar el par correcto que funcione
-                self._find_working_pair()
-                
-                return self.iq
+                # Verificar que el par configurado funciona
+                if self._test_pair(self.actual_pair):
+                    logging.info(f"✅ Par {self.actual_pair} funcionando correctamente")
+                    return True
+                else:
+                    logging.warning(f"⚠️ Par {self.actual_pair} no funciona, intentando alternativas...")
+                    return self._find_working_pair()
             else:
                 logging.warning(f"⚠️ Conexión fallida: {reason}")
-                return None
+                return False
                 
         except Exception as e:
             logging.error(f"❌ Error conexión: {e}")
-            return None
+            return False
+
+    def _test_pair(self, pair):
+        """Probar si un par específico funciona"""
+        try:
+            candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
+            if candles and len(candles) > 0:
+                price = float(candles[-1]['close'])
+                if price > 0 and price < 2.0:  # Precio realista para EURUSD
+                    logging.info(f"✅ Par {pair} funcional - Precio: {price:.5f}")
+                    self.actual_pair = pair
+                    return True
+        except Exception as e:
+            logging.debug(f"Par {pair} falló: {e}")
+        return False
 
     def _find_working_pair(self):
-        """Encontrar un par que funcione"""
-        test_pairs = ["EURUSD", "EURUSD-OTC"]
+        """Encontrar un par que funcione - VERSIÓN MEJORADA"""
+        test_pairs = [
+            "EURUSD",           # Standard primero
+            "EURUSD-OTC",       # OTC después
+            "EURUSD",           # Forex
+        ]
         
         for pair in test_pairs:
-            try:
-                logging.info(f"🔍 Probando par: {pair}")
-                # Usar get_candles que es más confiable
-                candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
-                if candles and len(candles) > 0:
-                    price = float(candles[-1]['close'])
-                    if price > 0:
-                        self.actual_pair = pair
-                        logging.info(f"✅ Par funcional encontrado: {pair} - Precio: {price:.5f}")
-                        return
-            except Exception as e:
-                logging.debug(f"Par {pair} falló: {e}")
+            if self._test_pair(pair):
+                return True
         
-        # Si no encontramos par, usar EURUSD por defecto
-        self.actual_pair = "EURUSD"
-        logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
+        logging.error("❌ No se pudo encontrar ningún par funcional")
+        return False
+
+    def ensure_connection(self):
+        """Asegurar que estamos conectados y tenemos un par funcional"""
+        if not self.connected or not self.check_connection():
+            logging.warning("🔄 Reconectando a IQ Option...")
+            return self.connect()
+        return True
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real - VERSIÓN SIMPLIFICADA Y ROBUSTA"""
+        """Obtener ticks en tiempo real - VERSIÓN ROBUSTA"""
         try:
-            if not self.connected or not self.iq:
-                logging.warning("⚠️ No conectado a IQ Option")
+            if not self.ensure_connection():
                 return None
 
-            working_pair = self.actual_pair if self.actual_pair else "EURUSD"
+            working_pair = self.actual_pair
             
             # MÉTODO PRINCIPAL: get_candles (más confiable)
             try:
@@ -678,11 +694,9 @@ class IQOptionConnector:
                     latest_candle = candles[-1]
                     price = float(latest_candle['close'])
                     
-                    if price > 0:
+                    if price > 0 and price < 2.0:  # Filtro de precio realista
                         self._record_tick(price)
                         return price
-                    else:
-                        logging.warning("⚠️ Precio inválido recibido")
             except Exception as e:
                 logging.debug(f"get_candles falló: {e}")
 
@@ -694,7 +708,7 @@ class IQOptionConnector:
                     if candle_list:
                         latest_candle = candle_list[-1]
                         price = float(latest_candle.get('close', 0))
-                        if price > 0:
+                        if price > 0 and price < 2.0:
                             self._record_tick(price)
                             return price
             except Exception as e:
@@ -702,7 +716,6 @@ class IQOptionConnector:
 
             # Último precio conocido como fallback
             if self.last_price and self.last_price > 0:
-                logging.debug("🔄 Usando último precio conocido")
                 return self.last_price
 
         except Exception as e:
@@ -717,10 +730,9 @@ class IQOptionConnector:
         self.last_tick_time = current_time
         self.last_price = price
         
-        # Log informativo
-        if self.tick_count <= 15 or self.tick_count % 20 == 0:
-            pair_info = f" ({self.actual_pair})" if self.actual_pair else ""
-            logging.info(f"💰 Tick #{self.tick_count}{pair_info}: {price:.5f}")
+        # Log informativo (no saturar logs)
+        if self.tick_count <= 15 or self.tick_count % 25 == 0:
+            logging.info(f"💰 Tick #{self.tick_count} ({self.actual_pair}): {price:.5f}")
 
     def check_connection(self):
         """Verificar conexión"""
@@ -796,7 +808,10 @@ current_prediction = {
     "reasons": ["Sistema iniciando..."],
     "timestamp": now_iso(),
     "model_used": "INIT",
-    "status": "CONECTADO"
+    "status": "INICIANDO",
+    "market_phase": "n/a",
+    "volatility": 0.0,
+    "momentum": 0.0
 }
 
 # --------------- Main loop MEJORADO ---------------
@@ -807,9 +822,25 @@ def professional_tick_analyzer():
     last_prediction_time = 0
     last_candle_start = time.time() // TIMEFRAME * TIMEFRAME
     consecutive_failures = 0
+    max_failures = 8
+
+    # Esperar conexión inicial
+    time.sleep(2)
+    
+    # Intentar conexión inicial
+    if iq_connector.connect():
+        current_prediction["status"] = "CONECTADO"
+        logging.info("✅ Conexión IQ Option establecida")
+    else:
+        current_prediction["status"] = "ERROR_CONEXION"
+        logging.error("❌ No se pudo establecer conexión inicial")
 
     while True:
         try:
+            # Verificar conexión periódicamente
+            if consecutive_failures % 10 == 0:
+                iq_connector.ensure_connection()
+            
             # Obtener tick REAL
             price = iq_connector.get_realtime_ticks()
             
@@ -817,16 +848,37 @@ def professional_tick_analyzer():
                 consecutive_failures = 0
                 tick_data = predictor.analyzer.add_tick(price)
                 
-                # Actualizar precio en current_prediction inmediatamente
-                current_prediction["price"] = price
-                current_prediction["tick_count"] = predictor.analyzer.tick_count
-                current_prediction["timestamp"] = now_iso()
+                # Actualizar estado global inmediatamente
+                current_prediction.update({
+                    "price": price,
+                    "tick_count": predictor.analyzer.tick_count,
+                    "timestamp": now_iso(),
+                    "status": "CONECTADO"
+                })
+                
+                # Obtener métricas actualizadas
+                metrics = predictor.analyzer.get_candle_metrics()
+                if metrics:
+                    current_prediction.update({
+                        "market_phase": metrics.get("market_phase", "n/a"),
+                        "volatility": metrics.get("volatility", 0),
+                        "momentum": metrics.get("momentum", 0)
+                    })
+                
+                # Log de progreso
+                if predictor.analyzer.tick_count <= 10 or predictor.analyzer.tick_count % 15 == 0:
+                    logging.info(f"✅ Tick #{predictor.analyzer.tick_count}: {price:.5f}")
                 
             else:
                 consecutive_failures += 1
-                if consecutive_failures > 5:
-                    logging.warning("⚠️ Múltiples fallos consecutivos obteniendo precios")
+                if consecutive_failures > max_failures:
+                    logging.error("❌ Múltiples fallos consecutivos obteniendo precios")
                     current_prediction["status"] = "ERROR_CONEXION"
+                    # Forzar reconexión
+                    if iq_connector.ensure_connection():
+                        consecutive_failures = 0
+                        current_prediction["status"] = "RECONECTADO"
+                
                 time.sleep(1)
                 continue
                 
@@ -846,27 +898,18 @@ def professional_tick_analyzer():
                 
             # Predicción (más frecuente para testing)
             if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > 2:
-                if predictor.analyzer.tick_count >= 2:  # Reducido para que funcione antes
+                if predictor.analyzer.tick_count >= 3:  # Mínimo reducido
                     pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
                     current_prediction.update(pred)
-                    current_prediction["status"] = "CONECTADO"
+                    current_prediction["status"] = "PREDICIENDO"
                     last_prediction_time = time.time()
                     
                     logging.info("🎯 PREDICCIÓN: %s | Confianza: %s%% | Precio: %s", 
                                pred.get("direction"), 
                                pred.get("confidence"),
                                pred.get("price", 0))
-            else:
-                # Si no hay predicción reciente, al menos actualizar con datos básicos
-                metrics = predictor.analyzer.get_candle_metrics()
-                if metrics:
-                    current_prediction.update({
-                        "market_phase": metrics.get("market_phase", "neutral"),
-                        "volatility": metrics.get("volatility", 0),
-                        "momentum": metrics.get("momentum", 0)
-                    })
                            
-            time.sleep(0.5)  # Reducido para mayor responsividad
+            time.sleep(0.5)  # Balance entre responsividad y carga
             
         except Exception as e:
             logging.error(f"💥 Error en loop: {e}")
@@ -920,8 +963,8 @@ def home():
     price_history_json = json.dumps(price_history)
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
-    status = current_prediction.get("status", "CONECTADO")
-    status_color = "#00ff88" if status == "CONECTADO" else "#ff4444"
+    status = current_prediction.get("status", "INICIANDO")
+    status_color = "#00ff88" if status == "CONECTADO" else ("#ffbb33" if status == "PREDICIENDO" else "#ff4444")
     
     html = f"""
     <!doctype html>
@@ -1004,6 +1047,7 @@ def home():
             
             .status-connected {{ color: #00ff88; }}
             .status-disconnected {{ color: #ff4444; }}
+            .status-predicting {{ color: #ffbb33; }}
         </style>
     </head>
     <body>
@@ -1020,10 +1064,10 @@ def home():
             </div>
             
             <div class="prediction-card">
-                <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence', 0)}% de confianza</h2>
-                <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price', 0):.5f}</p>
-                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
-                <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count', 0)}</strong></p>
+                <h2 style="color:{color}; margin:0" id="prediction-title">{direction} — {current_prediction.get('confidence', 0)}% de confianza</h2>
+                <p id="prediction-details">Modelo: {current_prediction.get('model_used','INIT')} • Precio: <span id="current-price">{current_prediction.get('price', 0):.5f}</span></p>
+                <p>Fase: <strong id="market-phase">{phase}</strong> • Patrones: <span id="patterns">{', '.join(patterns[:3]) if patterns else 'ninguno'}</span></p>
+                <p>Marcas evaluadas: <strong id="tick-count">{current_prediction.get('tick_count', 0)}</strong></p>
             </div>
             
             <div class="chart-container">
@@ -1048,7 +1092,7 @@ def home():
                 </div>
                 <div class="metric-cell">
                     <strong>Timbres actuales</strong>
-                    <div>{current_prediction.get('tick_count', 0)}</div>
+                    <div id="current-ticks">{current_prediction.get('tick_count', 0)}</div>
                 </div>
             </div>
             
@@ -1090,31 +1134,35 @@ def home():
                         const price = data.price || 0;
                         const tickCount = data.tick_count || 0;
                         const reasons = data.reasons || ['Analizando datos...'];
+                        const status = data.status || 'INICIANDO';
+                        const marketPhase = data.market_phase || 'n/a';
                         
                         // Actualizar UI
-                        document.querySelector('.prediction-card h2').textContent = 
+                        document.getElementById('prediction-title').textContent = 
                             `${{direction}} — ${{confidence}}% de confianza`;
-                        document.querySelector('.prediction-card p:nth-child(2)').innerHTML = 
-                            `Modelo: ${{data.model_used || 'HYBRID'}} • Precio: ${{price.toFixed(5)}}`;
-                        document.querySelector('.prediction-card p:nth-child(4)').innerHTML = 
-                            `Marcas evaluadas: <strong>${{tickCount}}</strong>`;
+                        document.getElementById('prediction-details').innerHTML = 
+                            `Modelo: ${{data.model_used || 'INIT'}} • Precio: <span id="current-price">${{price.toFixed(5)}}</span>`;
+                        document.getElementById('tick-count').textContent = tickCount;
+                        document.getElementById('market-phase').textContent = marketPhase;
+                        document.getElementById('current-ticks').textContent = tickCount;
                             
                         // Actualizar flecha de dirección
                         const arrowEl = document.getElementById('direction-arrow');
                         arrowEl.innerHTML = direction === 'ALZA' ? '⬆️' : (direction === 'BAJA' ? '⬇️' : '⏸️');
                         
-                        // Actualizar color del card
+                        // Actualizar color del card y estado
                         const color = direction === 'ALZA' ? '#00ff88' : (direction === 'BAJA' ? '#ff4444' : '#ffbb33');
                         document.querySelector('.prediction-card').style.borderLeftColor = color;
                         document.querySelector('.prediction-card h2').style.color = color;
+                        
+                        const statusColor = status === 'CONECTADO' ? '#00ff88' : (status === 'PREDICIENDO' ? '#ffbb33' : '#ff4444');
+                        document.getElementById('connection-status').style.color = statusColor;
+                        document.getElementById('connection-status').textContent = status;
                         
                         // Actualizar razones
                         const reasonsList = document.getElementById('reasons-list');
                         reasonsList.innerHTML = reasons.map(r => `<li>✅ ${{r}}</li>`).join('') || 
                                                 '<li>🔄 Analizando datos de mercado...</li>';
-                        
-                        // Actualizar timbres actuales
-                        document.querySelector('.metric-cell:nth-child(4) div').textContent = tickCount;
                     }})
                     .catch(error => {{
                         console.error('Error updating data:', error);
@@ -1202,7 +1250,8 @@ def api_status():
         "total_ticks_processed": predictor.analyzer.tick_count,
         "timestamp": now_iso(),
         "current_price": current_prediction.get("price", 0),
-        "current_direction": current_prediction.get("direction", "N/A")
+        "current_direction": current_prediction.get("direction", "N/A"),
+        "system_status": current_prediction.get("status", "INICIANDO")
     })
 
 @app.get("/api/performance")

@@ -311,7 +311,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor MEJORADO ------------------
+# ------------------ Predictor CORREGIDO ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -397,7 +397,7 @@ class ProductionPredictor:
     def extract_features(self, metrics):
         try:
             features = [safe_float(metrics.get(k,0.0)) for k in self._feature_names()]
-            return np.array(ffeatures, dtype=np.float32)
+            return np.array(features, dtype=np.float32)
         except Exception:
             return np.zeros(len(self._feature_names()), dtype=np.float32)
 
@@ -410,7 +410,7 @@ class ProductionPredictor:
             row["timestamp"] = datetime.utcnow().isoformat()
             pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
             self.partial_buffer.append((row,label))
-            logging.info(f"💾 Sample guardado - label={label} conf={confidence:.1f}% buffer={len(self.partial_buffer)}")
+            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
             if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
                 self._perform_partial_fit()
         except Exception as e:
@@ -461,7 +461,7 @@ class ProductionPredictor:
                 "prediction": pred.get("direction"), 
                 "actual": "ALZA" if actual_label==1 else "BAJA",
                 "correct": correct, 
-                "confidence": pred.get("confidence",0.0), 
+                "confidence": pred.get("confidence",0), 
                 "model_used": pred.get("model_used","HYBRID")
             }
             pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
@@ -473,7 +473,7 @@ class ProductionPredictor:
             logging.error(f"❌ Error recording performance: {e}")
 
     def _rule_based(self, metrics):
-        """SISTEMA DE REGLAS MEJORADO - CONFIANZA MÁS REALISTA"""
+        """SISTEMA DE REGLAS MEJORADO - CONFIANZA EN ENTEROS"""
         signals = []
         confidences = []
         reasons = []
@@ -483,143 +483,117 @@ class ProductionPredictor:
         bp = metrics.get("buy_pressure", 0.5)
         sp = metrics.get("sell_pressure", 0.5)
         vol = metrics.get("volatility", 0.0)
-        ts = metrics.get("tick_speed", 0.0)
         phase = metrics.get("market_phase", "neutral")
+        total_ticks = metrics.get("total_ticks", 0)
         
-        # 1. PRESSURE RATIO - UMBRALES MÁS ESTRICTOS
-        if pr > 2.5:
+        # 1. PRESSURE RATIO - SEÑAL FUERTE
+        if pr > 2.2:
             signals.append(1)
-            confidences.append(min(90, 60 + (pr - 2.5) * 10))
-            reasons.append(f"Fuerte presión compra {pr:.1f}x")
-        elif pr > 1.8:
+            confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
+            reasons.append(f"Presión compra fuerte {pr:.1f}x")
+        elif pr > 1.6:
             signals.append(1)
-            confidences.append(min(75, 50 + (pr - 1.8) * 15))
+            confidences.append(min(65, 40 + int((pr - 1.5) * 20)))
             reasons.append(f"Presión compra {pr:.1f}x")
-        elif pr < 0.4:
+        elif pr < 0.45:
             signals.append(0)
-            confidences.append(min(90, 60 + (0.4 - pr) * 10))
-            reasons.append(f"Fuerte presión venta {pr:.1f}x")
-        elif pr < 0.6:
+            confidences.append(min(80, 50 + int((0.5 - pr) * 15)))
+            reasons.append(f"Presión venta fuerte {pr:.1f}x")
+        elif pr < 0.65:
             signals.append(0)
-            confidences.append(min(75, 50 + (0.6 - pr) * 15))
+            confidences.append(min(65, 40 + int((0.7 - pr) * 20)))
             reasons.append(f"Presión venta {pr:.1f}x")
         
-        # 2. MOMENTUM - UMBRALES MÁS ALTOS
-        if mom > 3.0:
+        # 2. MOMENTUM - SEÑAL MEDIA
+        if mom > 2.0:
             signals.append(1)
-            confidences.append(min(85, 60 + min(mom, 10) * 2.5))
-            reasons.append(f"Momento alcista fuerte: {mom:.1f}pips")
-        elif mom > 1.5:
-            signals.append(1)
-            confidences.append(min(70, 45 + min(mom, 3) * 8))
-            reasons.append(f"Momento alcista: {mom:.1f}pips")
-        elif mom < -3.0:
+            confidences.append(min(75, 45 + int(min(mom, 8) * 3)))
+            reasons.append(f"Momento alcista {mom:.1f}pips")
+        elif mom < -2.0:
             signals.append(0)
-            confidences.append(min(85, 60 + min(abs(mom), 10) * 2.5))
-            reasons.append(f"Momento bajista fuerte: {mom:.1f}pips")
-        elif mom < -1.5:
-            signals.append(0)
-            confidences.append(min(70, 45 + min(abs(mom), 3) * 8))
-            reasons.append(f"Momento bajista: {mom:.1f}pips")
+            confidences.append(min(75, 45 + int(min(abs(mom), 8) * 3)))
+            reasons.append(f"Momento bajista {mom:.1f}pips")
+        elif abs(mom) > 0.8:
+            direction = 1 if mom > 0 else 0
+            signals.append(direction)
+            confidences.append(55)
+            reasons.append(f"Momento leve {mom:.1f}pips")
         
-        # 3. BUY/SELL PRESSURE - MÁS CONSERVADOR
-        if bp > 0.75:
+        # 3. BUY/SELL PRESSURE - SEÑAL DIRECTA
+        if bp > 0.70:
             signals.append(1)
             confidences.append(70)
-            reasons.append(f"Alta presión compra: {bp:.0%}")
-        elif sp > 0.75:
+            reasons.append(f"Dominio compra {bp:.0%}")
+        elif sp > 0.70:
             signals.append(0)
             confidences.append(70)
-            reasons.append(f"Alta presión venta: {sp:.0%}")
-        elif bp > 0.65:
-            signals.append(1)
-            confidences.append(60)
-            reasons.append(f"Moderada presión compra: {bp:.0%}")
-        elif sp > 0.65:
-            signals.append(0)
-            confidences.append(60)
-            reasons.append(f"Moderada presión venta: {sp:.0%}")
+            reasons.append(f"Dominio venta {sp:.0%}")
         
         # 4. VOLATILIDAD + FASE MERCADO
-        if vol > 8.0 and phase == "strong_trend":
-            if mom > 0:
-                signals.append(1)
-                confidences.append(min(80, 50 + vol * 2))
-                reasons.append(f"Tendencia alcista volátil: {vol:.1f}pips")
-            elif mom < 0:
-                signals.append(0)
-                confidences.append(min(80, 50 + vol * 2))
-                reasons.append(f"Tendencia bajista volátil: {vol:.1f}pips")
-        elif vol < 2.0 and phase == "consolidation":
-            if signals:
-                confidences = [c * 0.7 for c in confidences]
-                reasons.append("Mercado en consolidación - confianza reducida")
+        if vol > 6.0:
+            if phase == "strong_trend" and abs(mom) > 1.5:
+                direction = 1 if mom > 0 else 0
+                signals.append(direction)
+                confidences.append(min(80, 60 + int(vol)))
+                reasons.append(f"Tendencia volátil {vol:.1f}pips")
         
-        # 5. TICK SPEED - SOLO SI ES SIGNIFICATIVO
-        if ts > 10:
-            if mom > 2.0:
-                signals.append(1)
-                confidences.append(65)
-                reasons.append(f"Alta velocidad + momentum: {ts:.1f}tps")
-            elif mom < -2.0:
-                signals.append(0)
-                confidences.append(65)
-                reasons.append(f"Alta velocidad + momentum: {ts:.1f}tps")
-        
-        # DECISIÓN FINAL MEJORADA
+        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
         if signals:
-            avg_confidence = sum(confidences) / len(confidences)
+            avg_confidence = int(sum(confidences) / len(confidences))
             
             buy_signals = sum(1 for s in signals if s == 1)
             sell_signals = sum(1 for s in signals if s == 0)
             
             if buy_signals > 0 and sell_signals == 0:
                 direction = 1
-                final_confidence = min(95, avg_confidence * 1.2)
-                reasons.append("Consenso alcista claro")
+                final_confidence = min(90, avg_confidence + 10)
+                reasons.append("Señales alcistas consistentes")
             elif sell_signals > 0 and buy_signals == 0:
                 direction = 0
-                final_confidence = min(95, avg_confidence * 1.2)
-                reasons.append("Consenso bajista claro")
+                final_confidence = min(90, avg_confidence + 10)
+                reasons.append("Señales bajistas consistentes")
             else:
                 direction = 1 if buy_signals > sell_signals else 0
-                final_confidence = avg_confidence * 0.7
-                reasons.append("Señales mixtas - confianza reducida")
+                final_confidence = max(40, avg_confidence - 15)
+                reasons.append("Señales mixtas")
                 
-                conflict_ratio = min(buy_signals, sell_signals) / max(buy_signals, sell_signals)
-                if conflict_ratio > 0.6:
-                    final_confidence *= 0.6
-                    reasons.append("Alto conflicto de señales")
+                # Conflicto fuerte = confianza baja
+                if abs(buy_signals - sell_signals) <= 1:
+                    final_confidence = max(35, final_confidence - 10)
+                    reasons.append("Alta indecisión")
         else:
+            # SIN SEÑALES CLARAS - BASADO EN PRECIO ACTUAL
             price_change = metrics.get("price_change", 0)
-            if abs(price_change) > 1.0:
+            if abs(price_change) > 0.5:
                 direction = 1 if price_change > 0 else 0
-                final_confidence = 40 + min(abs(price_change), 5) * 4
-                reasons.append(f"Predicción basada solo en precio: {price_change:.1f}pips")
+                final_confidence = 45 + int(min(abs(price_change), 3) * 8)
+                reasons.append(f"Basado en movimiento: {price_change:.1f}pips")
             else:
                 direction = 1 if metrics.get("price_change", 0) > 0 else 0
-                final_confidence = 35
-                reasons.append("Mercado sin dirección clara")
+                final_confidence = 40
+                reasons.append("Mercado lateral")
         
-        # AJUSTE FINAL POR CALIDAD DE DATOS
-        total_ticks = metrics.get("total_ticks", 0)
-        if total_ticks < 10:
-            final_confidence *= 0.6
-            reasons.append(f"Datos insuficientes: {total_ticks} ticks")
-        elif total_ticks > 30:
-            final_confidence = min(95, final_confidence * 1.1)
+        # AJUSTE POR CALIDAD DE DATOS
+        if total_ticks < 8:
+            final_confidence = max(30, final_confidence - 15)
+            reasons.append(f"Pocos datos: {total_ticks} ticks")
+        elif total_ticks > 25:
+            final_confidence = min(95, final_confidence + 5)
+        
+        # GARANTIZAR ENTEROS Y LÍMITES
+        final_confidence = int(max(25, min(95, final_confidence)))
         
         return {
             "direction": "ALZA" if direction == 1 else "BAJA",
-            "confidence": round(final_confidence, 1),
+            "confidence": final_confidence,  # ENTERO SIN DECIMALES
             "price": round(metrics.get("current_price", 0.0), 5),
-            "tick_count": metrics.get("total_ticks", 0),
+            "tick_count": total_ticks,
             "reasons": reasons,
             "model_type": "RULES"
         }
 
     def _fuse(self, mlp_pred, rules_pred, metrics):
-        """FUSIÓN MEJORADA - MÁS CONSERVADORA"""
+        """FUSIÓN MEJORADA - CONFIANZA EN ENTEROS"""
         if not mlp_pred:
             return rules_pred
             
@@ -627,44 +601,49 @@ class ProductionPredictor:
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
         
-        base_mlp_weight = 0.65
+        # PESOS ADAPTATIVOS
+        base_mlp_weight = 0.6
         
-        if phase == "consolidation" and vol < 3.0:
-            mlp_weight = 0.5
-        elif phase == "strong_trend" and vol > 5.0 and total_ticks > 20:
-            mlp_weight = 0.8
-        elif vol > 8.0:
-            mlp_weight = 0.4
+        if phase == "consolidation":
+            mlp_weight = 0.4  # Menos ML en consolidación
+        elif phase == "strong_trend" and total_ticks > 20:
+            mlp_weight = 0.7  # Más ML en tendencias con datos
         else:
             mlp_weight = base_mlp_weight
             
         mlp_confidence = mlp_pred.get("confidence", 50)
-        if mlp_confidence < 60:
-            mlp_weight *= 0.8
+        if mlp_confidence < 55:
+            mlp_weight *= 0.7  # Reduce peso si ML tiene baja confianza
             
         rules_weight = 1.0 - mlp_weight
         
+        # FUSIÓN DE DIRECCIONES
         rules_up = 0.8 if rules_pred["direction"] == "ALZA" else 0.2
         combined_up = mlp_pred["prob_up"] * mlp_weight + rules_up * rules_weight
         
         direction = "ALZA" if combined_up >= 0.5 else "BAJA"
         
+        # FUSIÓN DE CONFIANZAS (ENTEROS)
         mlp_conf = mlp_pred.get("confidence", 50)
         rules_conf = rules_pred.get("confidence", 50)
         
-        fused_confidence = (mlp_conf * mlp_weight + rules_conf * rules_weight)
+        fused_confidence = int(mlp_conf * mlp_weight + rules_conf * rules_weight)
         
-        if (mlp_pred["direction"] != rules_pred["direction"]):
-            fused_confidence *= 0.7
+        # AJUSTE POR CONFLICTO
+        if mlp_pred["direction"] != rules_pred["direction"]:
+            fused_confidence = max(35, int(fused_confidence * 0.7))
+            reasons = [f"Conflicto: MLP({mlp_pred.get('prob_up', 0):.2f}) vs Rules"]
+        else:
+            reasons = [f"Consenso: MLP {mlp_conf}% + Rules {rules_conf}%"]
         
-        fused_confidence = max(25, min(95, fused_confidence))
-        
-        reasons = [f"Fusión: MLP({mlp_pred.get('prob_up', 0):.2f}) {mlp_conf}% + Rules {rules_conf}%"]
         reasons.extend(rules_pred.get("reasons", []))
+        
+        # LÍMITES FINALES
+        fused_confidence = max(30, min(95, fused_confidence))
         
         return {
             "direction": direction,
-            "confidence": round(fused_confidence, 1),
+            "confidence": fused_confidence,  # ENTERO
             "price": round(metrics.get("current_price", 0.0), 5),
             "tick_count": metrics.get("total_ticks", 0),
             "reasons": reasons,
@@ -674,21 +653,23 @@ class ProductionPredictor:
         }
 
     def predict_next_candle(self, seconds_remaining_norm=None):
-        """PREDICCIÓN MEJORADA - MÁS CONSERVADORA"""
+        """PREDICCIÓN MEJORADA - ACTIVACIÓN EN ÚLTIMOS 3-5 SEGUNDOS"""
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
         if not metrics:
             return {
                 "direction": "N/A", 
-                "confidence": 0.0, 
-                "reason": "insufficient_data",
+                "confidence": 0,  # ENTERO
+                "reason": "sin_datos",
                 "timestamp": now_iso()
             }
             
         total_ticks = metrics.get("total_ticks", 0)
+        
+        # PREDICCIÓN SOLO CON SUFICIENTES TICKS
         if total_ticks < 5:
             return {
                 "direction": "N/A",
-                "confidence": 0.0,
+                "confidence": 0,
                 "reason": f"solo_{total_ticks}_ticks",
                 "timestamp": now_iso()
             }
@@ -696,16 +677,19 @@ class ProductionPredictor:
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
+        # MLP SOLO CON DATOS SUFICIENTES
         if self.model and self.scaler and total_ticks >= 10:
             try:
                 Xs = self.scaler.transform(features)
                 proba = self.model.predict_proba(Xs)[0]
                 up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
                 
-                mlp_confidence = round(max(up_prob, 1 - up_prob) * 100, 1)
+                # CONFIANZA ML EN ENTEROS
+                mlp_confidence = int(max(up_prob, 1 - up_prob) * 100)
                 
-                if abs(up_prob - 0.5) < 0.1:
-                    mlp_confidence *= 0.7
+                # Ajuste por certeza
+                if abs(up_prob - 0.5) < 0.15:
+                    mlp_confidence = max(40, int(mlp_confidence * 0.8))
                 
                 mlp_pred = {
                     "direction": "ALZA" if up_prob >= 0.5 else "BAJA",
@@ -717,14 +701,16 @@ class ProductionPredictor:
                 logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
         
+        # SISTEMA DE REGLAS (SIEMPRE DISPONIBLE)
         rules_pred = self._rule_based(metrics)
         
-        if mlp_pred and total_ticks >= 15:
+        # FUSIÓN SOLO CON DATOS SUFICIENTES
+        if mlp_pred and total_ticks >= 12:
             final_pred = self._fuse(mlp_pred, rules_pred, metrics)
         else:
             final_pred = rules_pred
-            if total_ticks < 15:
-                final_pred["reasons"].append("Fusión desactivada - datos insuficientes")
+            if total_ticks < 12 and mlp_pred:
+                final_pred["reasons"].append("Fusión no disponible - pocos datos")
         
         self.last_prediction = final_pred.copy()
         return final_pred
@@ -906,7 +892,7 @@ predictor = ProductionPredictor()
 
 current_prediction = {
     "direction":"N/A",
-    "confidence":0.0,
+    "confidence":0,
     "price":0.0,
     "tick_count":0,
     "reasons":[],
@@ -914,11 +900,11 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop COMPLETO ---------------
+# --------------- Main loop CORREGIDO ---------------
 def professional_tick_analyzer():
     global current_prediction
     
-    logging.info("🚀 Delowyss AI V3.8 iniciado - PRECIOS REALES")
+    logging.info("🚀 Delowyss AI V3.8 iniciado - PREDICCIÓN 3-5s ANTES DEL CIERRE")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -926,11 +912,14 @@ def professional_tick_analyzer():
 
     while True:
         try:
+            # Obtener tick en tiempo real
             price = iq_connector.get_realtime_ticks()
             
             if price is not None and price > 0:
-                tick_data = predictor.analyzer.add_tick(price)
+                # Procesar tick
+                predictor.analyzer.add_tick(price)
                 
+                # Actualizar estado básico
                 current_prediction.update({
                     "price": price,
                     "tick_count": predictor.analyzer.tick_count,
@@ -938,55 +927,34 @@ def professional_tick_analyzer():
                     "status": "CONECTADO"
                 })
                 
-                metrics = predictor.analyzer.get_candle_metrics()
-                if metrics and predictor.analyzer.tick_count >= 3:
-                    price_change = metrics.get("price_change", 0)
-                    if price_change > 0.1:
-                        current_prediction.update({
-                            "direction": "ALZA",
-                            "confidence": min(75, abs(price_change) * 50),
-                            "reasons": ["Momentum alcista inicial"],
-                            "model_used": "RULES"
-                        })
-                    elif price_change < -0.1:
-                        current_prediction.update({
-                            "direction": "BAJA", 
-                            "confidence": min(75, abs(price_change) * 50),
-                            "reasons": ["Momentum bajista inicial"],
-                            "model_used": "RULES"
-                        })
-                
-                if tick_data and predictor.analyzer.tick_count <= 10:
-                    logging.info(f"🎯 Tick REAL #{predictor.analyzer.tick_count}: {price:.5f}")
-                    
-            else:
-                time.sleep(1)
-                continue
-                
+            # LÓGICA DE VELAS MEJORADA
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             
+            # PREDICCIÓN ACTIVA SOLO EN ÚLTIMOS 3-5 SEGUNDOS
+            if seconds_remaining <= PREDICTION_WINDOW and seconds_remaining > 1:
+                if predictor.analyzer.tick_count >= 8:  # Mínimo 8 ticks para predicción
+                    if (time.time() - last_prediction_time) > 2:  # Evitar predicciones repetidas
+                        pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
+                        current_prediction.update(pred)
+                        last_prediction_time = time.time()
+                        
+                        logging.info("🎯 PREDICCIÓN VELA SIGUIENTE: %s | Confianza: %s%% | Ticks: %s", 
+                                   pred.get("direction"), 
+                                   pred.get("confidence"),
+                                   pred.get("tick_count", 0))
+            
+            # CAMBIO DE VELA
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
                     predictor.on_candle_closed(closed_metrics)
                 predictor.analyzer.reset_candle()
                 last_candle_start = current_candle_start
-                logging.info("🕯️ Nueva vela iniciada")
+                logging.info("🕯️ Nueva vela iniciada - Analizando ticks...")
                 
-            if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
-                if predictor.analyzer.tick_count >= 3:
-                    pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
-                    current_prediction.update(pred)
-                    last_prediction_time = time.time()
-                    
-                    logging.info("🎯 PREDICCIÓN: %s | Confianza: %s%% | Precio: %s", 
-                               pred.get("direction"), 
-                               pred.get("confidence"),
-                               pred.get("price", 0))
-                           
-            time.sleep(1)
+            time.sleep(0.5)  # Mejor responsividad
             
         except Exception as e:
             logging.error(f"💥 Error en loop: {e}")

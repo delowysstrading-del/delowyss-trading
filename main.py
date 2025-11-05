@@ -601,7 +601,7 @@ class ProductionPredictor:
             "rules_confidence":rules_pred.get("confidence")
         }
 
-# -------------- IQ CONNECTION IMPROVED --------------
+# -------------- IQ CONNECTION ROBUSTA --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -628,6 +628,7 @@ class IQOptionConnector:
                     self.connected = True
                     logging.info("✅ Conectado exitosamente a IQ Option")
                     
+                    # Solo usar stream de velas (método más confiable)
                     self._start_candles_stream()
                     return self.iq
                 else:
@@ -643,67 +644,59 @@ class IQOptionConnector:
     def _start_candles_stream(self):
         """Iniciar stream de velas de forma robusta"""
         try:
+            # Solo usar stream de velas que sabemos que funciona
             self.iq.start_candles_stream(PAR, TIMEFRAME, 100)
             logging.info(f"📊 Stream de velas iniciado para {PAR}")
             
-            try:
-                self.iq.subscribe_live_deal(PAR, "binary-option", 10, 10)
-                logging.info("🔔 Suscripción a ticks en tiempo real activada")
-            except TypeError as e:
-                try:
-                    self.iq.subscribe_live_deal(PAR, "binary-option", 10)
-                    logging.info("🔔 Suscripción a ticks (alt) activada")
-                except Exception as e2:
-                    logging.warning(f"⚠️ No se pudo suscribir a ticks: {e2}")
-            except Exception as e:
-                logging.warning(f"⚠️ Error en suscripción ticks: {e}")
-                
         except Exception as e:
             logging.error(f"❌ Error iniciando streams: {e}")
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real usando múltiples métodos"""
+        """Obtener ticks en tiempo real usando métodos confiables"""
         try:
             if not self.connected or not self.iq:
                 return None
                 
             price = None
             
+            # Método 1: Obtener de velas en tiempo real (MÁS CONFIABLE)
             try:
                 candles = self.iq.get_realtime_candles(PAR, TIMEFRAME)
                 if candles:
-                    last_candle = list(candles.values())[-1]
-                    price = float(last_candle.get('close', last_candle.get('mid', 0)))
-                    if price and price > 0:
-                        self._record_tick(price)
-                        return price
+                    # Obtener la última vela
+                    candle_keys = list(candles.keys())
+                    if candle_keys:
+                        last_candle_key = candle_keys[-1]
+                        last_candle = candles[last_candle_key]
+                        
+                        # Intentar diferentes campos de precio
+                        for price_field in ['close', 'max', 'min', 'open', 'mid']:
+                            if price_field in last_candle and last_candle[price_field]:
+                                price = float(last_candle[price_field])
+                                if price > 0:
+                                    self._record_tick(price)
+                                    return price
             except Exception as e:
                 logging.debug(f"Método velas falló: {e}")
                 
+            # Método 2: Obtener precio directo (fallback)
             try:
                 price_data = self.iq.get_price(PAR)
-                if price_data and 'price' in price_data:
-                    price = float(price_data['price'])
-                    if price > 0:
+                if price_data:
+                    if isinstance(price_data, dict) and 'price' in price_data:
+                        price = float(price_data['price'])
+                    elif isinstance(price_data, (int, float)):
+                        price = float(price_data)
+                    
+                    if price and price > 0:
                         self._record_tick(price)
                         return price
             except Exception as e:
                 logging.debug(f"Método precio directo falló: {e}")
                 
-            try:
-                mood_data = self.iq.get_realtime_mood(PAR)
-                if mood_data:
-                    if isinstance(mood_data, list) and len(mood_data) > 0:
-                        latest_tick = mood_data[-1]
-                        if isinstance(latest_tick, dict) and 'price' in latest_tick:
-                            price = float(latest_tick['price'])
-                            if price > 0:
-                                self._record_tick(price)
-                                return price
-            except Exception as e:
-                logging.debug(f"Método mood falló: {e}")
-                
+            # Método 3: Usar último precio conocido como fallback
             if self.last_price:
+                logging.debug("🔄 Usando último precio conocido")
                 return self.last_price
                 
         except Exception as e:
@@ -717,6 +710,7 @@ class IQOptionConnector:
         self.last_tick_time = time.time()
         self.last_price = price
         
+        # Log cada 10 ticks para no saturar
         if self.tick_count % 10 == 0:
             logging.info(f"📈 Tick #{self.tick_count} procesado - Precio: {price:.5f}")
 
@@ -819,34 +813,37 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop IMPROVED ---------------
+# --------------- Main loop ROBUSTO ---------------
 def professional_tick_analyzer():
     logging.info("🚀 Delowyss AI V3.8 iniciado (assistant-only)")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
     consecutive_failures = 0
-    max_consecutive_failures = 10
+    max_consecutive_failures = 15
     last_successful_tick = time.time()
+    tick_interval = 2.0
 
     while True:
         try:
             global IQ, iq_connector
             
-            if not iq_connector.connected or not iq_connector.check_connection():
-                logging.warning("🔌 Reconectando a IQ Option...")
+            # Verificar conexión cada 30 segundos
+            current_time = time.time()
+            if current_time - last_successful_tick > 30 or not iq_connector.connected or not iq_connector.check_connection():
+                logging.warning("🔌 Verificando/reconectando a IQ Option...")
                 IQ = iq_connector.connect()
                 if not IQ:
                     consecutive_failures += 1
                     if consecutive_failures >= max_consecutive_failures:
                         logging.error("❌ Máximo de reconexiones fallidas alcanzado")
-                        break
-                    time.sleep(5)
+                        consecutive_failures = 0
+                    time.sleep(10)
                     continue
                 else:
                     consecutive_failures = 0
                     
+            # Obtener tick
             price = iq_connector.get_realtime_ticks()
-            current_time = time.time()
             
             if price is not None and price > 0:
                 tick_data = predictor.analyzer.add_tick(price)
@@ -855,17 +852,20 @@ def professional_tick_analyzer():
                     if predictor.analyzer.tick_count % 20 == 0:
                         logging.info(f"✅ Tick #{predictor.analyzer.tick_count} - Precio: {price:.5f}")
             else:
-                if current_time - last_successful_tick > 30:
-                    logging.warning("⚠️ No se reciben ticks hace 30 segundos")
+                # Si no hay ticks nuevos, esperar un poco más
+                if current_time - last_successful_tick > 60:
+                    logging.warning("⚠️ No se reciben ticks hace 60 segundos - intentando reconexión")
                     iq_connector.connected = False
-                time.sleep(1)
+                time.sleep(tick_interval)
                 continue
                 
+            # Lógica de velas y predicciones
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             seconds_norm = seconds_remaining / TIMEFRAME
             
+            # Cambio de vela
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
@@ -874,6 +874,7 @@ def professional_tick_analyzer():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela iniciada")
                 
+            # Realizar predicción en ventana específica (últimos 3 segundos)
             if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
                 pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_norm)
                 global current_prediction
@@ -886,15 +887,15 @@ def professional_tick_analyzer():
                            pred.get("tick_count", 0),
                            pred.get("model_used","HYBRID"))
                            
-            time.sleep(0.5)
+            time.sleep(tick_interval)
             
         except Exception as e:
             logging.error(f"💥 Error en loop principal: {e}")
             consecutive_failures += 1
             if consecutive_failures >= max_consecutive_failures:
-                logging.error("❌ Máximo de errores consecutivos alcanzado")
-                break
-            time.sleep(2)
+                logging.error("❌ Máximo de errores consecutivos - reiniciando contador")
+                consecutive_failures = 0
+            time.sleep(5)
 
 # --------------- FastAPI ---------------
 app = FastAPI()

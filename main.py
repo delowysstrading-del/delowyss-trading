@@ -14,6 +14,8 @@ from collections import deque
 import numpy as np
 import pandas as pd
 import json
+import socket
+import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,11 +49,28 @@ SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# ---------------- LOGGING ----------------
+# ---------------- SINGLETON PROTECTION ----------------
+def check_single_instance(port=10000):
+    """🔒 PREVENIR INSTANCIAS DUPLICADAS - MANTIENE ORIGINALIDAD"""
+    try:
+        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        sock.bind(('0.0.0.0', port))
+        return True
+    except socket.error:
+        logging.warning("⚠️ Ya hay una instancia ejecutándose - evitando duplicado")
+        return False
+
+if not check_single_instance():
+    sys.exit(1)
+
+# ---------------- LOGGING MEJORADO ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('delowyss_trading.log')
+    ]
 )
 
 def now_iso():
@@ -332,7 +351,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor MEJORADO ------------------
+# ------------------ Predictor CORREGIDO ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -368,6 +387,7 @@ class ProductionPredictor:
                 pd.DataFrame(columns=self._feature_names() + ["label", "timestamp"]).to_csv(TRAINING_CSV, index=False)
                 logging.info("📁 Archivo de entrenamiento creado")
             if not os.path.exists(PERF_CSV):
+                # 🆕 CORRECCIÓN: Usar 'prediction' en lugar de 'predicted'
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
                 logging.info("📁 Archivo de performance creado")
         except Exception as e:
@@ -493,7 +513,7 @@ class ProductionPredictor:
 
             result = {
                 "timestamp": now_iso(),
-                "predicted": predicted_direction,
+                "prediction": predicted_direction,  # 🆕 CORREGIDO: 'prediction' en lugar de 'predicted'
                 "actual": actual_direction,
                 "correct": correct,
                 "confidence": confidence,
@@ -575,10 +595,10 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
-        # 🆕 CORRECCIÓN: Usar el diccionario correcto para guardar performance
+        # 🆕 CORRECCIÓN: Usar la función corregida para guardar performance
         self._save_performance_to_csv({
             "timestamp": validation_result["timestamp"],
-            "prediction": validation_result["predicted"],  # 🔽 CORREGIDO
+            "prediction": validation_result["prediction"],  # 🔽 CORREGIDO
             "actual": validation_result["actual"],
             "correct": validation_result["correct"],
             "confidence": validation_result["confidence"],
@@ -607,13 +627,16 @@ class ProductionPredictor:
                 header=not file_exists, 
                 index=False
             )
+            logging.info(f"💾 Performance guardada: {perf_data['prediction']} -> {perf_data['actual']} (Correcto: {perf_data['correct']})")
             
         except Exception as e:
             logging.error(f"❌ Error guardando performance: {e}")
             try:
+                # 🆕 CORRECCIÓN: Crear archivo con estructura corregida
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
-            except:
-                pass
+                logging.info("📁 Archivo de performance recreado con estructura corregida")
+            except Exception as e2:
+                logging.error(f"❌ Error recreando archivo: {e2}")
 
     def on_candle_closed(self, closed_metrics):
         try:
@@ -1106,7 +1129,7 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Singleton Protection ---------------
+# --------------- Singleton Protection MEJORADO ---------------
 import atexit
 _analyzer_running = False
 
@@ -1461,7 +1484,7 @@ def home():
                             
                             document.getElementById('validation-result').innerHTML = `
                                 <div style="color:${{color}}; font-weight:bold;">
-                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
+                                    ${{icon}} Predicción: <strong>${{validation.prediction}}</strong> 
                                     | Real: <strong>${{validation.actual}}</strong>
                                 </div>
                                 <div style="font-size:0.9em; margin-top:5px;">

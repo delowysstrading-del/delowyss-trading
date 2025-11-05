@@ -149,6 +149,13 @@ class ProductionTickAnalyzer:
     def add_tick(self, price: float, volume: float = 1.0):
         price = float(price)
         current_time = time.time()
+        
+        # Validación de precio
+        if price <= 0:
+            logging.warning(f"Precio inválido ignorado: {price}")
+            return None
+            
+        # Filtro de spikes anómalos
         if self.ticks and len(self.ticks) > 0:
             last_tick = self.ticks[-1]
             last_price = last_tick['price']
@@ -156,9 +163,10 @@ class ProductionTickAnalyzer:
             if last_price > 0 and time_gap < 2.0:
                 price_change_pct = abs(price - last_price) / last_price
                 if price_change_pct > 0.02:
-                    logging.warning(f"Anomaly spike ignored: {last_price:.5f} -> {price:.5f}")
+                    logging.warning(f"Anomaly spike ignorado: {last_price:.5f} -> {price:.5f}")
                     return None
 
+        # Inicializar vela si es necesario
         if self.current_candle_open is None:
             self.current_candle_open = self.current_candle_high = self.current_candle_low = price
         else:
@@ -168,9 +176,11 @@ class ProductionTickAnalyzer:
         interval = current_time - self.last_tick_time if self.last_tick_time else 0.1
         self.last_tick_time = current_time
 
+        # Calcular volatilidad y ajustar EMA
         current_volatility = (self.current_candle_high - self.current_candle_low) * 10000
         self._update_ema_alpha(current_volatility)
 
+        # Suavizado de precio
         if self.smoothed_price is None:
             self.smoothed_price = price
         else:
@@ -189,10 +199,13 @@ class ProductionTickAnalyzer:
         self.price_history.append(price)  # Para el gráfico
         self.tick_count += 1
 
+        # Detectar patrones
         if len(self.sequence) >= 5:
             pattern = self._detect_micro_pattern()
             if pattern:
                 self.last_patterns.appendleft((datetime.utcnow().isoformat(), pattern))
+                
+        logging.info(f"✅ Tick #{self.tick_count} procesado - Precio: {price:.5f}")
         return tick_data
 
     def get_price_history(self):
@@ -225,76 +238,81 @@ class ProductionTickAnalyzer:
     def get_candle_metrics(self, seconds_remaining_norm: float = None):
         if len(self.candle_ticks) < 5:
             return None
-        ticks_array = np.array([(t['price'], t['volume'], t['interval']) for t in self.candle_ticks], dtype=np.float32)
-        prices = ticks_array[:, 0]
-        volumes = ticks_array[:, 1]
-        intervals = ticks_array[:, 2]
+            
+        try:
+            ticks_array = np.array([(t['price'], t['volume'], t['interval']) for t in self.candle_ticks], dtype=np.float32)
+            prices = ticks_array[:, 0]
+            volumes = ticks_array[:, 1]
+            intervals = ticks_array[:, 2]
 
-        current_price = float(prices[-1])
-        open_price = float(self.current_candle_open)
-        high_price = float(self.current_candle_high)
-        low_price = float(self.current_candle_low)
+            current_price = float(prices[-1])
+            open_price = float(self.current_candle_open)
+            high_price = float(self.current_candle_high)
+            low_price = float(self.current_candle_low)
 
-        price_changes = np.diff(prices)
-        up_ticks = np.sum(price_changes > 0)
-        down_ticks = np.sum(price_changes < 0)
-        total_ticks = max(1, up_ticks + down_ticks)
+            price_changes = np.diff(prices)
+            up_ticks = np.sum(price_changes > 0)
+            down_ticks = np.sum(price_changes < 0)
+            total_ticks = max(1, up_ticks + down_ticks)
 
-        buy_pressure = up_ticks / total_ticks
-        sell_pressure = down_ticks / total_ticks
-        pressure_ratio = buy_pressure / max(0.01, sell_pressure)
+            buy_pressure = up_ticks / total_ticks
+            sell_pressure = down_ticks / total_ticks
+            pressure_ratio = buy_pressure / max(0.01, sell_pressure)
 
-        if len(prices) >= 8:
-            momentum = (prices[-1] - prices[0]) * 10000
-        else:
-            momentum = (current_price - open_price) * 10000
+            if len(prices) >= 8:
+                momentum = (prices[-1] - prices[0]) * 10000
+            else:
+                momentum = (current_price - open_price) * 10000
 
-        volatility = (high_price - low_price) * 10000
-        price_change = (current_price - open_price) * 10000
+            volatility = (high_price - low_price) * 10000
+            price_change = (current_price - open_price) * 10000
 
-        valid_intervals = intervals[intervals > 0]
-        tick_speed = 1.0 / np.mean(valid_intervals) if len(valid_intervals) > 0 else 0.0
+            valid_intervals = intervals[intervals > 0]
+            tick_speed = 1.0 / np.mean(valid_intervals) if len(valid_intervals) > 0 else 0.0
 
-        if len(price_changes) > 1:
-            signs = np.sign(price_changes)
-            direction_changes = np.sum(np.abs(np.diff(signs)) > 0)
-            direction_ratio = direction_changes / len(price_changes)
-        else:
-            direction_ratio = 0.0
+            if len(price_changes) > 1:
+                signs = np.sign(price_changes)
+                direction_changes = np.sum(np.abs(np.diff(signs)) > 0)
+                direction_ratio = direction_changes / len(price_changes)
+            else:
+                direction_ratio = 0.0
 
-        if volatility < 0.5 and direction_ratio < 0.15:
-            market_phase = "consolidation"
-        elif abs(momentum) > 2.5 and volatility > 1.2:
-            market_phase = "strong_trend"
-        elif abs(momentum) > 1.0:
-            market_phase = "weak_trend"
-        else:
-            market_phase = "neutral"
+            if volatility < 0.5 and direction_ratio < 0.15:
+                market_phase = "consolidation"
+            elif abs(momentum) > 2.5 and volatility > 1.2:
+                market_phase = "strong_trend"
+            elif abs(momentum) > 1.0:
+                market_phase = "weak_trend"
+            else:
+                market_phase = "neutral"
 
-        metrics = {
-            "open_price": open_price,
-            "high_price": high_price,
-            "low_price": low_price,
-            "current_price": current_price,
-            "buy_pressure": buy_pressure,
-            "sell_pressure": sell_pressure,
-            "pressure_ratio": pressure_ratio,
-            "momentum": momentum,
-            "volatility": volatility,
-            "up_ticks": int(up_ticks),
-            "down_ticks": int(down_ticks),
-            "total_ticks": len(self.candle_ticks),
-            "volume_trend": float(np.mean(volumes)),
-            "price_change": price_change,
-            "tick_speed": tick_speed,
-            "direction_ratio": direction_ratio,
-            "market_phase": market_phase,
-            "last_patterns": list(self.last_patterns)[:4],
-            "timestamp": time.time()
-        }
-        if seconds_remaining_norm is not None:
-            metrics['seconds_remaining_norm'] = float(seconds_remaining_norm)
-        return metrics
+            metrics = {
+                "open_price": open_price,
+                "high_price": high_price,
+                "low_price": low_price,
+                "current_price": current_price,
+                "buy_pressure": buy_pressure,
+                "sell_pressure": sell_pressure,
+                "pressure_ratio": pressure_ratio,
+                "momentum": momentum,
+                "volatility": volatility,
+                "up_ticks": int(up_ticks),
+                "down_ticks": int(down_ticks),
+                "total_ticks": len(self.candle_ticks),
+                "volume_trend": float(np.mean(volumes)),
+                "price_change": price_change,
+                "tick_speed": tick_speed,
+                "direction_ratio": direction_ratio,
+                "market_phase": market_phase,
+                "last_patterns": list(self.last_patterns)[:4],
+                "timestamp": time.time()
+            }
+            if seconds_remaining_norm is not None:
+                metrics['seconds_remaining_norm'] = float(seconds_remaining_norm)
+            return metrics
+        except Exception as e:
+            logging.error(f"Error calculando métricas: {e}")
+            return None
 
     def reset_candle(self):
         self.candle_ticks.clear()
@@ -303,6 +321,7 @@ class ProductionTickAnalyzer:
         self.current_candle_low = None
         self.sequence.clear()
         self.tick_count = 0
+        logging.info("🔄 Vela reiniciada")
 
 # ------------------ Predictor ------------------
 class ProductionPredictor:
@@ -343,10 +362,11 @@ class ProductionPredictor:
             if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
                 self.model = joblib.load(MODEL_PATH)
                 self.scaler = joblib.load(SCALER_PATH)
-                logging.info("Loaded existing ML artifacts.")
+                logging.info("✅ Modelo ML existente cargado")
             else:
                 self._initialize_new_model()
-        except Exception:
+        except Exception as e:
+            logging.error(f"❌ Error cargando modelo: {e}")
             self._initialize_new_model()
 
     def _initialize_new_model(self):
@@ -372,9 +392,9 @@ class ProductionPredictor:
             except Exception:
                 self.model.fit(Xs, y_dummy)
             self._save_artifacts()
-            logging.info("Initialized new ML model (warm).")
+            logging.info("✅ Nuevo modelo ML inicializado")
         except Exception as e:
-            logging.error("Error init model: %s", e)
+            logging.error(f"❌ Error init model: {e}")
             self.model = None
             self.scaler = None
 
@@ -383,8 +403,9 @@ class ProductionPredictor:
             if self.model and self.scaler:
                 joblib.dump(self.model, MODEL_PATH)
                 joblib.dump(self.scaler, SCALER_PATH)
+                logging.info("💾 Modelo guardado")
         except Exception as e:
-            logging.error("Error saving artifacts: %s", e)
+            logging.error(f"❌ Error guardando artifacts: {e}")
 
     def extract_features(self, metrics):
         try:
@@ -402,11 +423,11 @@ class ProductionPredictor:
             row["timestamp"] = datetime.utcnow().isoformat()
             pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
             self.partial_buffer.append((row,label))
-            logging.info(f"Saved sample label={label} conf={confidence:.1f}% buffer={len(self.partial_buffer)}")
+            logging.info(f"💾 Sample guardado - label={label} conf={confidence:.1f}% buffer={len(self.partial_buffer)}")
             if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
                 self._perform_partial_fit()
         except Exception as e:
-            logging.error("Error append sample: %s", e)
+            logging.error(f"❌ Error append sample: {e}")
 
     def _perform_partial_fit(self):
         if not self.partial_buffer or not self.model or not self.scaler:
@@ -422,10 +443,10 @@ class ProductionPredictor:
             except Exception:
                 self.model.fit(Xs, y_new)
             self._save_artifacts()
-            logging.info(f"Partial fit done with {len(X_new)} samples.")
+            logging.info(f"🧠 Partial fit completado con {len(X_new)} samples")
             self.partial_buffer.clear()
         except Exception as e:
-            logging.error("Error partial fit: %s", e)
+            logging.error(f"❌ Error partial fit: {e}")
             self.partial_buffer.clear()
 
     def on_candle_closed(self, closed_metrics):
@@ -445,7 +466,7 @@ class ProductionPredictor:
             else:
                 self.prev_candle_metrics = closed_metrics.copy()
         except Exception as e:
-            logging.error("Error on_candle_closed: %s", e)
+            logging.error(f"❌ Error on_candle_closed: {e}")
 
     def _record_performance(self, pred, actual_label):
         try:
@@ -462,8 +483,9 @@ class ProductionPredictor:
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['correct_predictions'] += int(correct)
             self.performance_stats['recent'].append(int(correct))
+            logging.info(f"📊 Performance registrada - Correcto: {correct}")
         except Exception as e:
-            logging.error("Error recording performance: %s", e)
+            logging.error(f"❌ Error recording performance: {e}")
 
     def predict_next_candle(self, seconds_remaining_norm=None):
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
@@ -483,7 +505,7 @@ class ProductionPredictor:
                     "model_type":"MLP"
                 }
             except Exception as e:
-                logging.warning("MLP predict error: %s", e)
+                logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
         rules = self._rule_based(metrics)
         final = self._fuse(mlp_pred, rules, metrics)
@@ -588,51 +610,97 @@ class ProductionPredictor:
             "rules_confidence":rules_pred.get("confidence")
         }
 
-# -------------- IQ connection helpers --------------
-def connect_iq_option():
-    max_attempts=5
-    for attempt in range(max_attempts):
-        try:
-            if not IQ_EMAIL or not IQ_PASSWORD:
-                logging.warning("IQ credentials not set in env")
-                return None
-            iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
-            check, reason = iq.connect()
-            if check:
-                iq.change_balance("PRACTICE")
-                try:
-                    iq.start_candles_stream(PAR, TIMEFRAME, 100)
-                except Exception:
-                    pass
-                logging.info("Connected to IQ Option")
-                return iq
-            else:
-                logging.warning("IQ connect failed: %s", reason)
-        except Exception as e:
-            logging.error("IQ connect error: %s", e)
-        time.sleep(2)
-    return None
+# -------------- IQ CONNECTION IMPROVED --------------
+class IQOptionConnector:
+    def __init__(self):
+        self.iq = None
+        self.connected = False
+        self.last_tick_time = None
+        self.tick_count = 0
+        
+    def connect(self):
+        """Conectar a IQ Option con múltiples intentos"""
+        max_attempts = 5
+        for attempt in range(max_attempts):
+            try:
+                if not IQ_EMAIL or not IQ_PASSWORD:
+                    logging.warning("❌ Credenciales IQ no configuradas en env")
+                    return None
+                    
+                logging.info(f"🔗 Conectando a IQ Option (intento {attempt + 1}/{max_attempts})...")
+                self.iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+                check, reason = self.iq.connect()
+                
+                if check:
+                    self.iq.change_balance("PRACTICE")
+                    self.connected = True
+                    logging.info("✅ Conectado exitosamente a IQ Option")
+                    
+                    # Iniciar stream de velas y ticks
+                    self._start_data_streams()
+                    return self.iq
+                else:
+                    logging.warning(f"⚠️ Conexión IQ fallida: {reason}")
+                    
+            except Exception as e:
+                logging.error(f"❌ Error conexión IQ: {e}")
+                
+            time.sleep(2)
+            
+        return None
 
-def get_current_price(iq):
-    try:
-        candles = iq.get_realtime_candles(PAR, TIMEFRAME)
-        if candles:
-            last = list(candles.values())[-1]
-            return float(last.get("close", last.get("mid", 0)))
-    except Exception:
-        pass
-    try:
-        mood = iq.get_realtime_mood(PAR)
-        if mood:
-            if isinstance(mood, list):
-                item = mood[-1]
-                if isinstance(item, dict) and "price" in item: 
-                    return float(item["price"])
-            elif isinstance(mood, dict) and "price" in mood: 
-                return float(mood["price"])
-    except Exception:
-        pass
-    return None
+    def _start_data_streams(self):
+        """Iniciar todos los streams de datos necesarios"""
+        try:
+            # Stream de velas
+            self.iq.start_candles_stream(PAR, TIMEFRAME, 100)
+            logging.info(f"📊 Stream de velas iniciado para {PAR}")
+            
+            # Stream de ticks en tiempo real
+            self.iq.subscribe_live_deal(PAR, "binary-option", 10)
+            logging.info("🔔 Suscripción a ticks en tiempo real activada")
+            
+        except Exception as e:
+            logging.error(f"❌ Error iniciando streams: {e}")
+
+    def get_realtime_ticks(self):
+        """Obtener ticks en tiempo real usando el callback"""
+        try:
+            if not self.connected or not self.iq:
+                return None
+                
+            # Obtener datos de mood (ticks en tiempo real)
+            mood_data = self.iq.get_realtime_mood(PAR)
+            if mood_data:
+                if isinstance(mood_data, list) and len(mood_data) > 0:
+                    latest_tick = mood_data[-1]
+                    if isinstance(latest_tick, dict) and 'price' in latest_tick:
+                        price = float(latest_tick['price'])
+                        self.tick_count += 1
+                        self.last_tick_time = time.time()
+                        return price
+                        
+            # Fallback: obtener de velas realtime
+            candles = self.iq.get_realtime_candles(PAR, TIMEFRAME)
+            if candles:
+                last_candle = list(candles.values())[-1]
+                price = float(last_candle.get('close', last_candle.get('mid', 0)))
+                if price > 0:
+                    return price
+                    
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo ticks: {e}")
+            
+        return None
+
+    def check_connection(self):
+        """Verificar si la conexión sigue activa"""
+        try:
+            if self.iq and hasattr(self.iq, 'check_connect'):
+                return self.iq.check_connect()
+            return False
+        except:
+            return False
 
 # --------------- Adaptive Trainer Loop ---------------
 def adaptive_trainer_loop(predictor: ProductionPredictor):
@@ -653,7 +721,7 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
             current_size = len(df)
             
             if current_size >= BATCH_TRAIN_SIZE and current_size > last_training_size + 25:
-                logging.info(f"🔁 Batch training with {current_size} samples...")
+                logging.info(f"🔁 Entrenamiento batch con {current_size} samples...")
                 
                 X = df[predictor._feature_names()].values
                 y = df["label"].values.astype(int)
@@ -695,26 +763,24 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
                     best_validation_accuracy = max(best_validation_accuracy, val_accuracy)
                     patience_counter = 0
                     
-                    logging.info(f"✅ Model updated (val_acc: {val_accuracy:.3f})")
+                    logging.info(f"✅ Modelo actualizado (val_acc: {val_accuracy:.3f})")
                 else:
                     patience_counter += 1
-                    logging.warning(f"⚠️ Model didn't improve. Patience: {patience_counter}/{max_patience}")
+                    logging.warning(f"⚠️ Modelo no mejoró. Paciencia: {patience_counter}/{max_patience}")
                     
                     if patience_counter >= max_patience:
-                        logging.info("🔄 Resetting patience...")
+                        logging.info("🔄 Reiniciando paciencia...")
                         patience_counter = 0
                         best_validation_accuracy = max(0.50, best_validation_accuracy * 0.95)
                         
         except Exception as e:
-            logging.error(f"❌ Training error: %s", e)
+            logging.error(f"❌ Error entrenamiento: {e}")
             time.sleep(60)
 
 # --------------- Initialization ---------------
-IQ = None
-try:
-    IQ = connect_iq_option()
-except Exception as e:
-    logging.warning("IQ init: %s", e)
+# Usar el nuevo conector mejorado
+iq_connector = IQOptionConnector()
+IQ = iq_connector.connect()
 
 predictor = ProductionPredictor()
 current_prediction = {
@@ -727,51 +793,83 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop ---------------
+# --------------- Main loop IMPROVED ---------------
 def professional_tick_analyzer():
-    logging.info("Delowyss AI V3.8 started (assistant-only)")
+    logging.info("🚀 Delowyss AI V3.8 iniciado (assistant-only)")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
+    consecutive_failures = 0
+    max_consecutive_failures = 10
     
     while True:
         try:
-            global IQ
-            if not IQ or (hasattr(IQ, "check_connect") and not IQ.check_connect()):
-                IQ = connect_iq_option()
+            global IQ, iq_connector
+            
+            # Verificar y mantener conexión
+            if not iq_connector.connected or not iq_connector.check_connection():
+                logging.warning("🔌 Reconectando a IQ Option...")
+                IQ = iq_connector.connect()
+                if not IQ:
+                    consecutive_failures += 1
+                    if consecutive_failures >= max_consecutive_failures:
+                        logging.error("❌ Máximo de reconexiones fallidas alcanzado")
+                        break
+                    time.sleep(5)
+                    continue
+                else:
+                    consecutive_failures = 0
+                    
+            # Obtener tick en tiempo real
+            price = iq_connector.get_realtime_ticks()
+            if price is not None and price > 0:
+                tick_data = predictor.analyzer.add_tick(price)
+                if tick_data:
+                    logging.debug(f"📈 Tick procesado: {price:.5f}")
+            else:
+                logging.warning("⚠️ No se pudo obtener precio válido")
                 time.sleep(1)
                 continue
                 
-            price = get_current_price(IQ)
-            if price is not None:
-                predictor.analyzer.add_tick(price)
-                
+            # Lógica de velas y predicciones
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             seconds_norm = seconds_remaining / TIMEFRAME
             
+            # Cambio de vela
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
                     predictor.on_candle_closed(closed_metrics)
                 predictor.analyzer.reset_candle()
                 last_candle_start = current_candle_start
-                logging.info("New candle started")
+                logging.info("🕯️ Nueva vela iniciada")
                 
+            # Realizar predicción en ventana específica
             if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
                 pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_norm)
                 global current_prediction
                 current_prediction = pred
                 last_prediction_time = time.time()
-                logging.info("PRED: %s | Conf: %s%% | Model: %s", 
-                           pred.get("direction"), pred.get("confidence"), pred.get("model_used","HYBRID"))
+                
+                # Log detallado de la predicción
+                logging.info("🎯 PREDICCIÓN: %s | Confianza: %s%% | Ticks: %s | Modelo: %s", 
+                           pred.get("direction"), 
+                           pred.get("confidence"), 
+                           pred.get("tick_count", 0),
+                           pred.get("model_used","HYBRID"))
                            
-            time.sleep(0.30)
+            time.sleep(0.5)  # Pausa optimizada
+            
         except Exception as e:
-            logging.error("Main loop error: %s", e)
+            logging.error(f"💥 Error en loop principal: {e}")
+            consecutive_failures += 1
+            if consecutive_failures >= max_consecutive_failures:
+                logging.error("❌ Máximo de errores consecutivos alcanzado")
+                break
             time.sleep(2)
 
-# --------------- FastAPI ---------------
+# --------------- FastAPI (sin cambios) ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -877,12 +975,18 @@ def home():
                 padding: 15px;
                 margin: 15px 0;
             }}
+            
+            /* Status indicators */
+            .status-connected {{ color: #00ff88; }}
+            .status-disconnected {{ color: #ff4444; }}
         </style>
     </head>
     <body>
         <div class="card">
             <h1>🤖 Delowyss Trading AI — V3.8</h1>
-            <p>Pair: {PAR} • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span></p>
+            <p>Pair: {PAR} • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
+            • Status: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONNECTED' if iq_connector.connected else 'DISCONNECTED'}</span>
+            </p>
             
             <!-- Countdown Timer -->
             <div class="countdown" id="countdown">--</div>
@@ -896,6 +1000,7 @@ def home():
                 <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% Confidence</h2>
                 <p>Model: {current_prediction.get('model_used','HYBRID')} • Price: {current_prediction.get('price',0)}</p>
                 <p>Phase: <strong>{phase}</strong> • Patterns: {', '.join(patterns[:3]) if patterns else 'none'}</p>
+                <p>Ticks procesados: <strong>{predictor.analyzer.tick_count}</strong></p>
             </div>
             
             <!-- Mini Chart -->
@@ -997,10 +1102,10 @@ def home():
                 }});
             }}
             
-            // Auto-refresh every 2 seconds
+            // Auto-refresh every 3 seconds
             setInterval(() => {{
                 window.location.reload();
-            }}, 2000);
+            }}, 3000);
         </script>
     </body>
     </html>
@@ -1013,12 +1118,7 @@ def api_prediction():
 
 @app.get("/api/status")
 def api_status():
-    connected = False
-    try:
-        connected = IQ.check_connect() if IQ else False
-    except Exception:
-        connected = False
-        
+    connected = iq_connector.connected if iq_connector else False
     training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     
@@ -1029,6 +1129,7 @@ def api_status():
         "model_loaded": predictor.model is not None,
         "training_samples": training_samples,
         "perf_rows": perf_rows,
+        "total_ticks_processed": predictor.analyzer.tick_count,
         "timestamp": now_iso()
     })
 
@@ -1064,7 +1165,8 @@ def api_patterns():
                 "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
                 "volatility": metrics.get("volatility", 0),
                 "momentum": metrics.get("momentum", 0),
-                "price_history": predictor.analyzer.get_price_history()
+                "price_history": predictor.analyzer.get_price_history(),
+                "total_ticks": predictor.analyzer.tick_count
             })
     except Exception as e:
         logging.error("Error /api/patterns: %s", e)

@@ -1,20 +1,11 @@
-# --- Core del sistema ---
 fastapi==0.115.0
 uvicorn==0.31.1
 python-dotenv==1.0.1
-
-# --- Conexión con IQ Option ---
-iqoptionapi==6.8.9
-
-# --- Ciencia de datos y IA ---
+git+https://github.com/Lu-Yi-Hsun/iqoptionapi.git
 numpy==1.26.4
 pandas==2.2.3
 scikit-learn==1.5.2
 joblib==1.4.2
-
-# --- Utilidades ---
 requests==2.32.3
 tqdm==4.66.5
-
-# --- Registro y tiempos ---
 pytz==2024.2

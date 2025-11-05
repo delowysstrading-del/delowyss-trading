@@ -575,24 +575,23 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
-        self._save_performance_to_csv(validation_result)
+        # 🆕 CORRECCIÓN: Usar el diccionario correcto para guardar performance
+        self._save_performance_to_csv({
+            "timestamp": validation_result["timestamp"],
+            "prediction": validation_result["predicted"],  # 🔽 CORREGIDO
+            "actual": validation_result["actual"],
+            "correct": validation_result["correct"],
+            "confidence": validation_result["confidence"],
+            "model_used": validation_result["model_used"]
+        })
         
         if performance_stats['total_predictions'] % 5 == 0:
             overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
             logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
 
-    def _save_performance_to_csv(self, validation_result):
-        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
+    def _save_performance_to_csv(self, perf_data):
+        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV - CORREGIDO"""
         try:
-            perf_data = {
-                "timestamp": validation_result["timestamp"],
-                "prediction": validation_result["predicted"],
-                "actual": validation_result["actual"],
-                "correct": validation_result["correct"],
-                "confidence": validation_result["confidence"],
-                "model_used": validation_result["model_used"]
-            }
-            
             file_exists = os.path.exists(PERF_CSV)
             if file_exists:
                 try:
@@ -645,6 +644,7 @@ class ProductionPredictor:
                 "model_used": pred.get("model_used","HYBRID")
             }
             
+            # 🆕 CORRECCIÓN: Usar la función corregida
             self._save_performance_to_csv(rec)
             
             self.performance_stats['total_predictions'] += 1

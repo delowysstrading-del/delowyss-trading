@@ -13,10 +13,12 @@ from datetime import datetime
 from collections import deque
 import numpy as np
 import pandas as pd
+import json
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 from iqoptionapi.stable_api import IQ_Option
 from sklearn.neural_network import MLPClassifier
@@ -126,6 +128,7 @@ class ProductionTickAnalyzer:
         self.last_patterns = deque(maxlen=8)
         self.tick_count = 0
         self.volatility_history = deque(maxlen=20)
+        self.price_history = deque(maxlen=50)  # Para el mini gráfico
 
     def _update_ema_alpha(self, current_volatility):
         try:
@@ -183,6 +186,7 @@ class ProductionTickAnalyzer:
         self.ticks.append(tick_data)
         self.candle_ticks.append(tick_data)
         self.sequence.append(price)
+        self.price_history.append(price)  # Para el gráfico
         self.tick_count += 1
 
         if len(self.sequence) >= 5:
@@ -190,6 +194,10 @@ class ProductionTickAnalyzer:
             if pattern:
                 self.last_patterns.appendleft((datetime.utcnow().isoformat(), pattern))
         return tick_data
+
+    def get_price_history(self):
+        """Devuelve el historial de precios para el gráfico"""
+        return list(self.price_history)
 
     def _detect_micro_pattern(self):
         try:
@@ -698,7 +706,7 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
                         best_validation_accuracy = max(0.50, best_validation_accuracy * 0.95)
                         
         except Exception as e:
-            logging.error(f"❌ Training error: {e}")
+            logging.error(f"❌ Training error: %s", e)
             time.sleep(60)
 
 # --------------- Initialization ---------------
@@ -785,6 +793,10 @@ def home():
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
+    # Obtener datos para el gráfico
+    price_history = predictor.analyzer.get_price_history()
+    price_history_json = json.dumps(price_history)
+    
     html = f"""
     <!doctype html>
     <html>
@@ -792,16 +804,17 @@ def home():
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
         <title>Delowyss AI V3.8</title>
+        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             body {{
-                font-family: Arial, sans-serif;
-                background: #071028;
+                font-family: 'Arial', sans-serif;
+                background: #0f172a;
                 color: #fff;
                 padding: 18px;
                 margin: 0;
             }}
             .card {{
-                max-width: 980px;
+                max-width: 1200px;
                 margin: 0 auto;
                 background: rgba(255,255,255,0.03);
                 padding: 20px;
@@ -809,10 +822,11 @@ def home():
             }}
             .prediction-card {{
                 border-left: 6px solid {color};
-                padding: 15px;
+                padding: 20px;
                 margin: 15px 0;
                 background: rgba(255,255,255,0.05);
                 border-radius: 8px;
+                text-align: center;
             }}
             .metrics-grid {{
                 display: grid;
@@ -829,17 +843,65 @@ def home():
             .accuracy-high {{ color: #00ff88; }}
             .accuracy-medium {{ color: #ffbb33; }}
             .accuracy-low {{ color: #ff4444; }}
+            
+            /* Countdown Timer */
+            .countdown {{
+                font-size: 3em;
+                font-weight: bold;
+                text-align: center;
+                margin: 20px 0;
+                font-family: 'Courier New', monospace;
+            }}
+            .countdown.critical {{
+                color: #ff4444;
+                animation: pulse 1s infinite;
+            }}
+            @keyframes pulse {{
+                0% {{ opacity: 1; }}
+                50% {{ opacity: 0.5; }}
+                100% {{ opacity: 1; }}
+            }}
+            
+            /* Direction Arrows */
+            .direction-arrow {{
+                font-size: 4em;
+                margin: 10px 0;
+            }}
+            .arrow-up {{ color: #00ff88; }}
+            .arrow-down {{ color: #ff4444; }}
+            
+            /* Mini Chart */
+            .chart-container {{
+                background: rgba(255,255,255,0.02);
+                border-radius: 8px;
+                padding: 15px;
+                margin: 15px 0;
+            }}
         </style>
     </head>
     <body>
         <div class="card">
             <h1>🤖 Delowyss Trading AI — V3.8</h1>
-            <p>Pair: {PAR} • UTC: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            <p>Pair: {PAR} • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span></p>
+            
+            <!-- Countdown Timer -->
+            <div class="countdown" id="countdown">--</div>
+            
+            <!-- Direction Arrows -->
+            <div class="direction-arrow" id="direction-arrow">
+                {"⬆️" if direction == "ALZA" else "⬇️" if direction == "BAJA" else "⏸️"}
+            </div>
             
             <div class="prediction-card">
                 <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% Confidence</h2>
                 <p>Model: {current_prediction.get('model_used','HYBRID')} • Price: {current_prediction.get('price',0)}</p>
                 <p>Phase: <strong>{phase}</strong> • Patterns: {', '.join(patterns[:3]) if patterns else 'none'}</p>
+            </div>
+            
+            <!-- Mini Chart -->
+            <div class="chart-container">
+                <h3>📊 Live Price Movement</h3>
+                <canvas id="priceChart" width="400" height="100"></canvas>
             </div>
             
             <div class="metrics-grid">
@@ -870,6 +932,76 @@ def home():
                 </ul>
             </div>
         </div>
+
+        <script>
+            // Countdown Timer
+            function updateCountdown() {{
+                const now = new Date();
+                const seconds = now.getSeconds();
+                const remaining = 60 - seconds;
+                
+                const countdownEl = document.getElementById('countdown');
+                countdownEl.textContent = remaining + 's';
+                
+                // Critical time (last 5 seconds)
+                if (remaining <= 5) {{
+                    countdownEl.classList.add('critical');
+                }} else {{
+                    countdownEl.classList.remove('critical');
+                }}
+                
+                // Update current time
+                document.getElementById('current-time').textContent = 
+                    now.toISOString().replace('T', ' ').substr(0, 19);
+            }}
+            
+            // Update countdown every second
+            setInterval(updateCountdown, 1000);
+            updateCountdown();
+            
+            // Mini Price Chart
+            const priceHistory = {price_history_json};
+            const ctx = document.getElementById('priceChart').getContext('2d');
+            
+            if (priceHistory.length > 1) {{
+                const chart = new Chart(ctx, {{
+                    type: 'line',
+                    data: {{
+                        labels: Array.from({{length: priceHistory.length}}, (_, i) => i),
+                        datasets: [{{
+                            label: 'Price',
+                            data: priceHistory,
+                            borderColor: '#00ff88',
+                            backgroundColor: 'rgba(0, 255, 136, 0.1)',
+                            borderWidth: 2,
+                            fill: true,
+                            tension: 0.4
+                        }}]
+                    }},
+                    options: {{
+                        responsive: true,
+                        maintainAspectRatio: false,
+                        plugins: {{
+                            legend: {{ display: false }},
+                            tooltip: {{ enabled: false }}
+                        }},
+                        scales: {{
+                            x: {{ display: false }},
+                            y: {{ 
+                                display: true,
+                                grid: {{ color: 'rgba(255,255,255,0.1)' }},
+                                ticks: {{ color: '#fff' }}
+                            }}
+                        }}
+                    }}
+                }});
+            }}
+            
+            // Auto-refresh every 2 seconds
+            setInterval(() => {{
+                window.location.reload();
+            }}, 2000);
+        </script>
     </body>
     </html>
     """
@@ -931,7 +1063,8 @@ def api_patterns():
                 "market_phase": metrics.get("market_phase", "unknown"),
                 "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
                 "volatility": metrics.get("volatility", 0),
-                "momentum": metrics.get("momentum", 0)
+                "momentum": metrics.get("momentum", 0),
+                "price_history": predictor.analyzer.get_price_history()
             })
     except Exception as e:
         logging.error("Error /api/patterns: %s", e)

@@ -18,7 +18,6 @@ import json
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 from iqoptionapi.stable_api import IQ_Option
 from sklearn.neural_network import MLPClassifier
@@ -30,7 +29,7 @@ warnings.filterwarnings("ignore")
 # ---------------- CONFIG ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD")  # Forzado a EURUSD estándar
+PAR = os.getenv("PAIR", "EURUSD")
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
@@ -48,16 +47,11 @@ SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-LOG_FILE = os.getenv("LOG_FILE", "delowyss_v38.log")
-
 # ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler()
-    ]
+    handlers=[logging.StreamHandler()]
 )
 
 def now_iso():
@@ -230,7 +224,7 @@ class ProductionTickAnalyzer:
         return None
 
     def get_candle_metrics(self, seconds_remaining_norm: float = None):
-        if len(self.candle_ticks) < 2:  # Reducido para funcionar más rápido
+        if len(self.candle_ticks) < 2:
             return None
             
         try:
@@ -601,7 +595,7 @@ class ProductionPredictor:
             "rules_confidence":rules_pred.get("confidence")
         }
 
-# -------------- IQ CONNECTION MEJORADA --------------
+# -------------- IQ CONNECTION COMPLETA --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -609,15 +603,14 @@ class IQOptionConnector:
         self.last_tick_time = None
         self.tick_count = 0
         self.last_price = None
-        self.actual_pair = PAR  # Usar el par configurado directamente
-        self.last_candle_time = None
+        self.actual_pair = None
         
     def connect(self):
         """Conectar a IQ Option"""
         try:
             if not IQ_EMAIL or not IQ_PASSWORD:
                 logging.warning("❌ Credenciales IQ no configuradas")
-                return False
+                return None
                 
             logging.info("🔗 Conectando a IQ Option...")
             self.iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
@@ -628,73 +621,57 @@ class IQOptionConnector:
                 self.connected = True
                 logging.info("✅ Conectado exitosamente a IQ Option")
                 
-                # Verificar que el par configurado funciona
-                if self._test_pair(self.actual_pair):
-                    logging.info(f"✅ Par {self.actual_pair} funcionando correctamente")
-                    return True
-                else:
-                    logging.warning(f"⚠️ Par {self.actual_pair} no funciona, intentando alternativas...")
-                    return self._find_working_pair()
+                # Encontrar el par correcto que funcione
+                self._find_working_pair()
+                
+                return self.iq
             else:
                 logging.warning(f"⚠️ Conexión fallida: {reason}")
-                return False
+                return None
                 
         except Exception as e:
             logging.error(f"❌ Error conexión: {e}")
-            return False
-
-    def _test_pair(self, pair):
-        """Probar si un par específico funciona"""
-        try:
-            candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
-            if candles and len(candles) > 0:
-                price = float(candles[-1]['close'])
-                if price > 0 and price < 2.0:  # Precio realista para EURUSD
-                    logging.info(f"✅ Par {pair} funcional - Precio: {price:.5f}")
-                    self.actual_pair = pair
-                    return True
-        except Exception as e:
-            logging.debug(f"Par {pair} falló: {e}")
-        return False
+            return None
 
     def _find_working_pair(self):
-        """Encontrar un par que funcione - VERSIÓN MEJORADA"""
+        """Encontrar un par que funcione"""
         test_pairs = [
-            "EURUSD",           # Standard primero
-            "EURUSD-OTC",       # OTC después
-            "EURUSD",           # Forex
+            "EURUSD",           # Forex estándar
+            "EURUSD-OTC",       # OTC
+            "EURUSD",           # Forex alternativo
         ]
         
         for pair in test_pairs:
-            if self._test_pair(pair):
-                return True
+            try:
+                logging.info(f"🔍 Probando par: {pair}")
+                candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
+                if candles and len(candles) > 0:
+                    price = float(candles[-1]['close'])
+                    if price > 0:
+                        self.actual_pair = pair
+                        logging.info(f"✅ Par funcional encontrado: {pair} - Precio: {price:.5f}")
+                        return
+            except Exception as e:
+                logging.debug(f"Par {pair} falló: {e}")
         
-        logging.error("❌ No se pudo encontrar ningún par funcional")
-        return False
-
-    def ensure_connection(self):
-        """Asegurar que estamos conectados y tenemos un par funcional"""
-        if not self.connected or not self.check_connection():
-            logging.warning("🔄 Reconectando a IQ Option...")
-            return self.connect()
-        return True
+        # Si no encontramos par, usar EURUSD por defecto
+        self.actual_pair = "EURUSD"
+        logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real - VERSIÓN ROBUSTA"""
+        """Obtener ticks en tiempo real - VERSIÓN COMPLETA"""
         try:
-            if not self.ensure_connection():
+            if not self.connected or not self.iq:
                 return None
 
-            working_pair = self.actual_pair
+            working_pair = self.actual_pair if self.actual_pair else "EURUSD"
             
-            # MÉTODO PRINCIPAL: get_candles (más confiable)
+            # MÉTODO PRINCIPAL: get_candles
             try:
                 candles = self.iq.get_candles(working_pair, TIMEFRAME, 1, time.time())
                 if candles and len(candles) > 0:
-                    latest_candle = candles[-1]
-                    price = float(latest_candle['close'])
-                    
-                    if price > 0 and price < 2.0:  # Filtro de precio realista
+                    price = float(candles[-1]['close'])
+                    if price > 0:
                         self._record_tick(price)
                         return price
             except Exception as e:
@@ -708,31 +685,31 @@ class IQOptionConnector:
                     if candle_list:
                         latest_candle = candle_list[-1]
                         price = float(latest_candle.get('close', 0))
-                        if price > 0 and price < 2.0:
+                        if price > 0:
                             self._record_tick(price)
                             return price
             except Exception as e:
                 logging.debug(f"get_realtime_candles falló: {e}")
 
-            # Último precio conocido como fallback
-            if self.last_price and self.last_price > 0:
+            # Último precio conocido
+            if self.last_price:
                 return self.last_price
 
         except Exception as e:
-            logging.error(f"❌ Error crítico obteniendo ticks: {e}")
+            logging.error(f"❌ Error obteniendo ticks: {e}")
             
         return None
 
     def _record_tick(self, price):
         """Registrar tick recibido"""
-        current_time = time.time()
         self.tick_count += 1
-        self.last_tick_time = current_time
+        self.last_tick_time = time.time()
         self.last_price = price
         
-        # Log informativo (no saturar logs)
-        if self.tick_count <= 15 or self.tick_count % 25 == 0:
-            logging.info(f"💰 Tick #{self.tick_count} ({self.actual_pair}): {price:.5f}")
+        # Log cada 5 ticks para no saturar
+        if self.tick_count <= 10 or self.tick_count % 5 == 0:
+            pair_info = f" ({self.actual_pair})" if self.actual_pair else ""
+            logging.info(f"💰 Tick #{self.tick_count}{pair_info}: {price:.5f}")
 
     def check_connection(self):
         """Verificar conexión"""
@@ -799,92 +776,49 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
 iq_connector = IQOptionConnector()
 predictor = ProductionPredictor()
 
-# Estado global mejorado
 current_prediction = {
-    "direction": "N/A",
-    "confidence": 0.0,
-    "price": 0.0,
-    "tick_count": 0,
-    "reasons": ["Sistema iniciando..."],
-    "timestamp": now_iso(),
-    "model_used": "INIT",
-    "status": "INICIANDO",
-    "market_phase": "n/a",
-    "volatility": 0.0,
-    "momentum": 0.0
+    "direction":"N/A",
+    "confidence":0.0,
+    "price":0.0,
+    "tick_count":0,
+    "reasons":[],
+    "timestamp":now_iso(),
+    "model_used":"INIT"
 }
 
-# --------------- Main loop MEJORADO ---------------
+# --------------- Main loop COMPLETO ---------------
 def professional_tick_analyzer():
     global current_prediction
     
     logging.info("🚀 Delowyss AI V3.8 iniciado - PRECIOS REALES")
     last_prediction_time = 0
-    last_candle_start = time.time() // TIMEFRAME * TIMEFRAME
-    consecutive_failures = 0
-    max_failures = 8
+    last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
-    # Esperar conexión inicial
-    time.sleep(2)
-    
-    # Intentar conexión inicial
-    if iq_connector.connect():
-        current_prediction["status"] = "CONECTADO"
-        logging.info("✅ Conexión IQ Option establecida")
-    else:
-        current_prediction["status"] = "ERROR_CONEXION"
-        logging.error("❌ No se pudo establecer conexión inicial")
+    # Conexión inicial
+    iq_connector.connect()
 
     while True:
         try:
-            # Verificar conexión periódicamente
-            if consecutive_failures % 10 == 0:
-                iq_connector.ensure_connection()
-            
             # Obtener tick REAL
             price = iq_connector.get_realtime_ticks()
             
             if price is not None and price > 0:
-                consecutive_failures = 0
                 tick_data = predictor.analyzer.add_tick(price)
-                
-                # Actualizar estado global inmediatamente
-                current_prediction.update({
-                    "price": price,
-                    "tick_count": predictor.analyzer.tick_count,
-                    "timestamp": now_iso(),
-                    "status": "CONECTADO"
-                })
-                
-                # Obtener métricas actualizadas
-                metrics = predictor.analyzer.get_candle_metrics()
-                if metrics:
-                    current_prediction.update({
-                        "market_phase": metrics.get("market_phase", "n/a"),
-                        "volatility": metrics.get("volatility", 0),
-                        "momentum": metrics.get("momentum", 0)
-                    })
-                
-                # Log de progreso
-                if predictor.analyzer.tick_count <= 10 or predictor.analyzer.tick_count % 15 == 0:
-                    logging.info(f"✅ Tick #{predictor.analyzer.tick_count}: {price:.5f}")
+                if tick_data and predictor.analyzer.tick_count <= 10:
+                    logging.info(f"🎯 Tick REAL #{predictor.analyzer.tick_count}: {price:.5f}")
+                    
+                # Actualizar estado global
+                current_prediction["price"] = price
+                current_prediction["tick_count"] = predictor.analyzer.tick_count
+                current_prediction["timestamp"] = now_iso()
                 
             else:
-                consecutive_failures += 1
-                if consecutive_failures > max_failures:
-                    logging.error("❌ Múltiples fallos consecutivos obteniendo precios")
-                    current_prediction["status"] = "ERROR_CONEXION"
-                    # Forzar reconexión
-                    if iq_connector.ensure_connection():
-                        consecutive_failures = 0
-                        current_prediction["status"] = "RECONECTADO"
-                
                 time.sleep(1)
                 continue
                 
-            # Lógica de velas
+            # Lógica de velas COMPLETA
             now = time.time()
-            current_candle_start = now // TIMEFRAME * TIMEFRAME
+            current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             
             # Cambio de vela
@@ -896,12 +830,11 @@ def professional_tick_analyzer():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela iniciada")
                 
-            # Predicción (más frecuente para testing)
-            if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > 2:
-                if predictor.analyzer.tick_count >= 3:  # Mínimo reducido
+            # Predicción COMPLETA
+            if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
+                if predictor.analyzer.tick_count >= 3:
                     pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
                     current_prediction.update(pred)
-                    current_prediction["status"] = "PREDICIENDO"
                     last_prediction_time = time.time()
                     
                     logging.info("🎯 PREDICCIÓN: %s | Confianza: %s%% | Precio: %s", 
@@ -909,22 +842,15 @@ def professional_tick_analyzer():
                                pred.get("confidence"),
                                pred.get("price", 0))
                            
-            time.sleep(0.5)  # Balance entre responsividad y carga
+            time.sleep(1)
             
         except Exception as e:
             logging.error(f"💥 Error en loop: {e}")
-            current_prediction["status"] = "ERROR"
             time.sleep(2)
 
-# --------------- FastAPI MEJORADO ---------------
-app = FastAPI(title="Delowyss AI V3.8")
-app.add_middleware(
-    CORSMiddleware, 
-    allow_origins=["*"], 
-    allow_credentials=True, 
-    allow_methods=["*"], 
-    allow_headers=["*"]
-)
+# --------------- FastAPI COMPLETO ---------------
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/", response_class=HTMLResponse)
 def home():
@@ -933,38 +859,35 @@ def home():
     except:
         training_samples = 0
         
-    try:
+    try:  
         perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     except:
         perf_rows = 0
         
     perf_acc = 0.0
     try:
-        if perf_rows > 0:
+        if perf_rows>0:
             perf_df = pd.read_csv(PERF_CSV)
-            if "correct" in perf_df and len(perf_df) > 0:
-                perf_acc = perf_df["correct"].mean() * 100
+            if "correct" in perf_df:
+                perf_acc = perf_df["correct"].mean()*100
     except Exception:
         perf_acc = 0.0
         
-    # Obtener métricas actuales de forma segura
     try:
         metrics = predictor.analyzer.get_candle_metrics()
-        phase = metrics.get("market_phase", "n/a") if metrics else "n/a"
+        phase = metrics.get("market_phase") if metrics else "n/a"
         patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
     except:
         phase = "n/a"
         patterns = []
         
-    direction = current_prediction.get("direction", "N/A")
-    color = "#00ff88" if direction == "ALZA" else ("#ff4444" if direction == "BAJA" else "#ffbb33")
+    direction = current_prediction.get("direction","N/A")
+    color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
     price_history = predictor.analyzer.get_price_history()
     price_history_json = json.dumps(price_history)
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
-    status = current_prediction.get("status", "INICIANDO")
-    status_color = "#00ff88" if status == "CONECTADO" else ("#ffbb33" if status == "PREDICIENDO" else "#ff4444")
     
     html = f"""
     <!doctype html>
@@ -1042,19 +965,14 @@ def home():
                 border-radius: 8px;
                 padding: 15px;
                 margin: 15px 0;
-                height: 200px;
             }}
-            
-            .status-connected {{ color: #00ff88; }}
-            .status-disconnected {{ color: #ff4444; }}
-            .status-predicting {{ color: #ffbb33; }}
         </style>
     </head>
     <body>
         <div class="card">
             <h1>🤖 Delowyss Trading AI — V3.8</h1>
             <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
-            • Estado: <span id="connection-status" style="color: {status_color}">{status}</span>
+            • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
             
             <div class="countdown" id="countdown">--</div>
@@ -1064,10 +982,10 @@ def home():
             </div>
             
             <div class="prediction-card">
-                <h2 style="color:{color}; margin:0" id="prediction-title">{direction} — {current_prediction.get('confidence', 0)}% de confianza</h2>
-                <p id="prediction-details">Modelo: {current_prediction.get('model_used','INIT')} • Precio: <span id="current-price">{current_prediction.get('price', 0):.5f}</span></p>
-                <p>Fase: <strong id="market-phase">{phase}</strong> • Patrones: <span id="patterns">{', '.join(patterns[:3]) if patterns else 'ninguno'}</span></p>
-                <p>Marcas evaluadas: <strong id="tick-count">{current_prediction.get('tick_count', 0)}</strong></p>
+                <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% de confianza</h2>
+                <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
+                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
+                <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
             
             <div class="chart-container">
@@ -1092,14 +1010,14 @@ def home():
                 </div>
                 <div class="metric-cell">
                     <strong>Timbres actuales</strong>
-                    <div id="current-ticks">{current_prediction.get('tick_count', 0)}</div>
+                    <div>{current_prediction.get('tick_count',0)}</div>
                 </div>
             </div>
             
             <div class="metric-cell">
                 <h3>Razones de predicción</h3>
                 <ul id="reasons-list">
-                    {"".join([f"<li>✅ {r}</li>" for r in current_prediction.get('reasons', [])]) if current_prediction.get('reasons') else "<li>🔄 Analizando datos de mercado...</li>"}
+                    {"".join([f"<li>✅ {r}</li>" for r in current_prediction.get('reasons',[])]) if current_prediction.get('reasons') else "<li>🔄 Analizando datos de mercado...</li>"}
                 </ul>
             </div>
         </div>
@@ -1123,60 +1041,50 @@ def home():
                     now.toISOString().replace('T', ' ').substr(0, 19);
             }}
             
-            // Actualizar datos via AJAX cada 2 segundos
+            // Actualizar datos via AJAX
             function updateData() {{
                 fetch('/api/prediction')
                     .then(response => response.json())
                     .then(data => {{
-                        // Actualizar dirección y confianza
                         const direction = data.direction || 'N/A';
                         const confidence = data.confidence || 0;
                         const price = data.price || 0;
                         const tickCount = data.tick_count || 0;
-                        const reasons = data.reasons || ['Analizando datos...'];
-                        const status = data.status || 'INICIANDO';
-                        const marketPhase = data.market_phase || 'n/a';
+                        const reasons = data.reasons || [];
                         
                         // Actualizar UI
-                        document.getElementById('prediction-title').textContent = 
+                        document.querySelector('.prediction-card h2').textContent = 
                             `${{direction}} — ${{confidence}}% de confianza`;
-                        document.getElementById('prediction-details').innerHTML = 
-                            `Modelo: ${{data.model_used || 'INIT'}} • Precio: <span id="current-price">${{price.toFixed(5)}}</span>`;
-                        document.getElementById('tick-count').textContent = tickCount;
-                        document.getElementById('market-phase').textContent = marketPhase;
-                        document.getElementById('current-ticks').textContent = tickCount;
+                        document.querySelector('.prediction-card p:nth-child(2)').innerHTML = 
+                            `Modelo: ${{data.model_used || 'HYBRID'}} • Precio: ${{price.toFixed(5)}}`;
+                        document.querySelector('.prediction-card p:nth-child(4)').innerHTML = 
+                            `Marcas evaluadas: <strong>${{tickCount}}</strong>`;
                             
-                        // Actualizar flecha de dirección
+                        // Actualizar flecha
                         const arrowEl = document.getElementById('direction-arrow');
                         arrowEl.innerHTML = direction === 'ALZA' ? '⬆️' : (direction === 'BAJA' ? '⬇️' : '⏸️');
                         
-                        // Actualizar color del card y estado
+                        // Actualizar color
                         const color = direction === 'ALZA' ? '#00ff88' : (direction === 'BAJA' ? '#ff4444' : '#ffbb33');
                         document.querySelector('.prediction-card').style.borderLeftColor = color;
                         document.querySelector('.prediction-card h2').style.color = color;
-                        
-                        const statusColor = status === 'CONECTADO' ? '#00ff88' : (status === 'PREDICIENDO' ? '#ffbb33' : '#ff4444');
-                        document.getElementById('connection-status').style.color = statusColor;
-                        document.getElementById('connection-status').textContent = status;
                         
                         // Actualizar razones
                         const reasonsList = document.getElementById('reasons-list');
                         reasonsList.innerHTML = reasons.map(r => `<li>✅ ${{r}}</li>`).join('') || 
                                                 '<li>🔄 Analizando datos de mercado...</li>';
                     }})
-                    .catch(error => {{
-                        console.error('Error updating data:', error);
-                    }});
+                    .catch(error => console.error('Error:', error));
             }}
             
-            // Inicializar chart
+            // Chart
             const priceHistory = {price_history_json};
             if (priceHistory.length > 1) {{
                 const ctx = document.getElementById('priceChart').getContext('2d');
                 const chart = new Chart(ctx, {{
                     type: 'line',
                     data: {{
-                        labels: Array.from({{length: priceHistory.length}}, (_, i) => ''),
+                        labels: Array.from({{length: priceHistory.length}}, (_, i) => i),
                         datasets: [{{
                             label: 'Precio',
                             data: priceHistory,
@@ -1184,8 +1092,7 @@ def home():
                             backgroundColor: 'rgba(0, 255, 136, 0.1)',
                             borderWidth: 2,
                             fill: true,
-                            tension: 0.4,
-                            pointRadius: 0
+                            tension: 0.4
                         }}]
                     }},
                     options: {{
@@ -1193,32 +1100,22 @@ def home():
                         maintainAspectRatio: false,
                         plugins: {{
                             legend: {{ display: false }},
-                            tooltip: {{ 
-                                enabled: true,
-                                mode: 'index',
-                                intersect: false
-                            }}
+                            tooltip: {{ enabled: false }}
                         }},
                         scales: {{
-                            x: {{ 
-                                display: false 
-                            }},
+                            x: {{ display: false }},
                             y: {{ 
                                 display: true,
                                 grid: {{ color: 'rgba(255,255,255,0.1)' }},
                                 ticks: {{ color: '#fff' }}
                             }}
-                        }},
-                        interaction: {{
-                            intersect: false,
-                            mode: 'index'
                         }}
                     }}
                 }});
             }}
             
             setInterval(updateCountdown, 1000);
-            setInterval(updateData, 2000); // Actualizar datos cada 2 segundos
+            setInterval(updateData, 2000);
             updateCountdown();
             updateData();
         </script>
@@ -1234,11 +1131,8 @@ def api_prediction():
 @app.get("/api/status")
 def api_status():
     connected = iq_connector.connected if iq_connector else False
-    try:
-        training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
-    except:
-        training_samples = 0
-        
+    training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
+    perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
     return JSONResponse({
@@ -1247,11 +1141,9 @@ def api_status():
         "pair": actual_pair,
         "model_loaded": predictor.model is not None,
         "training_samples": training_samples,
+        "perf_rows": perf_rows,
         "total_ticks_processed": predictor.analyzer.tick_count,
-        "timestamp": now_iso(),
-        "current_price": current_prediction.get("price", 0),
-        "current_direction": current_prediction.get("direction", "N/A"),
-        "system_status": current_prediction.get("status", "INICIANDO")
+        "timestamp": now_iso()
     })
 
 @app.get("/api/performance")
@@ -1294,24 +1186,24 @@ def api_patterns():
     
     return JSONResponse({"error": "No pattern data available"})
 
-# --------------- Start threads & server ---------------
-if __name__ == "__main__":
-    # Iniciar threads
+# --------------- Inicialización para Render ---------------
+def start_background_tasks():
+    """Iniciar todas las tareas en background - CORREGIDO PARA RENDER"""
+    # Iniciar analyzer
     analyzer_thread = threading.Thread(target=professional_tick_analyzer, daemon=True)
     analyzer_thread.start()
-    logging.info("📊 Tick analyzer thread started")
-
+    logging.info("📊 Background analyzer started")
+    
+    # Iniciar trainer
     trainer_thread = threading.Thread(target=adaptive_trainer_loop, args=(predictor,), daemon=True)
     trainer_thread.start()
-    logging.info("🧠 Model trainer thread started")
+    logging.info("🧠 Background trainer started")
 
+# Iniciar tareas automáticamente al importar
+start_background_tasks()
+
+# Para desarrollo local
+if __name__ == "__main__":
     import uvicorn
     port = int(os.getenv("PORT", "10000"))
-    logging.info("🚀 Starting Delowyss AI V3.8 server on port %s", port)
-    
-    try:
-        uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
-    except Exception as e:
-        logging.error("Server error: %s", e)
-    finally:
-        logging.info("Server shutdown")
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

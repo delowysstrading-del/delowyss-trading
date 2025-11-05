@@ -1,330 +1,963 @@
+# main.py
+"""
+Delowyss Trading AI — V3.8-Full (Production)
+Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
+CEO: Eduardo Solis — © 2025
+"""
+
+import os
 import time
 import threading
 import logging
 from datetime import datetime
-import os
-import pandas as pd
+from collections import deque
 import numpy as np
-import socket
+import pandas as pd
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+
 from iqoptionapi.stable_api import IQ_Option
 from sklearn.neural_network import MLPClassifier
-from sklearn.preprocessing import StandardScaler
-import uvicorn
+from sklearn.model_selection import train_test_split
 import joblib
+import warnings
+warnings.filterwarnings("ignore")
 
-# --- INTENTO DE IMPORTAR TENSORFLOW (si falla, usa solo MLP) ---
-USE_TF = True
-try:
-    import tensorflow as tf
-    from tensorflow.keras.models import Sequential, load_model
-    from tensorflow.keras.layers import LSTM, Dense, Dropout, BatchNormalization
-    from tensorflow.keras.callbacks import EarlyStopping
-except Exception:
-    USE_TF = False
+# ---------------- CONFIG ----------------
+IQ_EMAIL = os.getenv("IQ_EMAIL")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD")
+PAR = os.getenv("PAIR", "EURUSD-OTC")
+TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
+PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
-# --- LOGGING ---
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+MODEL_VERSION = os.getenv("MODEL_VERSION", "v38")
+TRAINING_CSV = os.getenv("TRAINING_CSV", f"training_data_{MODEL_VERSION}.csv")
+PERF_CSV = os.getenv("PERF_CSV", f"performance_{MODEL_VERSION}.csv")
+MODEL_PATH = os.getenv("MODEL_PATH", f"delowyss_mlp_{MODEL_VERSION}.joblib")
+SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib")
 
-# --- CREDENCIALES IQ OPTION ---
-EMAIL = "vozhechacancion1@gmail.com"
-PASSWORD = "Eduyesy1986/"
+BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
+PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
+CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "68.0"))
 
-# --- FASTAPI ---
-app = FastAPI()
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
+SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
+MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
+MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
+
+LOG_FILE = os.getenv("LOG_FILE", "delowyss_v38.log")
+
+# ---------------- LOGGING ----------------
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s [%(levelname)s] %(message)s',
+    handlers=[
+        logging.FileHandler(LOG_FILE),
+        logging.StreamHandler()
+    ]
 )
 
-# --- IA MODELOS ---
-mlp_model = MLPClassifier(hidden_layer_sizes=(256, 128, 64), max_iter=1500, activation='relu')
-scaler = StandardScaler()
-model_trained = False
-latest_candles = []
-IQ = None
+def now_iso():
+    return datetime.utcnow().isoformat()
 
-# --- RUTAS Y CONFIGURACIONES ---
-MODELS_DIR = "models"
-os.makedirs(MODELS_DIR, exist_ok=True)
-SCALER_PATH = os.path.join(MODELS_DIR, "scaler.gz")
-MLP_PATH = os.path.join(MODELS_DIR, "mlp_joblib.gz")
-LSTM_PATH = os.path.join(MODELS_DIR, "lstm_model")
-SEQ_LEN = 30
-MIN_SAMPLES_TO_TRAIN = 60
-lstm_model = None
-lstm_ready = False
+def safe_float(x, default=0.0):
+    try:
+        return float(x)
+    except:
+        return default
 
-# ---------------------------------------------------------------
-# ✅ CONEXIÓN A IQ OPTION
-# ---------------------------------------------------------------
-def conectar_iq():
-    global IQ
-    IQ = IQ_Option(EMAIL, PASSWORD)
-    for intento in range(5):
+# ------------------ Incremental Scaler ------------------
+class IncrementalScaler:
+    def __init__(self):
+        self.n_samples_seen_ = 0
+        self.mean_ = None
+        self.var_ = None
+        self.is_fitted_ = False
+
+    def partial_fit(self, X):
+        X = np.asarray(X, dtype=np.float32)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+
+        batch_size = X.shape[0]
+        batch_mean = np.mean(X, axis=0)
+        batch_var = np.var(X, axis=0)
+
+        if self.n_samples_seen_ == 0:
+            self.mean_ = batch_mean
+            self.var_ = batch_var
+        else:
+            total = self.n_samples_seen_ + batch_size
+            delta = batch_mean - self.mean_
+            self.mean_ += delta * batch_size / total
+            self.var_ = (
+                (self.n_samples_seen_ * self.var_) +
+                (batch_size * batch_var) +
+                (self.n_samples_seen_ * batch_size * (delta ** 2) / total)
+            ) / total
+
+        self.n_samples_seen_ += batch_size
+        self.is_fitted_ = True
+        return self
+
+    def transform(self, X):
+        if not self.is_fitted_:
+            raise ValueError("Scaler not fitted")
+        X = np.asarray(X, dtype=np.float32)
+        return (X - self.mean_) / np.sqrt(self.var_ + 1e-8)
+
+    def fit_transform(self, X):
+        return self.partial_fit(X).transform(X)
+
+# ------------------ Analyzer ------------------
+class ProductionTickAnalyzer:
+    def __init__(self, base_ema_alpha=0.3):
+        self.ticks = deque(maxlen=MAX_TICKS_MEMORY)
+        self.candle_ticks = deque(maxlen=MAX_CANDLE_TICKS)
+        self.sequence = deque(maxlen=SEQUENCE_LENGTH)
+        self.current_candle_open = None
+        self.current_candle_high = None
+        self.current_candle_low = None
+        self.smoothed_price = None
+        self.base_ema_alpha = base_ema_alpha
+        self.ema_alpha = base_ema_alpha
+        self.last_tick_time = None
+        self.last_patterns = deque(maxlen=8)
+        self.tick_count = 0
+        self.volatility_history = deque(maxlen=20)
+
+    def _update_ema_alpha(self, current_volatility):
         try:
-            logging.info("🔗 Conectando a IQ Option...")
-            IQ.connect()
-            IQ.change_balance("PRACTICE")
-            logging.info("✅ Conectado a IQ Option (modo DEMO).")
-            return True
+            self.volatility_history.append(current_volatility)
+            smoothed_vol = np.mean(list(self.volatility_history))
+            if smoothed_vol < 0.4:
+                self.ema_alpha = self.base_ema_alpha * 0.5
+            elif smoothed_vol < 1.2:
+                self.ema_alpha = self.base_ema_alpha
+            elif smoothed_vol < 2.5:
+                self.ema_alpha = self.base_ema_alpha * 1.4
+            else:
+                self.ema_alpha = self.base_ema_alpha * 1.8
+            self.ema_alpha = max(0.05, min(0.7, self.ema_alpha))
+        except Exception:
+            self.ema_alpha = self.base_ema_alpha
+
+    def add_tick(self, price: float, volume: float = 1.0):
+        price = float(price)
+        current_time = time.time()
+        if self.ticks and len(self.ticks) > 0:
+            last_tick = self.ticks[-1]
+            last_price = last_tick['price']
+            time_gap = current_time - last_tick['timestamp']
+            if last_price > 0 and time_gap < 2.0:
+                price_change_pct = abs(price - last_price) / last_price
+                if price_change_pct > 0.02:
+                    logging.warning(f"Anomaly spike ignored: {last_price:.5f} -> {price:.5f}")
+                    return None
+
+        if self.current_candle_open is None:
+            self.current_candle_open = self.current_candle_high = self.current_candle_low = price
+        else:
+            self.current_candle_high = max(self.current_candle_high, price)
+            self.current_candle_low = min(self.current_candle_low, price)
+
+        interval = current_time - self.last_tick_time if self.last_tick_time else 0.1
+        self.last_tick_time = current_time
+
+        current_volatility = (self.current_candle_high - self.current_candle_low) * 10000
+        self._update_ema_alpha(current_volatility)
+
+        if self.smoothed_price is None:
+            self.smoothed_price = price
+        else:
+            self.smoothed_price = (self.ema_alpha * price + (1 - self.ema_alpha) * self.smoothed_price)
+
+        tick_data = {
+            "timestamp": current_time,
+            "price": price,
+            "volume": volume,
+            "interval": interval,
+            "smoothed_price": self.smoothed_price
+        }
+        self.ticks.append(tick_data)
+        self.candle_ticks.append(tick_data)
+        self.sequence.append(price)
+        self.tick_count += 1
+
+        if len(self.sequence) >= 5:
+            pattern = self._detect_micro_pattern()
+            if pattern:
+                self.last_patterns.appendleft((datetime.utcnow().isoformat(), pattern))
+        return tick_data
+
+    def _detect_micro_pattern(self):
+        try:
+            arr = np.array(self.sequence)
+            if len(arr) < 5:
+                return None
+            diffs = np.diff(arr)
+            pos_diffs = (diffs > 0).sum()
+            neg_diffs = (diffs < 0).sum()
+            total = len(diffs)
+            mean_diff = np.mean(diffs)
+            std_diff = np.std(diffs)
+            if pos_diffs >= total * 0.8 and mean_diff > 0.00003:
+                return "ramp-up"
+            elif neg_diffs >= total * 0.8 and mean_diff < -0.00003:
+                return "ramp-down"
+            elif std_diff < 0.00002 and abs(mean_diff) < 0.00001:
+                return "consolidation"
+            elif np.sum(np.abs(np.diff(np.sign(diffs))) > 0) > total * 0.5:
+                return "oscillation"
+        except Exception:
+            pass
+        return None
+
+    def get_candle_metrics(self, seconds_remaining_norm: float = None):
+        if len(self.candle_ticks) < 5:
+            return None
+        ticks_array = np.array([(t['price'], t['volume'], t['interval']) for t in self.candle_ticks], dtype=np.float32)
+        prices = ticks_array[:, 0]
+        volumes = ticks_array[:, 1]
+        intervals = ticks_array[:, 2]
+
+        current_price = float(prices[-1])
+        open_price = float(self.current_candle_open)
+        high_price = float(self.current_candle_high)
+        low_price = float(self.current_candle_low)
+
+        price_changes = np.diff(prices)
+        up_ticks = np.sum(price_changes > 0)
+        down_ticks = np.sum(price_changes < 0)
+        total_ticks = max(1, up_ticks + down_ticks)
+
+        buy_pressure = up_ticks / total_ticks
+        sell_pressure = down_ticks / total_ticks
+        pressure_ratio = buy_pressure / max(0.01, sell_pressure)
+
+        if len(prices) >= 8:
+            momentum = (prices[-1] - prices[0]) * 10000
+        else:
+            momentum = (current_price - open_price) * 10000
+
+        volatility = (high_price - low_price) * 10000
+        price_change = (current_price - open_price) * 10000
+
+        valid_intervals = intervals[intervals > 0]
+        tick_speed = 1.0 / np.mean(valid_intervals) if len(valid_intervals) > 0 else 0.0
+
+        if len(price_changes) > 1:
+            signs = np.sign(price_changes)
+            direction_changes = np.sum(np.abs(np.diff(signs)) > 0)
+            direction_ratio = direction_changes / len(price_changes)
+        else:
+            direction_ratio = 0.0
+
+        if volatility < 0.5 and direction_ratio < 0.15:
+            market_phase = "consolidation"
+        elif abs(momentum) > 2.5 and volatility > 1.2:
+            market_phase = "strong_trend"
+        elif abs(momentum) > 1.0:
+            market_phase = "weak_trend"
+        else:
+            market_phase = "neutral"
+
+        metrics = {
+            "open_price": open_price,
+            "high_price": high_price,
+            "low_price": low_price,
+            "current_price": current_price,
+            "buy_pressure": buy_pressure,
+            "sell_pressure": sell_pressure,
+            "pressure_ratio": pressure_ratio,
+            "momentum": momentum,
+            "volatility": volatility,
+            "up_ticks": int(up_ticks),
+            "down_ticks": int(down_ticks),
+            "total_ticks": len(self.candle_ticks),
+            "volume_trend": float(np.mean(volumes)),
+            "price_change": price_change,
+            "tick_speed": tick_speed,
+            "direction_ratio": direction_ratio,
+            "market_phase": market_phase,
+            "last_patterns": list(self.last_patterns)[:4],
+            "timestamp": time.time()
+        }
+        if seconds_remaining_norm is not None:
+            metrics['seconds_remaining_norm'] = float(seconds_remaining_norm)
+        return metrics
+
+    def reset_candle(self):
+        self.candle_ticks.clear()
+        self.current_candle_open = None
+        self.current_candle_high = None
+        self.current_candle_low = None
+        self.sequence.clear()
+        self.tick_count = 0
+
+# ------------------ Predictor ------------------
+class ProductionPredictor:
+    def __init__(self):
+        self.analyzer = ProductionTickAnalyzer()
+        self.model = None
+        self.scaler = None
+        self.prev_candle_metrics = None
+        self.partial_buffer = []
+        self.performance_stats = {
+            'total_predictions': 0,
+            'correct_predictions': 0,
+            'recent': deque(maxlen=50)
+        }
+        self.last_prediction = None
+        self._initialize_system()
+        self._ensure_files()
+
+    def _feature_names(self):
+        return [
+            "buy_pressure", "sell_pressure", "pressure_ratio", "momentum",
+            "volatility", "up_ticks", "down_ticks", "total_ticks",
+            "volume_trend", "price_change", "tick_speed", "direction_ratio",
+            "seconds_remaining_norm"
+        ]
+
+    def _ensure_files(self):
+        try:
+            if not os.path.exists(TRAINING_CSV):
+                pd.DataFrame(columns=self._feature_names() + ["label", "timestamp"]).to_csv(TRAINING_CSV, index=False)
+            if not os.path.exists(PERF_CSV):
+                pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
         except Exception as e:
-            logging.error(f"❌ Error de conexión: {e}")
-            time.sleep(2)
-    return False
+            logging.error("Error initializing files: %s", e)
 
-# ---------------------------------------------------------------
-# ✅ OBTENER VELAS
-# ---------------------------------------------------------------
-def obtener_velas(par="EURUSD-OTC", duracion=60, velas=200):
-    global latest_candles
-    try:
-        IQ.start_candles_stream(par, duracion, velas)
-        candles = IQ.get_candles(par, duracion, velas, time.time())
-        latest_candles = candles
-        return candles
-    except Exception as e:
-        logging.error(f"❌ Error obteniendo velas: {e}")
-        return []
+    def _initialize_system(self):
+        try:
+            if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
+                self.model = joblib.load(MODEL_PATH)
+                self.scaler = joblib.load(SCALER_PATH)
+                logging.info("Loaded existing ML artifacts.")
+            else:
+                self._initialize_new_model()
+        except Exception:
+            self._initialize_new_model()
 
-# ---------------------------------------------------------------
-# ✅ INDICADORES TÉCNICOS
-# ---------------------------------------------------------------
-def calcular_indicadores(df):
-    df = df.copy()
-    if 'high' in df.columns and 'max' not in df.columns:
-        df.rename(columns={'high': 'max', 'low': 'min'}, inplace=True)
+    def _initialize_new_model(self):
+        try:
+            self.scaler = IncrementalScaler()
+            self.model = MLPClassifier(
+                hidden_layer_sizes=(64,32),
+                activation="relu",
+                solver="adam",
+                learning_rate="adaptive",
+                max_iter=1,
+                warm_start=True,
+                random_state=42
+            )
+            # tiny dummy init
+            n = len(self._feature_names())
+            X_dummy = np.random.normal(0, 0.1, (10, n)).astype(np.float32)
+            y_dummy = np.random.randint(0,2,10)
+            self.scaler.partial_fit(X_dummy)
+            Xs = self.scaler.transform(X_dummy)
+            try:
+                self.model.partial_fit(Xs, y_dummy, classes=[0,1])
+            except Exception:
+                self.model.fit(Xs, y_dummy)
+            self._save_artifacts()
+            logging.info("Initialized new ML model (warm).")
+        except Exception as e:
+            logging.error("Error init model: %s", e)
+            self.model = None
+            self.scaler = None
 
-    df['SMA_3'] = df['close'].rolling(3).mean()
-    df['SMA_5'] = df['close'].rolling(5).mean()
-    df['EMA_3'] = df['close'].ewm(span=3, adjust=False).mean()
-    df['EMA_5'] = df['close'].ewm(span=5, adjust=False).mean()
+    def _save_artifacts(self):
+        try:
+            if self.model and self.scaler:
+                joblib.dump(self.model, MODEL_PATH)
+                joblib.dump(self.scaler, SCALER_PATH)
+        except Exception as e:
+            logging.error("Error saving artifacts: %s", e)
 
-    delta = df['close'].diff()
-    gain = delta.clip(lower=0)
-    loss = -delta.clip(upper=0)
-    avg_gain = gain.rolling(14).mean()
-    avg_loss = loss.rolling(14).mean()
-    rs = avg_gain / avg_loss.replace(0, np.nan)
-    df['RSI'] = 100 - (100 / (1 + rs))
-    df['RSI'] = df['RSI'].fillna(50)
+    def extract_features(self, metrics):
+        try:
+            features = [safe_float(metrics.get(k,0.0)) for k in self._feature_names()]
+            return np.array(features, dtype=np.float32)
+        except Exception:
+            return np.zeros(len(self._feature_names()), dtype=np.float32)
 
-    ema12 = df['close'].ewm(span=12, adjust=False).mean()
-    ema26 = df['close'].ewm(span=26, adjust=False).mean()
-    df['MACD'] = ema12 - ema26
-    df['MACD_signal'] = df['MACD'].ewm(span=9, adjust=False).mean()
+    def append_sample_if_confident(self, metrics, label, confidence):
+        try:
+            if confidence < CONFIDENCE_SAVE_THRESHOLD:
+                return
+            row = {k: metrics.get(k,0.0) for k in self._feature_names()}
+            row["label"] = int(label)
+            row["timestamp"] = datetime.utcnow().isoformat()
+            pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
+            self.partial_buffer.append((row,label))
+            logging.info(f"Saved sample label={label} conf={confidence:.1f}% buffer={len(self.partial_buffer)}")
+            if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
+                self._perform_partial_fit()
+        except Exception as e:
+            logging.error("Error append sample: %s", e)
 
-    df['TR'] = pd.concat([
-        df['max'] - df['min'],
-        (df['max'] - df['close'].shift()).abs(),
-        (df['min'] - df['close'].shift()).abs()
-    ], axis=1).max(axis=1)
-    df['+DM'] = df['max'].diff().where(lambda x: x > 0, 0.0)
-    df['-DM'] = -df['min'].diff().where(lambda x: x < 0, 0.0)
-    tr14 = df['TR'].rolling(14).sum()
-    df['+DI'] = 100 * (df['+DM'].rolling(14).sum() / tr14.replace(0, np.nan))
-    df['-DI'] = 100 * (df['-DM'].rolling(14).sum() / tr14.replace(0, np.nan))
-    df['ADX'] = (abs(df['+DI'] - df['-DI']) / (df['+DI'] + df['-DI']).replace(0, np.nan)) * 100
-    df['ADX'] = df['ADX'].ewm(span=14).mean().fillna(0)
-
-    df['BB_middle'] = df['close'].rolling(20).mean()
-    df['BB_std'] = df['close'].rolling(20).std()
-    df['BB_upper'] = df['BB_middle'] + 2 * df['BB_std']
-    df['BB_lower'] = df['BB_middle'] - 2 * df['BB_std']
-    df['BB_width'] = (df['BB_upper'] - df['BB_lower']).fillna(0)
-
-    df['TP'] = (df['close'] + df['max'] + df['min']) / 3
-    df['CCI'] = (df['TP'] - df['TP'].rolling(20).mean()) / (0.015 * df['TP'].rolling(20).std()).replace(0, np.nan)
-
-    df['momentum'] = df['close'].diff(3).fillna(0)
-    df['ATR'] = df['TR'].rolling(14).mean().fillna(0)
-
-    df = df.replace([np.inf, -np.inf], np.nan).fillna(0)
-    return df
-
-# ---------------------------------------------------------------
-# ✅ PREPARAR FEATURES Y LABEL (CORREGIDO para predecir la siguiente vela)
-# ---------------------------------------------------------------
-def prepare_features_targets(df):
-    df = calcular_indicadores(df)
-    features = ['open','close','min','max','volume','SMA_3','SMA_5','EMA_3','EMA_5',
-                'RSI','MACD','MACD_signal','ADX','+DI','-DI','BB_upper','BB_lower','BB_width',
-                'CCI','momentum','ATR']
-    for f in features:
-        if f not in df.columns:
-            df[f] = 0.0
-    X = df[features]
-    # ✅ target = close(next) > open(next)
-    y = (df['close'].shift(-1) > df['open'].shift(-1)).astype(int).fillna(0)
-    return X, y, features
-
-# ---------------------------------------------------------------
-# ✅ CONSTRUIR MODELOS Y ENTRENAR
-# ---------------------------------------------------------------
-def build_lstm_model(n_features):
-    model = Sequential([
-        LSTM(128, input_shape=(SEQ_LEN, n_features), return_sequences=True),
-        Dropout(0.2),
-        BatchNormalization(),
-        LSTM(64, return_sequences=False),
-        Dropout(0.2),
-        BatchNormalization(),
-        Dense(64, activation='relu'),
-        Dense(1, activation='sigmoid')
-    ])
-    model.compile(optimizer='adam', loss='binary_crossentropy', metrics=['accuracy'])
-    return model
-
-def entrenar_modelo():
-    global model_trained, latest_candles, scaler, mlp_model, lstm_model, lstm_ready
-    try:
-        if len(latest_candles) < MIN_SAMPLES_TO_TRAIN:
+    def _perform_partial_fit(self):
+        if not self.partial_buffer or not self.model or not self.scaler:
+            self.partial_buffer.clear()
             return
-        df = pd.DataFrame(latest_candles)
-        X_df, y_series, _ = prepare_features_targets(df)
-        if os.path.exists(SCALER_PATH):
-            scaler = joblib.load(SCALER_PATH)
+        try:
+            X_new = np.array([[r[f] for f in self._feature_names()] for (r,_) in self.partial_buffer], dtype=np.float32)
+            y_new = np.array([lbl for (_,lbl) in self.partial_buffer])
+            self.scaler.partial_fit(X_new)
+            Xs = self.scaler.transform(X_new)
+            try:
+                self.model.partial_fit(Xs, y_new)
+            except Exception:
+                self.model.fit(Xs, y_new)
+            self._save_artifacts()
+            logging.info(f"Partial fit done with {len(X_new)} samples.")
+            self.partial_buffer.clear()
+        except Exception as e:
+            logging.error("Error partial fit: %s", e)
+            self.partial_buffer.clear()
+
+    def on_candle_closed(self, closed_metrics):
+        try:
+            if self.prev_candle_metrics is not None:
+                prev_close = float(self.prev_candle_metrics["current_price"])
+                this_close = float(closed_metrics["current_price"])
+                label = 1 if this_close > prev_close else 0
+                # if we had a last prediction, record and conditional-save
+                if self.last_prediction:
+                    conf = safe_float(self.last_prediction.get("confidence",0.0))
+                    self.append_sample_if_confident(self.prev_candle_metrics, label, conf)
+                    self._record_performance(self.last_prediction, label)
+                # update prev
+                self.prev_candle_metrics = closed_metrics.copy()
+                self.last_prediction = None
+            else:
+                self.prev_candle_metrics = closed_metrics.copy()
+        except Exception as e:
+            logging.error("Error on_candle_closed: %s", e)
+
+    def _record_performance(self, pred, actual_label):
+        try:
+            correct = ((pred.get("direction")=="ALZA" and actual_label==1) or (pred.get("direction")=="BAJA" and actual_label==0))
+            rec = {
+                "timestamp": now_iso(), 
+                "prediction": pred.get("direction"), 
+                "actual": "ALZA" if actual_label==1 else "BAJA",
+                "correct": correct, 
+                "confidence": pred.get("confidence",0.0), 
+                "model_used": pred.get("model_used","HYBRID")
+            }
+            pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
+            self.performance_stats['total_predictions'] += 1
+            self.performance_stats['correct_predictions'] += int(correct)
+            self.performance_stats['recent'].append(int(correct))
+        except Exception as e:
+            logging.error("Error recording performance: %s", e)
+
+    def predict_next_candle(self, seconds_remaining_norm=None):
+        metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
+        if not metrics:
+            return {"direction":"N/A","confidence":0.0,"reason":"insufficient_ticks","timestamp":now_iso()}
+        features = self.extract_features(metrics).reshape(1,-1)
+        mlp_pred = None
+        if self.model and self.scaler:
+            try:
+                Xs = self.scaler.transform(features)
+                proba = self.model.predict_proba(Xs)[0]
+                up_prob = float(proba[1]) if len(proba)>1 else float(proba[0])
+                mlp_pred = {
+                    "direction":"ALZA" if up_prob>=0.5 else "BAJA",
+                    "prob_up":up_prob,
+                    "confidence":round(max(up_prob,1-up_prob)*100,2),
+                    "model_type":"MLP"
+                }
+            except Exception as e:
+                logging.warning("MLP predict error: %s", e)
+                mlp_pred = None
+        rules = self._rule_based(metrics)
+        final = self._fuse(mlp_pred, rules, metrics)
+        self.last_prediction = final.copy()
+        return final
+
+    def _rule_based(self, metrics):
+        signals=[]
+        confs=[]
+        pr=metrics.get("pressure_ratio",1.0)
+        mom=metrics.get("momentum",0.0)
+        bp=metrics.get("buy_pressure",0.5)
+        vol=metrics.get("volatility",0.0)
+        ts=metrics.get("tick_speed",0.0)
+        
+        if pr>1.8: 
+            signals.append(1)
+            confs.append(min(85,(pr-1)*25))
+        elif pr<0.6: 
+            signals.append(0)
+            confs.append(min(85,(1-pr)*25))
+        
+        if mom>1.0: 
+            signals.append(1)
+            confs.append(min(75,abs(mom)*12))
+        elif mom<-1.0: 
+            signals.append(0)
+            confs.append(min(75,abs(mom)*12))
+        
+        if bp>0.66: 
+            signals.append(1)
+            confs.append(65)
+        elif bp<0.34: 
+            signals.append(0)
+            confs.append(65)
+        
+        if ts>6: 
+            signals.append(1 if mom>0 else 0)
+            confs.append(55)
+            
+        if signals:
+            dir_ = 1 if sum(signals)/len(signals)>0.5 else 0
+            avg = sum(confs)/len(confs)
+            if len(set(signals))==1: 
+                avg=min(95,avg*1.2)
         else:
-            scaler.fit(X_df.values)
-            joblib.dump(scaler, SCALER_PATH)
-        X_scaled = scaler.transform(X_df.values)
-        mlp_model.fit(X_scaled, y_series.values)
-        joblib.dump(mlp_model, MLP_PATH)
-        model_trained = True
-        logging.info("✅ MLP entrenado.")
+            dir_=1 if metrics.get("price_change",0)>0 else 0
+            avg=45
+            
+        reasons=[]
+        if pr>1.5: 
+            reasons.append(f"Buy pressure {pr:.2f}x")
+        if pr<0.7: 
+            reasons.append(f"Sell pressure {pr:.2f}x")
+        if abs(mom)>1.0: 
+            reasons.append("Momentum strong")
+            
+        return {
+            "direction":"ALZA" if dir_==1 else "BAJA",
+            "confidence":round(avg,2),
+            "price":round(metrics.get("current_price",0.0),5),
+            "tick_count":metrics.get("total_ticks",0),
+            "reasons":reasons,
+            "model_type":"RULES"
+        }
 
-        # Fine-tuning del LSTM
-        if USE_TF:
-            sequences = []
-            labels = []
-            for i in range(len(X_scaled) - SEQ_LEN - 1):
-                sequences.append(X_scaled[i:i+SEQ_LEN])
-                labels.append(y_series.values[i+SEQ_LEN])
-            X_seq = np.array(sequences)
-            y_seq = np.array(labels)
-            if len(X_seq) >= 20:
-                if lstm_model is None:
-                    lstm_model = build_lstm_model(X_seq.shape[2])
-                es = EarlyStopping(monitor='val_loss', patience=3, restore_best_weights=True)
-                lstm_model.fit(X_seq, y_seq, epochs=5, batch_size=32, validation_split=0.1, callbacks=[es], verbose=0)
-                lstm_model.save(LSTM_PATH)
-                lstm_ready = True
-                logging.info("✅ LSTM entrenado o actualizado.")
-    except Exception as e:
-        logging.error(f"Error entrenando modelo: {e}")
+    def _fuse(self, mlp_pred, rules_pred, metrics):
+        if not mlp_pred:
+            res = rules_pred.copy()
+            res["model_used"]="RULES"
+            return res
+            
+        vol = metrics.get("volatility",0.0)
+        phase = metrics.get("market_phase","neutral")
+        mlp_weight=0.75
+        
+        if phase=="consolidation": 
+            mlp_weight=0.6
+        elif phase=="strong_trend" and vol>2.0: 
+            mlp_weight=0.8
+            
+        if vol>3.0: 
+            mlp_weight=max(0.5, mlp_weight-0.1)
+            
+        rules_weight = 1.0-mlp_weight
+        rules_up = 0.8 if rules_pred["direction"]=="ALZA" else 0.2
+        combined_up = mlp_pred["prob_up"]*mlp_weight + rules_up*rules_weight
+        
+        direction = "ALZA" if combined_up>=0.5 else "BAJA"
+        confidence = round(max(combined_up,1-combined_up)*100,2)
+        
+        reasons = [f"Fusion MLP({mlp_pred.get('prob_up'):.3f})+Rules"] + rules_pred.get("reasons",[])
+        
+        return {
+            "direction":direction,
+            "confidence":confidence,
+            "price":round(metrics.get("current_price",0.0),5),
+            "tick_count":metrics.get("total_ticks",0),
+            "reasons":reasons,
+            "model_used":"HYBRID",
+            "mlp_confidence":mlp_pred.get("confidence"),
+            "rules_confidence":rules_pred.get("confidence")
+        }
 
-# ---------------------------------------------------------------
-# ✅ PREDICCIÓN SIGUIENTE VELA
-# ---------------------------------------------------------------
-def predecir_siguiente_vela():
-    if not model_trained or len(latest_candles) == 0:
-        return {"prediction": "N/A", "confidence": 0}
+# -------------- IQ connection helpers --------------
+def connect_iq_option():
+    max_attempts=5
+    for attempt in range(max_attempts):
+        try:
+            if not IQ_EMAIL or not IQ_PASSWORD:
+                logging.warning("IQ credentials not set in env")
+                return None
+            iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+            check, reason = iq.connect()
+            if check:
+                iq.change_balance("PRACTICE")
+                try:
+                    iq.start_candles_stream(PAR, TIMEFRAME, 100)
+                except Exception:
+                    pass
+                logging.info("Connected to IQ Option")
+                return iq
+            else:
+                logging.warning("IQ connect failed: %s", reason)
+        except Exception as e:
+            logging.error("IQ connect error: %s", e)
+        time.sleep(2)
+    return None
+
+def get_current_price(iq):
     try:
-        df = pd.DataFrame(latest_candles)
-        X_df, _, _ = prepare_features_targets(df)
-        X_scaled = scaler.transform(X_df.values)
-        if USE_TF and lstm_ready and lstm_model is not None and len(X_scaled) >= SEQ_LEN:
-            seq = X_scaled[-SEQ_LEN:].reshape(1, SEQ_LEN, X_scaled.shape[1])
-            prob = float(lstm_model.predict(seq, verbose=0)[0][0])
-            pred = 1 if prob >= 0.5 else 0
-            conf = round(max(prob, 1 - prob) * 100, 2)
-            return {"prediction": pred, "confidence": conf}
-        else:
-            X_new = X_scaled[-1].reshape(1, -1)
-            prob_arr = mlp_model.predict_proba(X_new)[0]
-            pred = int(np.argmax(prob_arr))
-            conf = round(float(max(prob_arr) * 100), 2)
-            return {"prediction": pred, "confidence": conf}
-    except Exception as e:
-        logging.error(f"❌ Error prediciendo: {e}")
-        return {"prediction": "N/A", "confidence": 0}
+        candles = iq.get_realtime_candles(PAR, TIMEFRAME)
+        if candles:
+            last = list(candles.values())[-1]
+            return float(last.get("close", last.get("mid", 0)))
+    except Exception:
+        pass
+    try:
+        mood = iq.get_realtime_mood(PAR)
+        if mood:
+            if isinstance(mood, list):
+                item = mood[-1]
+                if isinstance(item, dict) and "price" in item: 
+                    return float(item["price"])
+            elif isinstance(mood, dict) and "price" in mood: 
+                return float(mood["price"])
+    except Exception:
+        pass
+    return None
 
-# ---------------------------------------------------------------
-# ✅ SERVIDOR Y FRONTEND (HTML CORREGIDO)
-# ---------------------------------------------------------------
+# --------------- Adaptive Trainer Loop ---------------
+def adaptive_trainer_loop(predictor: ProductionPredictor):
+    """Loop de entrenamiento batch con validación y early stopping"""
+    last_training_size = 0
+    best_validation_accuracy = 0.55
+    patience_counter = 0
+    max_patience = 3
+    
+    while True:
+        try:
+            time.sleep(30)
+            
+            if not os.path.exists(TRAINING_CSV):
+                continue
+                
+            df = pd.read_csv(TRAINING_CSV)
+            current_size = len(df)
+            
+            if current_size >= BATCH_TRAIN_SIZE and current_size > last_training_size + 25:
+                logging.info(f"🔁 Batch training with {current_size} samples...")
+                
+                X = df[predictor._feature_names()].values
+                y = df["label"].values.astype(int)
+                
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X, y, test_size=0.2, random_state=42, stratify=y
+                )
+                
+                scaler = IncrementalScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_val_scaled = scaler.transform(X_val)
+                
+                model = MLPClassifier(
+                    hidden_layer_sizes=(64, 32),
+                    activation="relu",
+                    solver="adam",
+                    alpha=0.001,
+                    learning_rate="adaptive",
+                    max_iter=500,
+                    early_stopping=True,
+                    validation_fraction=0.15,
+                    n_iter_no_change=15,
+                    random_state=42
+                )
+                
+                model.fit(X_train_scaled, y_train)
+                
+                train_accuracy = model.score(X_train_scaled, y_train)
+                val_accuracy = model.score(X_val_scaled, y_val)
+                
+                logging.info(f"📊 Train: {train_accuracy:.3f}, Val: {val_accuracy:.3f}")
+                
+                if val_accuracy >= best_validation_accuracy:
+                    predictor.model = model
+                    predictor.scaler = scaler
+                    predictor._save_artifacts()
+                    
+                    last_training_size = current_size
+                    best_validation_accuracy = max(best_validation_accuracy, val_accuracy)
+                    patience_counter = 0
+                    
+                    logging.info(f"✅ Model updated (val_acc: {val_accuracy:.3f})")
+                else:
+                    patience_counter += 1
+                    logging.warning(f"⚠️ Model didn't improve. Patience: {patience_counter}/{max_patience}")
+                    
+                    if patience_counter >= max_patience:
+                        logging.info("🔄 Resetting patience...")
+                        patience_counter = 0
+                        best_validation_accuracy = max(0.50, best_validation_accuracy * 0.95)
+                        
+        except Exception as e:
+            logging.error(f"❌ Training error: {e}")
+            time.sleep(60)
+
+# --------------- Initialization ---------------
+IQ = None
+try:
+    IQ = connect_iq_option()
+except Exception as e:
+    logging.warning("IQ init: %s", e)
+
+predictor = ProductionPredictor()
+current_prediction = {
+    "direction":"N/A",
+    "confidence":0.0,
+    "price":0.0,
+    "tick_count":0,
+    "reasons":[],
+    "timestamp":now_iso(),
+    "model_used":"INIT"
+}
+
+# --------------- Main loop ---------------
+def professional_tick_analyzer():
+    logging.info("Delowyss AI V3.8 started (assistant-only)")
+    last_prediction_time = 0
+    last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
+    
+    while True:
+        try:
+            global IQ
+            if not IQ or (hasattr(IQ, "check_connect") and not IQ.check_connect()):
+                IQ = connect_iq_option()
+                time.sleep(1)
+                continue
+                
+            price = get_current_price(IQ)
+            if price is not None:
+                predictor.analyzer.add_tick(price)
+                
+            now = time.time()
+            current_candle_start = now//TIMEFRAME*TIMEFRAME
+            seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
+            seconds_norm = seconds_remaining / TIMEFRAME
+            
+            if current_candle_start > last_candle_start:
+                closed_metrics = predictor.analyzer.get_candle_metrics()
+                if closed_metrics:
+                    predictor.on_candle_closed(closed_metrics)
+                predictor.analyzer.reset_candle()
+                last_candle_start = current_candle_start
+                logging.info("New candle started")
+                
+            if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
+                pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_norm)
+                global current_prediction
+                current_prediction = pred
+                last_prediction_time = time.time()
+                logging.info("PRED: %s | Conf: %s%% | Model: %s", 
+                           pred.get("direction"), pred.get("confidence"), pred.get("model_used","HYBRID"))
+                           
+            time.sleep(0.30)
+        except Exception as e:
+            logging.error("Main loop error: %s", e)
+            time.sleep(2)
+
+# --------------- FastAPI ---------------
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
+
 @app.get("/", response_class=HTMLResponse)
-async def home():
-    html = """
+def home():
+    training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
+    perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+    perf_acc = 0.0
+    try:
+        if perf_rows>0:
+            perf_df = pd.read_csv(PERF_CSV)
+            if "correct" in perf_df:
+                perf_acc = perf_df["correct"].mean()*100
+    except Exception:
+        perf_acc = 0.0
+        
+    phase = predictor.analyzer.get_candle_metrics().get("market_phase") if predictor.analyzer.get_candle_metrics() else "n/a"
+    patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
+    direction = current_prediction.get("direction","N/A")
+    color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
+    
+    html = f"""
+    <!doctype html>
     <html>
     <head>
-        <title>Delowyss Trading - CEO Eduardo Solis</title>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width'>
+        <title>Delowyss AI V3.8</title>
         <style>
-            body { font-family: Arial; text-align: center; background: #111; color: white; }
-            button { font-size: 20px; padding: 15px 30px; border-radius: 12px; border: none; cursor: pointer; }
-            #timer { font-size: 18px; margin-top: 10px; }
-            #result { font-size: 20px; margin-top: 15px; font-weight: bold; }
+            body {{
+                font-family: Arial, sans-serif;
+                background: #071028;
+                color: #fff;
+                padding: 18px;
+                margin: 0;
+            }}
+            .card {{
+                max-width: 980px;
+                margin: 0 auto;
+                background: rgba(255,255,255,0.03);
+                padding: 20px;
+                border-radius: 12px;
+            }}
+            .prediction-card {{
+                border-left: 6px solid {color};
+                padding: 15px;
+                margin: 15px 0;
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+            }}
+            .metrics-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px;
+                margin: 20px 0;
+            }}
+            .metric-cell {{
+                background: rgba(255,255,255,0.03);
+                padding: 12px;
+                border-radius: 8px;
+                text-align: center;
+            }}
+            .accuracy-high {{ color: #00ff88; }}
+            .accuracy-medium {{ color: #ffbb33; }}
+            .accuracy-low {{ color: #ff4444; }}
         </style>
     </head>
     <body>
-        <h1>🚀 Delowyss Trading Bot - EUR/USD OTC</h1>
-        <button id="btn" onclick="analyze()">ANALIZAR Y PREDECIR</button>
-        <p id="timer">Tiempo restante: --s</p>
-        <p id="result"></p>
-
-        <script>
-        async function getServerSeconds() {
-            try {
-                const r = await fetch('/time');
-                const j = await r.json();
-                return j.seconds_remaining;
-            } catch { return 60; }
-        }
-
-        let timeLeft = 60;
-        const timerEl = document.getElementById('timer');
-        const btn = document.getElementById('btn');
-        async function syncAndStart() {
-            timeLeft = await getServerSeconds();
-            setInterval(() => {
-                timeLeft--;
-                if (timeLeft <= 0) syncAndStart();
-                timerEl.innerHTML = "Tiempo restante: " + Math.max(0, timeLeft) + "s";
-                btn.style.backgroundColor = timeLeft <= 10 ? "red" : "#333";
-            }, 1000);
-        }
-        syncAndStart();
-
-        async function analyze() {
-            const res = await fetch('/predict');
-            const data = await res.json();
-            const div = document.getElementById('result');
-            if (data.prediction === "N/A") {
-                div.innerHTML = "Predicción: N/D | Confianza: 0%";
-            } else {
-                const txt = data.prediction === 1 ? "📈 SUBIRÁ ↑" : "📉 BAJARÁ ↓";
-                div.innerHTML = "Predicción: " + txt + " | Confianza: " + data.confidence + "%";
-                btn.style.backgroundColor = data.prediction === 1 ? "green" : "red";
-            }
-        }
-        </script>
+        <div class="card">
+            <h1>🤖 Delowyss Trading AI — V3.8</h1>
+            <p>Pair: {PAR} • UTC: {datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</p>
+            
+            <div class="prediction-card">
+                <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% Confidence</h2>
+                <p>Model: {current_prediction.get('model_used','HYBRID')} • Price: {current_prediction.get('price',0)}</p>
+                <p>Phase: <strong>{phase}</strong> • Patterns: {', '.join(patterns[:3]) if patterns else 'none'}</p>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-cell">
+                    <strong>Training Samples</strong>
+                    <div>{training_samples}</div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Performance Rows</strong>
+                    <div>{perf_rows}</div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Historical Accuracy</strong>
+                    <div class="{'accuracy-high' if perf_acc > 60 else 'accuracy-medium' if perf_acc > 50 else 'accuracy-low'}">
+                        {perf_acc:.1f}%
+                    </div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Current Ticks</strong>
+                    <div>{current_prediction.get('tick_count',0)}</div>
+                </div>
+            </div>
+            
+            <div class="metric-cell">
+                <h3>Prediction Reasons</h3>
+                <ul>
+                    {"".join([f"<li>✅ {r}</li>" for r in current_prediction.get('reasons',[])]) if current_prediction.get('reasons') else "<li>🔄 Analyzing market data...</li>"}
+                </ul>
+            </div>
+        </div>
     </body>
     </html>
     """
-    return HTMLResponse(html)
+    return HTMLResponse(content=html)
 
-@app.get("/predict")
-async def predict():
-    return JSONResponse(predecir_siguiente_vela())
+@app.get("/api/prediction")
+def api_prediction():
+    return JSONResponse(current_prediction)
 
-@app.get("/time")
-async def time_endpoint():
-    now = time.time()
-    sec_remaining = int(60 - (now % 60))
-    return JSONResponse({"seconds_remaining": sec_remaining})
+@app.get("/api/status")
+def api_status():
+    connected = False
+    try:
+        connected = IQ.check_connect() if IQ else False
+    except Exception:
+        connected = False
+        
+    training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
+    perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+    
+    return JSONResponse({
+        "status": "online",
+        "connected": connected,
+        "pair": PAR,
+        "model_loaded": predictor.model is not None,
+        "training_samples": training_samples,
+        "perf_rows": perf_rows,
+        "timestamp": now_iso()
+    })
 
-# ---------------------------------------------------------------
-# ✅ INICIO
-# ---------------------------------------------------------------
-def iniciar_bot():
-    conectar_iq()
-    obtener_velas()
-    threading.Thread(target=lambda: (obtener_velas(), entrenar_modelo()), daemon=True).start()
+@app.get("/api/performance")
+def api_performance():
+    try:
+        if os.path.exists(PERF_CSV):
+            perf_df = pd.read_csv(PERF_CSV)
+            total = len(perf_df)
+            if total > 0 and "correct" in perf_df:
+                accuracy = perf_df["correct"].mean() * 100
+                recent_perf = perf_df.tail(min(20, total))
+                recent_accuracy = recent_perf["correct"].mean() * 100 if len(recent_perf) > 0 else 0
+                
+                return JSONResponse({
+                    "total_predictions": total,
+                    "overall_accuracy": round(accuracy, 2),
+                    "recent_accuracy": round(recent_accuracy, 2),
+                    "confidence_avg": round(perf_df["confidence"].mean(), 2) if "confidence" in perf_df else 0
+                })
+    except Exception as e:
+        logging.error("Error /api/performance: %s", e)
+    
+    return JSONResponse({"error": "No performance data available"})
 
+@app.get("/api/patterns")
+def api_patterns():
+    try:
+        metrics = predictor.analyzer.get_candle_metrics()
+        if metrics:
+            return JSONResponse({
+                "market_phase": metrics.get("market_phase", "unknown"),
+                "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
+                "volatility": metrics.get("volatility", 0),
+                "momentum": metrics.get("momentum", 0)
+            })
+    except Exception as e:
+        logging.error("Error /api/patterns: %s", e)
+    
+    return JSONResponse({"error": "No pattern data available"})
+
+# --------------- Start threads & server ---------------
 if __name__ == "__main__":
-    iniciar_bot()
-    uvicorn.run(app, host="0.0.0.0", port=10000)
+    # Start analyzer thread
+    analyzer_thread = threading.Thread(target=professional_tick_analyzer, daemon=True)
+    analyzer_thread.start()
+    logging.info("📊 Tick analyzer thread started")
+
+    # Start trainer thread
+    trainer_thread = threading.Thread(target=adaptive_trainer_loop, args=(predictor,), daemon=True)
+    trainer_thread.start()
+    logging.info("🧠 Model trainer thread started")
+
+    # Start server
+    import uvicorn
+    port = int(os.getenv("PORT", "8080"))
+    logging.info("🚀 Starting Delowyss AI V3.8 server on port %s", port)
+    
+    try:
+        uvicorn.run(app, host="0.0.0.0", port=port, log_level="warning")
+    except Exception as e:
+        logging.error("Server error: %s", e)
+    finally:
+        logging.info("Server shutdown")

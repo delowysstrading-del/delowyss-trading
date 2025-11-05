@@ -128,7 +128,7 @@ class ProductionTickAnalyzer:
         self.last_patterns = deque(maxlen=8)
         self.tick_count = 0
         self.volatility_history = deque(maxlen=20)
-        self.price_history = deque(maxlen=50)  # Para el mini gráfico
+        self.price_history = deque(maxlen=50)
 
     def _update_ema_alpha(self, current_volatility):
         try:
@@ -150,12 +150,10 @@ class ProductionTickAnalyzer:
         price = float(price)
         current_time = time.time()
         
-        # Validación de precio
         if price <= 0:
             logging.warning(f"Precio inválido ignorado: {price}")
             return None
             
-        # Filtro de spikes anómalos
         if self.ticks and len(self.ticks) > 0:
             last_tick = self.ticks[-1]
             last_price = last_tick['price']
@@ -166,7 +164,6 @@ class ProductionTickAnalyzer:
                     logging.warning(f"Anomaly spike ignorado: {last_price:.5f} -> {price:.5f}")
                     return None
 
-        # Inicializar vela si es necesario
         if self.current_candle_open is None:
             self.current_candle_open = self.current_candle_high = self.current_candle_low = price
         else:
@@ -176,11 +173,9 @@ class ProductionTickAnalyzer:
         interval = current_time - self.last_tick_time if self.last_tick_time else 0.1
         self.last_tick_time = current_time
 
-        # Calcular volatilidad y ajustar EMA
         current_volatility = (self.current_candle_high - self.current_candle_low) * 10000
         self._update_ema_alpha(current_volatility)
 
-        # Suavizado de precio
         if self.smoothed_price is None:
             self.smoothed_price = price
         else:
@@ -196,20 +191,19 @@ class ProductionTickAnalyzer:
         self.ticks.append(tick_data)
         self.candle_ticks.append(tick_data)
         self.sequence.append(price)
-        self.price_history.append(price)  # Para el gráfico
+        self.price_history.append(price)
         self.tick_count += 1
 
-        # Detectar patrones
         if len(self.sequence) >= 5:
             pattern = self._detect_micro_pattern()
             if pattern:
                 self.last_patterns.appendleft((datetime.utcnow().isoformat(), pattern))
                 
-        logging.info(f"✅ Tick #{self.tick_count} procesado - Precio: {price:.5f}")
+        if self.tick_count % 20 == 0:
+            logging.info(f"✅ Tick #{self.tick_count} procesado - Precio: {price:.5f}")
         return tick_data
 
     def get_price_history(self):
-        """Devuelve el historial de precios para el gráfico"""
         return list(self.price_history)
 
     def _detect_micro_pattern(self):
@@ -381,7 +375,6 @@ class ProductionPredictor:
                 warm_start=True,
                 random_state=42
             )
-            # tiny dummy init
             n = len(self._feature_names())
             X_dummy = np.random.normal(0, 0.1, (10, n)).astype(np.float32)
             y_dummy = np.random.randint(0,2,10)
@@ -455,12 +448,10 @@ class ProductionPredictor:
                 prev_close = float(self.prev_candle_metrics["current_price"])
                 this_close = float(closed_metrics["current_price"])
                 label = 1 if this_close > prev_close else 0
-                # if we had a last prediction, record and conditional-save
                 if self.last_prediction:
                     conf = safe_float(self.last_prediction.get("confidence",0.0))
                     self.append_sample_if_confident(self.prev_candle_metrics, label, conf)
                     self._record_performance(self.last_prediction, label)
-                # update prev
                 self.prev_candle_metrics = closed_metrics.copy()
                 self.last_prediction = None
             else:
@@ -617,6 +608,7 @@ class IQOptionConnector:
         self.connected = False
         self.last_tick_time = None
         self.tick_count = 0
+        self.last_price = None
         
     def connect(self):
         """Conectar a IQ Option con múltiples intentos"""
@@ -636,8 +628,7 @@ class IQOptionConnector:
                     self.connected = True
                     logging.info("✅ Conectado exitosamente a IQ Option")
                     
-                    # Iniciar stream de velas y ticks
-                    self._start_data_streams()
+                    self._start_candles_stream()
                     return self.iq
                 else:
                     logging.warning(f"⚠️ Conexión IQ fallida: {reason}")
@@ -649,49 +640,85 @@ class IQOptionConnector:
             
         return None
 
-    def _start_data_streams(self):
-        """Iniciar todos los streams de datos necesarios"""
+    def _start_candles_stream(self):
+        """Iniciar stream de velas de forma robusta"""
         try:
-            # Stream de velas
             self.iq.start_candles_stream(PAR, TIMEFRAME, 100)
             logging.info(f"📊 Stream de velas iniciado para {PAR}")
             
-            # Stream de ticks en tiempo real
-            self.iq.subscribe_live_deal(PAR, "binary-option", 10)
-            logging.info("🔔 Suscripción a ticks en tiempo real activada")
-            
+            try:
+                self.iq.subscribe_live_deal(PAR, "binary-option", 10, 10)
+                logging.info("🔔 Suscripción a ticks en tiempo real activada")
+            except TypeError as e:
+                try:
+                    self.iq.subscribe_live_deal(PAR, "binary-option", 10)
+                    logging.info("🔔 Suscripción a ticks (alt) activada")
+                except Exception as e2:
+                    logging.warning(f"⚠️ No se pudo suscribir a ticks: {e2}")
+            except Exception as e:
+                logging.warning(f"⚠️ Error en suscripción ticks: {e}")
+                
         except Exception as e:
             logging.error(f"❌ Error iniciando streams: {e}")
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real usando el callback"""
+        """Obtener ticks en tiempo real usando múltiples métodos"""
         try:
             if not self.connected or not self.iq:
                 return None
                 
-            # Obtener datos de mood (ticks en tiempo real)
-            mood_data = self.iq.get_realtime_mood(PAR)
-            if mood_data:
-                if isinstance(mood_data, list) and len(mood_data) > 0:
-                    latest_tick = mood_data[-1]
-                    if isinstance(latest_tick, dict) and 'price' in latest_tick:
-                        price = float(latest_tick['price'])
-                        self.tick_count += 1
-                        self.last_tick_time = time.time()
+            price = None
+            
+            try:
+                candles = self.iq.get_realtime_candles(PAR, TIMEFRAME)
+                if candles:
+                    last_candle = list(candles.values())[-1]
+                    price = float(last_candle.get('close', last_candle.get('mid', 0)))
+                    if price and price > 0:
+                        self._record_tick(price)
                         return price
-                        
-            # Fallback: obtener de velas realtime
-            candles = self.iq.get_realtime_candles(PAR, TIMEFRAME)
-            if candles:
-                last_candle = list(candles.values())[-1]
-                price = float(last_candle.get('close', last_candle.get('mid', 0)))
-                if price > 0:
-                    return price
-                    
+            except Exception as e:
+                logging.debug(f"Método velas falló: {e}")
+                
+            try:
+                price_data = self.iq.get_price(PAR)
+                if price_data and 'price' in price_data:
+                    price = float(price_data['price'])
+                    if price > 0:
+                        self._record_tick(price)
+                        return price
+            except Exception as e:
+                logging.debug(f"Método precio directo falló: {e}")
+                
+            try:
+                mood_data = self.iq.get_realtime_mood(PAR)
+                if mood_data:
+                    if isinstance(mood_data, list) and len(mood_data) > 0:
+                        latest_tick = mood_data[-1]
+                        if isinstance(latest_tick, dict) and 'price' in latest_tick:
+                            price = float(latest_tick['price'])
+                            if price > 0:
+                                self._record_tick(price)
+                                return price
+            except Exception as e:
+                logging.debug(f"Método mood falló: {e}")
+                
+            if self.last_price:
+                return self.last_price
+                
         except Exception as e:
             logging.error(f"❌ Error obteniendo ticks: {e}")
             
         return None
+
+    def _record_tick(self, price):
+        """Registrar tick recibido"""
+        self.tick_count += 1
+        self.last_tick_time = time.time()
+        self.last_price = price
+        
+        if self.tick_count % 10 == 0:
+            logging.info(f"📈 Tick #{self.tick_count} procesado - Precio: {price:.5f}")
 
     def check_connection(self):
         """Verificar si la conexión sigue activa"""
@@ -778,7 +805,6 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
             time.sleep(60)
 
 # --------------- Initialization ---------------
-# Usar el nuevo conector mejorado
 iq_connector = IQOptionConnector()
 IQ = iq_connector.connect()
 
@@ -800,12 +826,12 @@ def professional_tick_analyzer():
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
     consecutive_failures = 0
     max_consecutive_failures = 10
-    
+    last_successful_tick = time.time()
+
     while True:
         try:
             global IQ, iq_connector
             
-            # Verificar y mantener conexión
             if not iq_connector.connected or not iq_connector.check_connection():
                 logging.warning("🔌 Reconectando a IQ Option...")
                 IQ = iq_connector.connect()
@@ -819,24 +845,27 @@ def professional_tick_analyzer():
                 else:
                     consecutive_failures = 0
                     
-            # Obtener tick en tiempo real
             price = iq_connector.get_realtime_ticks()
+            current_time = time.time()
+            
             if price is not None and price > 0:
                 tick_data = predictor.analyzer.add_tick(price)
                 if tick_data:
-                    logging.debug(f"📈 Tick procesado: {price:.5f}")
+                    last_successful_tick = current_time
+                    if predictor.analyzer.tick_count % 20 == 0:
+                        logging.info(f"✅ Tick #{predictor.analyzer.tick_count} - Precio: {price:.5f}")
             else:
-                logging.warning("⚠️ No se pudo obtener precio válido")
+                if current_time - last_successful_tick > 30:
+                    logging.warning("⚠️ No se reciben ticks hace 30 segundos")
+                    iq_connector.connected = False
                 time.sleep(1)
                 continue
                 
-            # Lógica de velas y predicciones
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             seconds_norm = seconds_remaining / TIMEFRAME
             
-            # Cambio de vela
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
@@ -845,21 +874,19 @@ def professional_tick_analyzer():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela iniciada")
                 
-            # Realizar predicción en ventana específica
             if seconds_remaining <= PREDICTION_WINDOW and (time.time() - last_prediction_time) > (TIMEFRAME - 4):
                 pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_norm)
                 global current_prediction
                 current_prediction = pred
                 last_prediction_time = time.time()
                 
-                # Log detallado de la predicción
                 logging.info("🎯 PREDICCIÓN: %s | Confianza: %s%% | Ticks: %s | Modelo: %s", 
                            pred.get("direction"), 
                            pred.get("confidence"), 
                            pred.get("tick_count", 0),
                            pred.get("model_used","HYBRID"))
                            
-            time.sleep(0.5)  # Pausa optimizada
+            time.sleep(0.5)
             
         except Exception as e:
             logging.error(f"💥 Error en loop principal: {e}")
@@ -869,7 +896,7 @@ def professional_tick_analyzer():
                 break
             time.sleep(2)
 
-# --------------- FastAPI (sin cambios) ---------------
+# --------------- FastAPI ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -891,7 +918,6 @@ def home():
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
-    # Obtener datos para el gráfico
     price_history = predictor.analyzer.get_price_history()
     price_history_json = json.dumps(price_history)
     
@@ -942,7 +968,6 @@ def home():
             .accuracy-medium {{ color: #ffbb33; }}
             .accuracy-low {{ color: #ff4444; }}
             
-            /* Countdown Timer */
             .countdown {{
                 font-size: 3em;
                 font-weight: bold;
@@ -960,7 +985,6 @@ def home():
                 100% {{ opacity: 1; }}
             }}
             
-            /* Direction Arrows */
             .direction-arrow {{
                 font-size: 4em;
                 margin: 10px 0;
@@ -968,7 +992,6 @@ def home():
             .arrow-up {{ color: #00ff88; }}
             .arrow-down {{ color: #ff4444; }}
             
-            /* Mini Chart */
             .chart-container {{
                 background: rgba(255,255,255,0.02);
                 border-radius: 8px;
@@ -976,7 +999,6 @@ def home():
                 margin: 15px 0;
             }}
             
-            /* Status indicators */
             .status-connected {{ color: #00ff88; }}
             .status-disconnected {{ color: #ff4444; }}
         </style>
@@ -988,10 +1010,8 @@ def home():
             • Status: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONNECTED' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
             
-            <!-- Countdown Timer -->
             <div class="countdown" id="countdown">--</div>
             
-            <!-- Direction Arrows -->
             <div class="direction-arrow" id="direction-arrow">
                 {"⬆️" if direction == "ALZA" else "⬇️" if direction == "BAJA" else "⏸️"}
             </div>
@@ -1003,7 +1023,6 @@ def home():
                 <p>Ticks procesados: <strong>{predictor.analyzer.tick_count}</strong></p>
             </div>
             
-            <!-- Mini Chart -->
             <div class="chart-container">
                 <h3>📊 Live Price Movement</h3>
                 <canvas id="priceChart" width="400" height="100"></canvas>
@@ -1039,7 +1058,6 @@ def home():
         </div>
 
         <script>
-            // Countdown Timer
             function updateCountdown() {{
                 const now = new Date();
                 const seconds = now.getSeconds();
@@ -1048,23 +1066,19 @@ def home():
                 const countdownEl = document.getElementById('countdown');
                 countdownEl.textContent = remaining + 's';
                 
-                // Critical time (last 5 seconds)
                 if (remaining <= 5) {{
                     countdownEl.classList.add('critical');
                 }} else {{
                     countdownEl.classList.remove('critical');
                 }}
                 
-                // Update current time
                 document.getElementById('current-time').textContent = 
                     now.toISOString().replace('T', ' ').substr(0, 19);
             }}
             
-            // Update countdown every second
             setInterval(updateCountdown, 1000);
             updateCountdown();
             
-            // Mini Price Chart
             const priceHistory = {price_history_json};
             const ctx = document.getElementById('priceChart').getContext('2d');
             
@@ -1102,7 +1116,6 @@ def home():
                 }});
             }}
             
-            // Auto-refresh every 3 seconds
             setInterval(() => {{
                 window.location.reload();
             }}, 3000);
@@ -1175,19 +1188,16 @@ def api_patterns():
 
 # --------------- Start threads & server ---------------
 if __name__ == "__main__":
-    # Start analyzer thread
     analyzer_thread = threading.Thread(target=professional_tick_analyzer, daemon=True)
     analyzer_thread.start()
     logging.info("📊 Tick analyzer thread started")
 
-    # Start trainer thread
     trainer_thread = threading.Thread(target=adaptive_trainer_loop, args=(predictor,), daemon=True)
     trainer_thread.start()
     logging.info("🧠 Model trainer thread started")
 
-    # Start server
     import uvicorn
-    port = int(os.getenv("PORT", "8080"))
+    port = int(os.getenv("PORT", "10000"))
     logging.info("🚀 Starting Delowyss AI V3.8 server on port %s", port)
     
     try:

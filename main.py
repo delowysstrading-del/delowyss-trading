@@ -1,4 +1,4 @@
-# main.py
+# main.py - CORRECCIÓN DEFINITIVA PARA INSTANCIAS DUPLICADAS
 """
 Delowyss Trading AI — V3.8-Full (Production)
 Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
@@ -16,6 +16,8 @@ import pandas as pd
 import json
 import socket
 import sys
+import atexit
+import fcntl  # Para bloqueo de archivos en Unix
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -49,19 +51,68 @@ SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# ---------------- SINGLETON PROTECTION ----------------
-def check_single_instance(port=10000):
-    """🔒 PREVENIR INSTANCIAS DUPLICADAS - MANTIENE ORIGINALIDAD"""
-    try:
-        sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        sock.bind(('0.0.0.0', port))
-        return True
-    except socket.error:
-        logging.warning("⚠️ Ya hay una instancia ejecutándose - evitando duplicado")
-        return False
+# ---------------- SINGLETON PROTECTION MEJORADO ----------------
+class InstanceLocker:
+    """🔒 BLOQUEO ROBUSTO DE INSTANCIA ÚNICA - DEFINITIVO"""
+    def __init__(self):
+        self.lock_file = "delowyss_instance.lock"
+        self.lock_fd = None
+        self.is_locked = False
+        
+    def acquire_lock(self):
+        """Adquirir bloqueo de instancia única"""
+        try:
+            self.lock_fd = open(self.lock_file, 'w')
+            try:
+                # Intentar bloqueo exclusivo (Unix)
+                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.is_locked = True
+                logging.info("🔒 Bloqueo de instancia única adquirido")
+                return True
+            except (IOError, BlockingIOError):
+                logging.warning("⚠️ Ya hay una instancia ejecutándose - Cerrando duplicado")
+                self.lock_fd.close()
+                return False
+        except Exception as e:
+            logging.warning(f"⚠️ Error con bloqueo de archivo: {e}")
+            # Fallback: verificación de puerto
+            return self._fallback_lock()
+    
+    def _fallback_lock(self):
+        """Fallback: verificación de puerto"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(('0.0.0.0', 10000))
+            logging.info("🔒 Bloqueo de puerto adquirido (fallback)")
+            return True
+        except socket.error:
+            logging.warning("⚠️ Puerto ya en uso - Instancia duplicada detectada")
+            return False
+    
+    def release_lock(self):
+        """Liberar bloqueo"""
+        if self.is_locked and self.lock_fd:
+            try:
+                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                self.lock_fd.close()
+                if os.path.exists(self.lock_file):
+                    os.remove(self.lock_file)
+                logging.info("🔓 Bloqueo de instancia liberado")
+            except Exception as e:
+                logging.error(f"Error liberando bloqueo: {e}")
 
-if not check_single_instance():
+# Inicializar locker global
+instance_locker = InstanceLocker()
+
+if not instance_locker.acquire_lock():
+    logging.error("❌ No se pudo adquirir bloqueo de instancia - Saliendo")
     sys.exit(1)
+
+# Registrar liberación al salir
+def cleanup_locker():
+    instance_locker.release_lock()
+
+atexit.register(cleanup_locker)
 
 # ---------------- LOGGING MEJORADO ----------------
 logging.basicConfig(
@@ -387,7 +438,6 @@ class ProductionPredictor:
                 pd.DataFrame(columns=self._feature_names() + ["label", "timestamp"]).to_csv(TRAINING_CSV, index=False)
                 logging.info("📁 Archivo de entrenamiento creado")
             if not os.path.exists(PERF_CSV):
-                # 🆕 CORRECCIÓN: Usar 'prediction' en lugar de 'predicted'
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
                 logging.info("📁 Archivo de performance creado")
         except Exception as e:
@@ -492,7 +542,7 @@ class ProductionPredictor:
             self.partial_buffer.clear()
 
     def validate_previous_prediction(self, current_candle_metrics):
-        """Valida si la última predicción fue correcta - CON APRENDIZAJE MEJORADO"""
+        """Valida si la última predicción fue correcta"""
         if not self.last_prediction:
             return None
             
@@ -513,7 +563,7 @@ class ProductionPredictor:
 
             result = {
                 "timestamp": now_iso(),
-                "prediction": predicted_direction,  # 🆕 CORREGIDO: 'prediction' en lugar de 'predicted'
+                "prediction": predicted_direction,
                 "actual": actual_direction,
                 "correct": correct,
                 "confidence": confidence,
@@ -539,7 +589,7 @@ class ProductionPredictor:
             return None
 
     def _learn_from_mistake(self, validation_result):
-        """APRENDE DE ERRORES - SISTEMA MEJORADO"""
+        """APRENDE DE ERRORES"""
         try:
             consolidation_risk = self.prev_candle_metrics.get("consolidation_risk", "NINGUNO")
             confidence = validation_result["confidence"]
@@ -595,10 +645,9 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
-        # 🆕 CORRECCIÓN: Usar la función corregida para guardar performance
         self._save_performance_to_csv({
             "timestamp": validation_result["timestamp"],
-            "prediction": validation_result["prediction"],  # 🔽 CORREGIDO
+            "prediction": validation_result["prediction"],
             "actual": validation_result["actual"],
             "correct": validation_result["correct"],
             "confidence": validation_result["confidence"],
@@ -610,7 +659,7 @@ class ProductionPredictor:
             logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
 
     def _save_performance_to_csv(self, perf_data):
-        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV - CORREGIDO"""
+        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
         try:
             file_exists = os.path.exists(PERF_CSV)
             if file_exists:
@@ -632,7 +681,6 @@ class ProductionPredictor:
         except Exception as e:
             logging.error(f"❌ Error guardando performance: {e}")
             try:
-                # 🆕 CORRECCIÓN: Crear archivo con estructura corregida
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
                 logging.info("📁 Archivo de performance recreado con estructura corregida")
             except Exception as e2:
@@ -667,7 +715,6 @@ class ProductionPredictor:
                 "model_used": pred.get("model_used","HYBRID")
             }
             
-            # 🆕 CORRECCIÓN: Usar la función corregida
             self._save_performance_to_csv(rec)
             
             self.performance_stats['total_predictions'] += 1
@@ -1130,7 +1177,6 @@ current_prediction = {
 }
 
 # --------------- Singleton Protection MEJORADO ---------------
-import atexit
 _analyzer_running = False
 
 def professional_tick_analyzer():

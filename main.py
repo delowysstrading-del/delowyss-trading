@@ -30,7 +30,7 @@ warnings.filterwarnings("ignore")
 # ---------------- CONFIG ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD-OTC")
+PAR = os.getenv("PAIR", "EURUSD")  # Cambiado a EURUSD estándar
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
@@ -601,7 +601,7 @@ class ProductionPredictor:
             "rules_confidence":rules_pred.get("confidence")
         }
 
-# -------------- IQ CONNECTION CON DIAGNÓSTICO --------------
+# -------------- IQ CONNECTION CORREGIDA --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -609,6 +609,7 @@ class IQOptionConnector:
         self.last_tick_time = None
         self.tick_count = 0
         self.last_price = None
+        self.actual_pair = None
         
     def connect(self):
         """Conectar a IQ Option"""
@@ -626,15 +627,8 @@ class IQOptionConnector:
                 self.connected = True
                 logging.info("✅ Conectado exitosamente a IQ Option")
                 
-                # DIAGNÓSTICO TEMPORAL - Probar diferentes métodos
-                self._test_price_methods()
-                
-                # Iniciar stream de velas inmediatamente
-                try:
-                    self.iq.start_candles_stream(PAR, TIMEFRAME, 10)
-                    logging.info(f"📊 Stream de velas iniciado para {PAR}")
-                except Exception as e:
-                    logging.warning(f"⚠️ No se pudo iniciar stream: {e}")
+                # Encontrar el par correcto que funcione
+                self._find_working_pair()
                 
                 return self.iq
             else:
@@ -645,79 +639,79 @@ class IQOptionConnector:
             logging.error(f"❌ Error conexión: {e}")
             return None
 
-    def _test_price_methods(self):
-        """Probar diferentes métodos para obtener precios"""
-        logging.info("🔍 Probando métodos de obtención de precios...")
+    def _find_working_pair(self):
+        """Encontrar un par que funcione"""
+        test_pairs = [
+            "EURUSD",           # Forex estándar
+            "EURUSD-OTC",       # OTC
+            "EURUSD",           # Forex alternativo
+        ]
         
-        # Método 1: get_candles
-        try:
-            candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
-            logging.info(f"📊 get_candles: {len(candles) if candles else 0} velas")
-            if candles and len(candles) > 0:
-                logging.info(f"   Última vela: {candles[-1]}")
-        except Exception as e:
-            logging.info(f"❌ get_candles falló: {e}")
+        for pair in test_pairs:
+            try:
+                logging.info(f"🔍 Probando par: {pair}")
+                candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
+                if candles and len(candles) > 0:
+                    price = float(candles[-1]['close'])
+                    if price > 0:
+                        self.actual_pair = pair
+                        logging.info(f"✅ Par funcional encontrado: {pair} - Precio: {price:.5f}")
+                        
+                        # Iniciar stream para este par
+                        try:
+                            self.iq.start_candles_stream(pair, TIMEFRAME, 10)
+                            logging.info(f"📊 Stream iniciado para {pair}")
+                        except Exception as e:
+                            logging.warning(f"⚠️ No se pudo iniciar stream: {e}")
+                        
+                        return
+            except Exception as e:
+                logging.debug(f"Par {pair} falló: {e}")
         
-        # Método 2: get_realtime_candles
-        try:
-            realtime = self.iq.get_realtime_candles(PAR, TIMEFRAME)
-            logging.info(f"📈 get_realtime_candles: {len(realtime) if realtime else 0} velas")
-            if realtime:
-                logging.info(f"   Ejemplo: {list(realtime.values())[0] if realtime else 'N/A'}")
-        except Exception as e:
-            logging.info(f"❌ get_realtime_candles falló: {e}")
-        
-        # Método 3: get_all_open_time para verificar disponibilidad
-        try:
-            all_assets = self.iq.get_all_open_time()
-            logging.info("📋 Activos disponibles:")
-            for asset_type in ["digital", "turbo", "binary", "forex", "crypto"]:
-                if asset_type in all_assets:
-                    available_pairs = [pair for pair in all_assets[asset_type] if PAR in pair]
-                    if available_pairs:
-                        logging.info(f"   {asset_type}: {available_pairs}")
-        except Exception as e:
-            logging.info(f"❌ get_all_open_time falló: {e}")
+        # Si no encontramos par, usar EURUSD por defecto
+        self.actual_pair = "EURUSD"
+        logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
 
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real - MÉTODO DIAGNÓSTICO"""
+        """Obtener ticks en tiempo real - VERSIÓN CORREGIDA"""
         try:
             if not self.connected or not self.iq:
                 return None
 
-            # MÉTODO PRINCIPAL: get_candles
+            # Usar el par que funciona
+            working_pair = self.actual_pair if self.actual_pair else "EURUSD"
+            
+            # MÉTODO PRINCIPAL: get_candles (que sabemos que funciona)
             try:
-                candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
+                candles = self.iq.get_candles(working_pair, TIMEFRAME, 1, time.time())
                 if candles and len(candles) > 0:
                     price = float(candles[-1]['close'])
                     if price > 0:
                         self._record_tick(price)
-                        logging.info(f"🎯 PRECIO OBTENIDO: {price:.5f}")
                         return price
             except Exception as e:
                 logging.debug(f"get_candles falló: {e}")
 
-            # MÉTODO ALTERNATIVO: Cambiar a EURUSD temporalmente
+            # MÉTODO ALTERNATIVO: get_realtime_candles
             try:
-                alt_candles = self.iq.get_candles("EURUSD", TIMEFRAME, 1, time.time())
-                if alt_candles and len(alt_candles) > 0:
-                    price = float(alt_candles[-1]['close'])
-                    if price > 0:
-                        self._record_tick(price)
-                        logging.info(f"🎯 PRECIO EURUSD: {price:.5f}")
-                        return price
+                realtime = self.iq.get_realtime_candles(working_pair, TIMEFRAME)
+                if realtime:
+                    candle_list = list(realtime.values())
+                    if candle_list:
+                        latest_candle = candle_list[-1]
+                        price = float(latest_candle.get('close', 0))
+                        if price > 0:
+                            self._record_tick(price)
+                            return price
             except Exception as e:
-                logging.debug(f"EURUSD falló: {e}")
+                logging.debug(f"get_realtime_candles falló: {e}")
 
-            # MÉTODO DE EMERGENCIA: Precio fijo para testing
-            if self.tick_count == 0:
-                test_price = 1.07250
-                self._record_tick(test_price)
-                logging.info(f"🧪 PRECIO TEST: {test_price:.5f}")
-                return test_price
+            # Último precio conocido
+            if self.last_price:
+                return self.last_price
 
         except Exception as e:
-            logging.error(f"❌ Error crítico: {e}")
+            logging.error(f"❌ Error obteniendo ticks: {e}")
             
         return None
 
@@ -727,8 +721,10 @@ class IQOptionConnector:
         self.last_tick_time = time.time()
         self.last_price = price
         
-        if self.tick_count <= 10 or self.tick_count % 20 == 0:
-            logging.info(f"💰 Tick REAL #{self.tick_count}: {price:.5f}")
+        # Log cada 5 ticks para no saturar
+        if self.tick_count <= 10 or self.tick_count % 5 == 0:
+            pair_info = f" ({self.actual_pair})" if self.actual_pair else ""
+            logging.info(f"💰 Tick #{self.tick_count}{pair_info}: {price:.5f}")
 
     def check_connection(self):
         """Verificar conexión"""
@@ -806,9 +802,9 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop CON DIAGNÓSTICO ---------------
+# --------------- Main loop CORREGIDO ---------------
 def professional_tick_analyzer():
-    logging.info("🚀 Delowyss AI V3.8 iniciado - MODO DIAGNÓSTICO")
+    logging.info("🚀 Delowyss AI V3.8 iniciado - PRECIOS REALES")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -821,7 +817,7 @@ def professional_tick_analyzer():
             
             if price is not None and price > 0:
                 tick_data = predictor.analyzer.add_tick(price)
-                if tick_data and predictor.analyzer.tick_count <= 5:
+                if tick_data and predictor.analyzer.tick_count <= 10:
                     logging.info(f"🎯 Tick REAL #{predictor.analyzer.tick_count}: {price:.5f}")
             else:
                 time.sleep(1)
@@ -884,6 +880,8 @@ def home():
     
     price_history = predictor.analyzer.get_price_history()
     price_history_json = json.dumps(price_history)
+    
+    actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
     html = f"""
     <!doctype html>
@@ -970,7 +968,7 @@ def home():
     <body>
         <div class="card">
             <h1>🤖 Delowyss Trading AI — V3.8</h1>
-            <p>Pair: {PAR} • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
+            <p>Pair: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
             • Status: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONNECTED' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
             
@@ -1098,11 +1096,12 @@ def api_status():
     connected = iq_connector.connected if iq_connector else False
     training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+    actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
     return JSONResponse({
         "status": "online",
         "connected": connected,
-        "pair": PAR,
+        "pair": actual_pair,
         "model_loaded": predictor.model is not None,
         "training_samples": training_samples,
         "perf_rows": perf_rows,

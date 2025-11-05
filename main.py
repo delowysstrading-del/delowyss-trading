@@ -41,7 +41,7 @@ SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib"
 
 BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
 PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
-CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "55.0"))  # 🔽 REDUCIDO para aprender más
+CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "55.0"))
 
 SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
@@ -274,7 +274,7 @@ class ProductionTickAnalyzer:
             else:
                 market_phase = "neutral"
 
-            # 🆕 DETECCIÓN MEJORADA DE CONSOLIDACIÓN
+            # DETECCIÓN MEJORADA DE CONSOLIDACIÓN
             consolidation_risk = self._assess_consolidation_risk()
 
             metrics = {
@@ -296,7 +296,7 @@ class ProductionTickAnalyzer:
                 "direction_ratio": direction_ratio,
                 "market_phase": market_phase,
                 "last_patterns": list(self.last_patterns)[:4],
-                "consolidation_risk": consolidation_risk,  # 🆕 NUEVO PARÁMETRO
+                "consolidation_risk": consolidation_risk,
                 "timestamp": time.time()
             }
             if seconds_remaining_norm is not None:
@@ -307,7 +307,7 @@ class ProductionTickAnalyzer:
             return None
 
     def _assess_consolidation_risk(self):
-        """🆕 Evalúa el riesgo de consolidación basado en patrones recientes"""
+        """Evalúa el riesgo de consolidación basado en patrones recientes"""
         try:
             patterns = [p for (_, p) in self.last_patterns]
             consolidation_count = patterns.count("consolidation")
@@ -346,7 +346,7 @@ class ProductionPredictor:
             'recent': deque(maxlen=50)
         }
         self.last_prediction = None
-        self.learning_insights = {  # 🆕 INSIGHTS DE APRENDIZAJE
+        self.learning_insights = {
             'consolidation_errors': 0,
             'high_confidence_errors': 0,
             'recent_mistakes': deque(maxlen=10)
@@ -431,14 +431,12 @@ class ProductionPredictor:
 
     def append_sample_if_confident(self, metrics, label, confidence):
         try:
-            # 🆕 THRESHOLD REDUCIDO para aprender más
             if confidence < CONFIDENCE_SAVE_THRESHOLD:
                 return
             row = {k: metrics.get(k,0.0) for k in self._feature_names()}
             row["label"] = int(label)
             row["timestamp"] = datetime.utcnow().isoformat()
             
-            # 🆕 GUARDADO MÁS ROBUSTO
             try:
                 pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
                 self.partial_buffer.append((row,label))
@@ -448,7 +446,6 @@ class ProductionPredictor:
                     self._perform_partial_fit()
             except Exception as e:
                 logging.error(f"❌ Error guardando sample: {e}")
-                # Intentar recrear archivo si hay error
                 self._ensure_files()
                 
         except Exception as e:
@@ -510,7 +507,6 @@ class ProductionPredictor:
             status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
             logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
             
-            # 🆕 APRENDIZAJE DE ERRORES
             if not correct:
                 self._learn_from_mistake(result)
             
@@ -523,14 +519,12 @@ class ProductionPredictor:
             return None
 
     def _learn_from_mistake(self, validation_result):
-        """🆕 APRENDE DE ERRORES - SISTEMA MEJORADO"""
+        """APRENDE DE ERRORES - SISTEMA MEJORADO"""
         try:
-            # Analizar contexto del error
             consolidation_risk = self.prev_candle_metrics.get("consolidation_risk", "NINGUNO")
             confidence = validation_result["confidence"]
             market_phase = self.prev_candle_metrics.get("market_phase", "unknown")
             
-            # Registrar insights
             self.learning_insights['recent_mistakes'].append({
                 'timestamp': now_iso(),
                 'consolidation_risk': consolidation_risk,
@@ -539,16 +533,14 @@ class ProductionPredictor:
                 'price_change': validation_result["price_change_pips"]
             })
             
-            # Análisis específico de errores
             if consolidation_risk in ["ALTO", "MEDIO"]:
                 self.learning_insights['consolidation_errors'] += 1
                 logging.info(f"📝 Error en consolidación #{self.learning_insights['consolidation_errors']}")
                 
-            if confidence > 65:  # Error con alta confianza
+            if confidence > 65:
                 self.learning_insights['high_confidence_errors'] += 1
                 logging.info(f"🎯 Error con alta confianza #{self.learning_insights['high_confidence_errors']}")
                 
-            # Log de insights acumulados
             if len(self.learning_insights['recent_mistakes']) % 5 == 0:
                 self._log_learning_insights()
                 
@@ -556,7 +548,7 @@ class ProductionPredictor:
             logging.error(f"❌ Error en aprendizaje: {e}")
 
     def _log_learning_insights(self):
-        """🆕 LOG DE INSIGHTS DE APRENDIZAJE"""
+        """LOG DE INSIGHTS DE APRENDIZAJE"""
         try:
             mistakes = list(self.learning_insights['recent_mistakes'])
             if not mistakes:
@@ -583,7 +575,6 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
-        # 🆕 GUARDADO ROBUSTO EN ARCHIVO
         self._save_performance_to_csv(validation_result)
         
         if performance_stats['total_predictions'] % 5 == 0:
@@ -591,7 +582,7 @@ class ProductionPredictor:
             logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
 
     def _save_performance_to_csv(self, validation_result):
-        """🆕 GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
+        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
         try:
             perf_data = {
                 "timestamp": validation_result["timestamp"],
@@ -602,7 +593,6 @@ class ProductionPredictor:
                 "model_used": validation_result["model_used"]
             }
             
-            # Verificar si el archivo existe y tiene datos
             file_exists = os.path.exists(PERF_CSV)
             if file_exists:
                 try:
@@ -612,7 +602,6 @@ class ProductionPredictor:
                 except:
                     file_exists = False
             
-            # Guardar datos
             pd.DataFrame([perf_data]).to_csv(
                 PERF_CSV, 
                 mode='a', 
@@ -622,7 +611,6 @@ class ProductionPredictor:
             
         except Exception as e:
             logging.error(f"❌ Error guardando performance: {e}")
-            # Intentar recrear archivo
             try:
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
             except:
@@ -657,7 +645,6 @@ class ProductionPredictor:
                 "model_used": pred.get("model_used","HYBRID")
             }
             
-            # 🆕 GUARDADO MÁS ROBUSTO
             self._save_performance_to_csv(rec)
             
             self.performance_stats['total_predictions'] += 1
@@ -682,10 +669,8 @@ class ProductionPredictor:
         total_ticks = metrics.get("total_ticks", 0)
         consolidation_risk = metrics.get("consolidation_risk", "NINGUNO")
         
-        # 🆕 DETECCIÓN DE CONSOLIDACIÓN - BAJAR CONFIANZA
         if consolidation_risk == "ALTO":
             reasons.append("ALTA consolidación - confianza reducida")
-            # En alta consolidación, forzar confianza baja
             max_confidence = 45
         elif consolidation_risk == "MEDIO":
             reasons.append("MEDIA consolidación - confianza moderada")
@@ -693,7 +678,6 @@ class ProductionPredictor:
         else:
             max_confidence = 95
         
-        # 1. PRESSURE RATIO - SEÑAL FUERTE
         if pr > 2.2:
             signals.append(1)
             confidences.append(min(max_confidence, 50 + int((pr - 2.0) * 15)))
@@ -711,7 +695,6 @@ class ProductionPredictor:
             confidences.append(min(max_confidence, 40 + int((0.7 - pr) * 20)))
             reasons.append(f"Presión venta {pr:.1f}x")
         
-        # 2. MOMENTUM - SEÑAL MEDIA
         if mom > 2.0:
             signals.append(1)
             confidences.append(min(max_confidence, 45 + int(min(mom, 8) * 3)))
@@ -726,7 +709,6 @@ class ProductionPredictor:
             confidences.append(min(max_confidence, 55))
             reasons.append(f"Momento leve {mom:.1f}pips")
         
-        # 3. BUY/SELL PRESSURE - SEÑAL DIRECTA
         if bp > 0.70:
             signals.append(1)
             confidences.append(min(max_confidence, 70))
@@ -736,7 +718,6 @@ class ProductionPredictor:
             confidences.append(min(max_confidence, 70))
             reasons.append(f"Dominio venta {sp:.0%}")
         
-        # 4. VOLATILIDAD + FASE MERCADO
         if vol > 6.0:
             if phase == "strong_trend" and abs(mom) > 1.5:
                 direction = 1 if mom > 0 else 0
@@ -744,7 +725,6 @@ class ProductionPredictor:
                 confidences.append(min(max_confidence, 60 + int(vol)))
                 reasons.append(f"Tendencia volátil {vol:.1f}pips")
         
-        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
         if signals:
             avg_confidence = int(sum(confidences) / len(confidences))
             
@@ -778,7 +758,6 @@ class ProductionPredictor:
                 final_confidence = min(max_confidence, 40)
                 reasons.append("Mercado lateral")
         
-        # 🆕 AJUSTE FINAL POR CONSOLIDACIÓN
         if consolidation_risk == "ALTO" and final_confidence > 45:
             final_confidence = 45
             reasons.append("Ajuste por alta consolidación")
@@ -815,9 +794,8 @@ class ProductionPredictor:
         
         base_mlp_weight = 0.6
         
-        # 🆕 AJUSTES POR CONSOLIDACIÓN
         if consolidation_risk == "ALTO":
-            mlp_weight = 0.3  # Menos confianza en ML en alta consolidación
+            mlp_weight = 0.3
             fusion_type = "CONSOLIDATION_LOW_MLP"
         elif consolidation_risk == "MEDIO":
             mlp_weight = 0.4
@@ -856,7 +834,6 @@ class ProductionPredictor:
         
         reasons.extend(rules_pred.get("reasons", []))
         
-        # 🆕 AJUSTE FINAL POR CONSOLIDACIÓN
         if consolidation_risk == "ALTO" and fused_confidence > 50:
             fused_confidence = max(40, int(fused_confidence * 0.8))
             reasons.append("Fusión ajustada por alta consolidación")
@@ -1129,9 +1106,26 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop MEJORADO ---------------
+# --------------- Singleton Protection ---------------
+import atexit
+_analyzer_running = False
+
 def professional_tick_analyzer():
-    global current_prediction
+    global _analyzer_running, current_prediction
+    
+    # 🔒 PREVENIR DUPLICADOS - MANTIENE ORIGINALIDAD
+    if _analyzer_running:
+        logging.warning("⚠️ Analyzer ya está ejecutándose - evitando duplicado")
+        return
+        
+    _analyzer_running = True
+    
+    def cleanup():
+        global _analyzer_running
+        _analyzer_running = False
+        logging.info("🧹 Analyzer cleanup ejecutado")
+    
+    atexit.register(cleanup)
     
     logging.info("🚀 Delowyss AI V3.8 MEJORADO - CON APRENDIZAJE ACTIVO")
     last_prediction_time = 0
@@ -1169,7 +1163,7 @@ def professional_tick_analyzer():
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
                         
-                        # 🆕 LOG MEJORADO CON MÁS CONTEXTO
+                        # LOG MEJORADO CON MÁS CONTEXTO
                         consolidation_risk = predictor.analyzer._assess_consolidation_risk()
                         logging.info(f"🎯 PREDICCIÓN: {pred.get('direction')} | Conf: {pred.get('confidence')}% | Ticks: {pred.get('tick_count', 0)} | Consolidación: {consolidation_risk}")
             
@@ -1234,7 +1228,7 @@ def home():
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # 🆕 ESTADÍSTICAS DE APRENDIZAJE
+    # ESTADÍSTICAS DE APRENDIZAJE
     learning_insights = predictor.learning_insights
     consolidation_errors = learning_insights.get('consolidation_errors', 0)
     high_conf_errors = learning_insights.get('high_confidence_errors', 0)
@@ -1524,7 +1518,6 @@ def api_validation():
         
         overall_accuracy = (correct / total * 100) if total > 0 else 0.0
         
-        # 🆕 DATOS DE APRENDIZAJE
         learning_data = {
             'consolidation_errors': predictor.learning_insights.get('consolidation_errors', 0),
             'high_confidence_errors': predictor.learning_insights.get('high_confidence_errors', 0),
@@ -1581,7 +1574,6 @@ def api_status():
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # 🆕 DATOS DE APRENDIZAJE
     learning_insights = predictor.learning_insights
     
     return JSONResponse({

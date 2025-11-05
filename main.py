@@ -311,7 +311,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor CORREGIDO ------------------
+# ------------------ Predictor CON VALIDACIÓN ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -436,6 +436,67 @@ class ProductionPredictor:
             logging.error(f"❌ Error partial fit: {e}")
             self.partial_buffer.clear()
 
+    def validate_previous_prediction(self, current_candle_metrics):
+        """Valida si la última predicción fue correcta - MANTIENE ORIGINALIDAD"""
+        if not self.last_prediction:
+            return None
+            
+        try:
+            if self.prev_candle_metrics is None:
+                return None
+                
+            prev_close = float(self.prev_candle_metrics["current_price"])
+            current_close = float(current_candle_metrics["current_price"])
+            
+            actual_direction = "ALZA" if current_close > prev_close else "BAJA"
+            predicted_direction = self.last_prediction.get("direction", "N/A")
+            
+            correct = (actual_direction == predicted_direction)
+            confidence = self.last_prediction.get("confidence", 0)
+            
+            price_change = (current_close - prev_close) * 10000
+
+            result = {
+                "timestamp": now_iso(),
+                "predicted": predicted_direction,
+                "actual": actual_direction,
+                "correct": correct,
+                "confidence": confidence,
+                "price_change_pips": round(price_change, 2),
+                "previous_price": round(prev_close, 5),
+                "current_price": round(current_close, 5),
+                "model_used": self.last_prediction.get("model_used", "UNKNOWN"),
+                "reasons": self.last_prediction.get("reasons", [])
+            }
+            
+            status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
+            logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
+            
+            self._update_global_performance_stats(correct, result)
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ Error validando predicción: {e}")
+            return None
+
+    def _update_global_performance_stats(self, correct, validation_result):
+        """Actualiza estadísticas globales de performance"""
+        global performance_stats
+        
+        performance_stats['total_predictions'] += 1
+        performance_stats['correct_predictions'] += 1 if correct else 0
+        performance_stats['last_10'].append(1 if correct else 0)
+        performance_stats['last_validation'] = validation_result
+        
+        if performance_stats['last_10']:
+            recent_correct = sum(performance_stats['last_10'])
+            performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
+        
+        if performance_stats['total_predictions'] % 5 == 0:
+            overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
+            logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
+
     def on_candle_closed(self, closed_metrics):
         try:
             if self.prev_candle_metrics is not None:
@@ -557,12 +618,10 @@ class ProductionPredictor:
                 final_confidence = max(40, avg_confidence - 15)
                 reasons.append("Señales mixtas")
                 
-                # Conflicto fuerte = confianza baja
                 if abs(buy_signals - sell_signals) <= 1:
                     final_confidence = max(35, final_confidence - 10)
                     reasons.append("Alta indecisión")
         else:
-            # SIN SEÑALES CLARAS - BASADO EN PRECIO ACTUAL
             price_change = metrics.get("price_change", 0)
             if abs(price_change) > 0.5:
                 direction = 1 if price_change > 0 else 0
@@ -573,19 +632,17 @@ class ProductionPredictor:
                 final_confidence = 40
                 reasons.append("Mercado lateral")
         
-        # AJUSTE POR CALIDAD DE DATOS
         if total_ticks < 8:
             final_confidence = max(30, final_confidence - 15)
             reasons.append(f"Pocos datos: {total_ticks} ticks")
         elif total_ticks > 25:
             final_confidence = min(95, final_confidence + 5)
         
-        # GARANTIZAR ENTEROS Y LÍMITES
         final_confidence = int(max(25, min(95, final_confidence)))
         
         return {
             "direction": "ALZA" if direction == 1 else "BAJA",
-            "confidence": final_confidence,  # ENTERO SIN DECIMALES
+            "confidence": final_confidence,
             "price": round(metrics.get("current_price", 0.0), 5),
             "tick_count": total_ticks,
             "reasons": reasons,
@@ -601,35 +658,31 @@ class ProductionPredictor:
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
         
-        # PESOS ADAPTATIVOS
         base_mlp_weight = 0.6
         
         if phase == "consolidation":
-            mlp_weight = 0.4  # Menos ML en consolidación
+            mlp_weight = 0.4
         elif phase == "strong_trend" and total_ticks > 20:
-            mlp_weight = 0.7  # Más ML en tendencias con datos
+            mlp_weight = 0.7
         else:
             mlp_weight = base_mlp_weight
             
         mlp_confidence = mlp_pred.get("confidence", 50)
         if mlp_confidence < 55:
-            mlp_weight *= 0.7  # Reduce peso si ML tiene baja confianza
+            mlp_weight *= 0.7
             
         rules_weight = 1.0 - mlp_weight
         
-        # FUSIÓN DE DIRECCIONES
         rules_up = 0.8 if rules_pred["direction"] == "ALZA" else 0.2
         combined_up = mlp_pred["prob_up"] * mlp_weight + rules_up * rules_weight
         
         direction = "ALZA" if combined_up >= 0.5 else "BAJA"
         
-        # FUSIÓN DE CONFIANZAS (ENTEROS)
         mlp_conf = mlp_pred.get("confidence", 50)
         rules_conf = rules_pred.get("confidence", 50)
         
         fused_confidence = int(mlp_conf * mlp_weight + rules_conf * rules_weight)
         
-        # AJUSTE POR CONFLICTO
         if mlp_pred["direction"] != rules_pred["direction"]:
             fused_confidence = max(35, int(fused_confidence * 0.7))
             reasons = [f"Conflicto: MLP({mlp_pred.get('prob_up', 0):.2f}) vs Rules"]
@@ -638,12 +691,11 @@ class ProductionPredictor:
         
         reasons.extend(rules_pred.get("reasons", []))
         
-        # LÍMITES FINALES
         fused_confidence = max(30, min(95, fused_confidence))
         
         return {
             "direction": direction,
-            "confidence": fused_confidence,  # ENTERO
+            "confidence": fused_confidence,
             "price": round(metrics.get("current_price", 0.0), 5),
             "tick_count": metrics.get("total_ticks", 0),
             "reasons": reasons,
@@ -658,14 +710,13 @@ class ProductionPredictor:
         if not metrics:
             return {
                 "direction": "N/A", 
-                "confidence": 0,  # ENTERO
+                "confidence": 0,
                 "reason": "sin_datos",
                 "timestamp": now_iso()
             }
             
         total_ticks = metrics.get("total_ticks", 0)
         
-        # PREDICCIÓN SOLO CON SUFICIENTES TICKS
         if total_ticks < 5:
             return {
                 "direction": "N/A",
@@ -677,17 +728,14 @@ class ProductionPredictor:
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
-        # MLP SOLO CON DATOS SUFICIENTES
         if self.model and self.scaler and total_ticks >= 10:
             try:
                 Xs = self.scaler.transform(features)
                 proba = self.model.predict_proba(Xs)[0]
                 up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
                 
-                # CONFIANZA ML EN ENTEROS
                 mlp_confidence = int(max(up_prob, 1 - up_prob) * 100)
                 
-                # Ajuste por certeza
                 if abs(up_prob - 0.5) < 0.15:
                     mlp_confidence = max(40, int(mlp_confidence * 0.8))
                 
@@ -701,10 +749,8 @@ class ProductionPredictor:
                 logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
         
-        # SISTEMA DE REGLAS (SIEMPRE DISPONIBLE)
         rules_pred = self._rule_based(metrics)
         
-        # FUSIÓN SOLO CON DATOS SUFICIENTES
         if mlp_pred and total_ticks >= 12:
             final_pred = self._fuse(mlp_pred, rules_pred, metrics)
         else:
@@ -890,6 +936,15 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
 iq_connector = IQOptionConnector()
 predictor = ProductionPredictor()
 
+# Estadísticas globales de performance
+performance_stats = {
+    'total_predictions': 0,
+    'correct_predictions': 0,
+    'recent_accuracy': 0.0,
+    'last_10': deque(maxlen=10),
+    'last_validation': None
+}
+
 current_prediction = {
     "direction":"N/A",
     "confidence":0,
@@ -900,7 +955,7 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop CORREGIDO ---------------
+# --------------- Main loop CON VALIDACIÓN ---------------
 def professional_tick_analyzer():
     global current_prediction
     
@@ -934,8 +989,8 @@ def professional_tick_analyzer():
             
             # PREDICCIÓN ACTIVA SOLO EN ÚLTIMOS 3-5 SEGUNDOS
             if seconds_remaining <= PREDICTION_WINDOW and seconds_remaining > 1:
-                if predictor.analyzer.tick_count >= 8:  # Mínimo 8 ticks para predicción
-                    if (time.time() - last_prediction_time) > 2:  # Evitar predicciones repetidas
+                if predictor.analyzer.tick_count >= 8:
+                    if (time.time() - last_prediction_time) > 2:
                         pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
@@ -945,22 +1000,28 @@ def professional_tick_analyzer():
                                    pred.get("confidence"),
                                    pred.get("tick_count", 0))
             
-            # CAMBIO DE VELA
+            # CAMBIO DE VELA CON VALIDACIÓN
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
+                    # ✅ VALIDACIÓN AGREGADA
+                    validation_result = predictor.validate_previous_prediction(closed_metrics)
+                    if validation_result:
+                        performance_stats['last_validation'] = validation_result
+                    
                     predictor.on_candle_closed(closed_metrics)
+                
                 predictor.analyzer.reset_candle()
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela iniciada - Analizando ticks...")
                 
-            time.sleep(0.5)  # Mejor responsividad
+            time.sleep(0.5)
             
         except Exception as e:
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO ---------------
+# --------------- FastAPI COMPLETO CON VALIDACIÓN ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1028,6 +1089,13 @@ def home():
                 border-radius: 8px;
                 text-align: center;
             }}
+            .validation-card {{
+                border-left: 4px solid #ffbb33;
+                padding: 15px;
+                margin: 15px 0;
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+            }}
             .metrics-grid {{
                 display: grid;
                 grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -1090,6 +1158,16 @@ def home():
                 <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
                 <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
+            </div>
+
+            <div class="validation-card">
+                <h3>📊 Validación en Tiempo Real</h3>
+                <div id="validation-result" style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                    Esperando primera validación...
+                </div>
+                <div id="performance-stats" style="font-size: 0.9em; color: #ccc;">
+                    Cargando estadísticas...
+                </div>
             </div>
             
             <div class="metrics-grid">
@@ -1170,11 +1248,55 @@ def home():
                     }})
                     .catch(error => console.error('Error:', error));
             }}
+
+            function updateValidation() {{
+                fetch('/api/validation')
+                    .then(response => response.json())
+                    .then(data => {{
+                        const validation = data.last_validation;
+                        const perf = data.performance;
+                        
+                        if (validation && validation.timestamp) {{
+                            const correct = validation.correct;
+                            const color = correct ? '#00ff88' : '#ff4444';
+                            const icon = correct ? '✅' : '❌';
+                            
+                            document.getElementById('validation-result').innerHTML = `
+                                <div style="color:${{color}}; font-weight:bold;">
+                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
+                                    | Real: <strong>${{validation.actual}}</strong>
+                                </div>
+                                <div style="font-size:0.9em; margin-top:5px;">
+                                    Cambio: ${{validation.price_change_pips}}pips | 
+                                    Confianza: ${{validation.confidence}}% |
+                                    Modelo: ${{validation.model_used}}
+                                </div>
+                            `;
+                        }}
+                        
+                        if (perf) {{
+                            const overallColor = perf.overall_accuracy > 60 ? '#00ff88' : 
+                                               perf.overall_accuracy > 50 ? '#ffbb33' : '#ff4444';
+                                               
+                            const recentColor = perf.recent_accuracy > 60 ? '#00ff88' : 
+                                              perf.recent_accuracy > 50 ? '#ffbb33' : '#ff4444';
+                        
+                            document.getElementById('performance-stats').innerHTML = `
+                                <strong>Precisión Global:</strong> <span style="color:${{overallColor}}">${{perf.overall_accuracy}}%</span> 
+                                | <strong>Reciente:</strong> <span style="color:${{recentColor}}">${{perf.recent_accuracy}}%</span>
+                                | <strong>Total:</strong> ${{perf.total_predictions}} predicciones
+                            `;
+                        }}
+                    }})
+                    .catch(error => console.error('Error:', error));
+            }}
             
             setInterval(updateCountdown, 1000);
             setInterval(updateData, 2000);
+            setInterval(updateValidation, 3000);
             updateCountdown();
             updateData();
+            updateValidation();
         </script>
     </body>
     </html>
@@ -1184,6 +1306,60 @@ def home():
 @app.get("/api/prediction")
 def api_prediction():
     return JSONResponse(current_prediction)
+
+@app.get("/api/validation")
+def api_validation():
+    """Endpoint para validaciones - MANTIENE ESTILO ORIGINAL"""
+    try:
+        global performance_stats
+        
+        last_validation = performance_stats.get('last_validation', {})
+        total = performance_stats.get('total_predictions', 0)
+        correct = performance_stats.get('correct_predictions', 0)
+        recent_acc = performance_stats.get('recent_accuracy', 0.0)
+        
+        overall_accuracy = (correct / total * 100) if total > 0 else 0.0
+        
+        return JSONResponse({
+            "last_validation": last_validation,
+            "performance": {
+                "total_predictions": total,
+                "correct_predictions": correct,
+                "overall_accuracy": round(overall_accuracy, 1),
+                "recent_accuracy": round(recent_acc, 1),
+                "last_10_results": list(performance_stats.get('last_10', []))
+            },
+            "timestamp": now_iso()
+        })
+    except Exception as e:
+        logging.error(f"Error en /api/validation: {e}")
+        return JSONResponse({"error": "Error obteniendo validación"})
+
+@app.get("/api/prediction_history")
+def api_prediction_history():
+    """Historial de predicciones - USA ARCHIVO EXISTENTE"""
+    try:
+        if os.path.exists(PERF_CSV):
+            df = pd.read_csv(PERF_CSV)
+            if not df.empty:
+                if 'timestamp' in df.columns:
+                    df = df.sort_values('timestamp', ascending=False)
+                recent = df.head(20).to_dict('records')
+                
+                if 'correct' in df.columns:
+                    hist_accuracy = df['correct'].mean() * 100
+                else:
+                    hist_accuracy = 0.0
+                    
+                return JSONResponse({
+                    "recent_predictions": recent,
+                    "historical_accuracy": round(hist_accuracy, 1),
+                    "total_historical": len(df)
+                })
+    except Exception as e:
+        logging.error(f"Error reading prediction history: {e}")
+    
+    return JSONResponse({"recent_predictions": [], "historical_accuracy": 0.0})
 
 @app.get("/api/status")
 def api_status():

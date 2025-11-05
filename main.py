@@ -1,6 +1,6 @@
-# main.py - CORRECCIÓN DEFINITIVA PARA INSTANCIAS DUPLICADAS
+# main.py - VERSIÓN OTC
 """
-Delowyss Trading AI — V3.8-Full (Production)
+Delowyss Trading AI — V3.8
 Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
 CEO: Eduardo Solis — © 2025
 """
@@ -17,7 +17,7 @@ import json
 import socket
 import sys
 import atexit
-import fcntl  # Para bloqueo de archivos en Unix
+import fcntl
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -30,10 +30,10 @@ import joblib
 import warnings
 warnings.filterwarnings("ignore")
 
-# ---------------- CONFIG ----------------
+# ---------------- CONFIG OTC ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD")
+PAR = os.getenv("PAIR", "EURUSD-OTC")  # 🆕 CAMBIADO A OTC
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
@@ -51,9 +51,9 @@ SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# ---------------- SINGLETON PROTECTION MEJORADO ----------------
+# ---------------- SINGLETON PROTECTION ----------------
 class InstanceLocker:
-    """🔒 BLOQUEO ROBUSTO DE INSTANCIA ÚNICA - DEFINITIVO"""
+    """🔒 BLOQUEO ROBUSTO DE INSTANCIA ÚNICA"""
     def __init__(self):
         self.lock_file = "delowyss_instance.lock"
         self.lock_fd = None
@@ -64,7 +64,6 @@ class InstanceLocker:
         try:
             self.lock_fd = open(self.lock_file, 'w')
             try:
-                # Intentar bloqueo exclusivo (Unix)
                 fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
                 self.is_locked = True
                 logging.info("🔒 Bloqueo de instancia única adquirido")
@@ -75,7 +74,6 @@ class InstanceLocker:
                 return False
         except Exception as e:
             logging.warning(f"⚠️ Error con bloqueo de archivo: {e}")
-            # Fallback: verificación de puerto
             return self._fallback_lock()
     
     def _fallback_lock(self):
@@ -108,13 +106,12 @@ if not instance_locker.acquire_lock():
     logging.error("❌ No se pudo adquirir bloqueo de instancia - Saliendo")
     sys.exit(1)
 
-# Registrar liberación al salir
 def cleanup_locker():
     instance_locker.release_lock()
 
 atexit.register(cleanup_locker)
 
-# ---------------- LOGGING MEJORADO ----------------
+# ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -344,7 +341,6 @@ class ProductionTickAnalyzer:
             else:
                 market_phase = "neutral"
 
-            # DETECCIÓN MEJORADA DE CONSOLIDACIÓN
             consolidation_risk = self._assess_consolidation_risk()
 
             metrics = {
@@ -402,7 +398,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor CORREGIDO ------------------
+# ------------------ Predictor ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -982,7 +978,7 @@ class ProductionPredictor:
         self.last_prediction = final_pred.copy()
         return final_pred
 
-# -------------- IQ CONNECTION COMPLETA --------------
+# -------------- IQ CONNECTION OTC --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -1020,11 +1016,11 @@ class IQOptionConnector:
             return None
 
     def _find_working_pair(self):
-        """Encontrar un par que funcione"""
+        """Encontrar un par que funcione - PRIORIDAD OTC"""
         test_pairs = [
+            "EURUSD-OTC",  # 🆕 PRIORIDAD OTC
             "EURUSD",
             "EURUSD-OTC", 
-            "EURUSD",
         ]
         
         for pair in test_pairs:
@@ -1040,7 +1036,7 @@ class IQOptionConnector:
             except Exception as e:
                 logging.debug(f"Par {pair} falló: {e}")
         
-        self.actual_pair = "EURUSD"
+        self.actual_pair = "EURUSD-OTC"  # 🆕 DEFAULT OTC
         logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
 
     def get_realtime_ticks(self):
@@ -1049,7 +1045,7 @@ class IQOptionConnector:
             if not self.connected or not self.iq:
                 return None
 
-            working_pair = self.actual_pair if self.actual_pair else "EURUSD"
+            working_pair = self.actual_pair if self.actual_pair else "EURUSD-OTC"
             
             try:
                 candles = self.iq.get_candles(working_pair, TIMEFRAME, 1, time.time())
@@ -1176,13 +1172,12 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Singleton Protection MEJORADO ---------------
+# --------------- Singleton Protection ---------------
 _analyzer_running = False
 
 def professional_tick_analyzer():
     global _analyzer_running, current_prediction
     
-    # 🔒 PREVENIR DUPLICADOS - MANTIENE ORIGINALIDAD
     if _analyzer_running:
         logging.warning("⚠️ Analyzer ya está ejecutándose - evitando duplicado")
         return
@@ -1196,7 +1191,7 @@ def professional_tick_analyzer():
     
     atexit.register(cleanup)
     
-    logging.info("🚀 Delowyss AI V3.8 MEJORADO - CON APRENDIZAJE ACTIVO")
+    logging.info("🚀 Delowyss Trading AI — V3.8")  # 🆕 TÍTULO SIMPLIFICADO
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -1257,7 +1252,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO MEJORADO ---------------
+# --------------- FastAPI ----------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1308,7 +1303,7 @@ def home():
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
-        <title>Delowyss AI V3.8 - MEJORADO</title>
+        <title>Delowyss Trading AI — V3.8</title>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;
@@ -1396,7 +1391,7 @@ def home():
     </head>
     <body>
         <div class="card">
-            <h1>🤖 Delowyss Trading AI — V3.8 MEJORADO</h1>
+            <h1>🤖 Delowyss Trading AI — V3.8</h1>  <!-- 🆕 TÍTULO SIMPLIFICADO -->
             <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
             • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
@@ -1576,7 +1571,7 @@ def api_prediction():
 
 @app.get("/api/validation")
 def api_validation():
-    """Endpoint para validaciones - CON ESTADÍSTICAS MEJORADAS"""
+    """Endpoint para validaciones"""
     try:
         global performance_stats
         
@@ -1612,7 +1607,7 @@ def api_validation():
 
 @app.get("/api/prediction_history")
 def api_prediction_history():
-    """Historial de predicciones - MEJORADO"""
+    """Historial de predicciones"""
     try:
         if os.path.exists(PERF_CSV):
             df = pd.read_csv(PERF_CSV)

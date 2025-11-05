@@ -601,7 +601,7 @@ class ProductionPredictor:
             "rules_confidence":rules_pred.get("confidence")
         }
 
-# -------------- IQ CONNECTION SIMPLIFICADA --------------
+# -------------- IQ CONNECTION CON DIAGNÓSTICO --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -626,6 +626,9 @@ class IQOptionConnector:
                 self.connected = True
                 logging.info("✅ Conectado exitosamente a IQ Option")
                 
+                # DIAGNÓSTICO TEMPORAL - Probar diferentes métodos
+                self._test_price_methods()
+                
                 # Iniciar stream de velas inmediatamente
                 try:
                     self.iq.start_candles_stream(PAR, TIMEFRAME, 10)
@@ -642,43 +645,79 @@ class IQOptionConnector:
             logging.error(f"❌ Error conexión: {e}")
             return None
 
+    def _test_price_methods(self):
+        """Probar diferentes métodos para obtener precios"""
+        logging.info("🔍 Probando métodos de obtención de precios...")
+        
+        # Método 1: get_candles
+        try:
+            candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
+            logging.info(f"📊 get_candles: {len(candles) if candles else 0} velas")
+            if candles and len(candles) > 0:
+                logging.info(f"   Última vela: {candles[-1]}")
+        except Exception as e:
+            logging.info(f"❌ get_candles falló: {e}")
+        
+        # Método 2: get_realtime_candles
+        try:
+            realtime = self.iq.get_realtime_candles(PAR, TIMEFRAME)
+            logging.info(f"📈 get_realtime_candles: {len(realtime) if realtime else 0} velas")
+            if realtime:
+                logging.info(f"   Ejemplo: {list(realtime.values())[0] if realtime else 'N/A'}")
+        except Exception as e:
+            logging.info(f"❌ get_realtime_candles falló: {e}")
+        
+        # Método 3: get_all_open_time para verificar disponibilidad
+        try:
+            all_assets = self.iq.get_all_open_time()
+            logging.info("📋 Activos disponibles:")
+            for asset_type in ["digital", "turbo", "binary", "forex", "crypto"]:
+                if asset_type in all_assets:
+                    available_pairs = [pair for pair in all_assets[asset_type] if PAR in pair]
+                    if available_pairs:
+                        logging.info(f"   {asset_type}: {available_pairs}")
+        except Exception as e:
+            logging.info(f"❌ get_all_open_time falló: {e}")
+
     def get_realtime_ticks(self):
-        """Obtener ticks en tiempo real - MÉTODO SIMPLIFICADO"""
+        """Obtener ticks en tiempo real - MÉTODO DIAGNÓSTICO"""
         try:
             if not self.connected or not self.iq:
                 return None
 
-            # MÉTODO 1: get_candles (MÁS CONFIABLE)
+            # MÉTODO PRINCIPAL: get_candles
             try:
                 candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
                 if candles and len(candles) > 0:
                     price = float(candles[-1]['close'])
                     if price > 0:
                         self._record_tick(price)
+                        logging.info(f"🎯 PRECIO OBTENIDO: {price:.5f}")
                         return price
             except Exception as e:
-                logging.debug(f"Método candles falló: {e}")
+                logging.debug(f"get_candles falló: {e}")
 
-            # MÉTODO 2: get_realtime_candles
+            # MÉTODO ALTERNATIVO: Cambiar a EURUSD temporalmente
             try:
-                realtime_candles = self.iq.get_realtime_candles(PAR, TIMEFRAME)
-                if realtime_candles:
-                    candle_list = list(realtime_candles.values())
-                    if candle_list:
-                        latest_candle = candle_list[-1]
-                        price = float(latest_candle.get('close', 0))
-                        if price > 0:
-                            self._record_tick(price)
-                            return price
+                alt_candles = self.iq.get_candles("EURUSD", TIMEFRAME, 1, time.time())
+                if alt_candles and len(alt_candles) > 0:
+                    price = float(alt_candles[-1]['close'])
+                    if price > 0:
+                        self._record_tick(price)
+                        logging.info(f"🎯 PRECIO EURUSD: {price:.5f}")
+                        return price
             except Exception as e:
-                logging.debug(f"Método realtime candles falló: {e}")
+                logging.debug(f"EURUSD falló: {e}")
 
-            # MÉTODO 3: Último precio conocido
-            if self.last_price:
-                return self.last_price
+            # MÉTODO DE EMERGENCIA: Precio fijo para testing
+            if self.tick_count == 0:
+                test_price = 1.07250
+                self._record_tick(test_price)
+                logging.info(f"🧪 PRECIO TEST: {test_price:.5f}")
+                return test_price
 
         except Exception as e:
-            logging.error(f"❌ Error obteniendo ticks: {e}")
+            logging.error(f"❌ Error crítico: {e}")
             
         return None
 
@@ -767,9 +806,9 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop SIMPLIFICADO ---------------
+# --------------- Main loop CON DIAGNÓSTICO ---------------
 def professional_tick_analyzer():
-    logging.info("🚀 Delowyss AI V3.8 iniciado - PRECIOS REALES")
+    logging.info("🚀 Delowyss AI V3.8 iniciado - MODO DIAGNÓSTICO")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -1070,6 +1109,46 @@ def api_status():
         "total_ticks_processed": predictor.analyzer.tick_count,
         "timestamp": now_iso()
     })
+
+@app.get("/api/performance")
+def api_performance():
+    try:
+        if os.path.exists(PERF_CSV):
+            perf_df = pd.read_csv(PERF_CSV)
+            total = len(perf_df)
+            if total > 0 and "correct" in perf_df:
+                accuracy = perf_df["correct"].mean() * 100
+                recent_perf = perf_df.tail(min(20, total))
+                recent_accuracy = recent_perf["correct"].mean() * 100 if len(recent_perf) > 0 else 0
+                
+                return JSONResponse({
+                    "total_predictions": total,
+                    "overall_accuracy": round(accuracy, 2),
+                    "recent_accuracy": round(recent_accuracy, 2),
+                    "confidence_avg": round(perf_df["confidence"].mean(), 2) if "confidence" in perf_df else 0
+                })
+    except Exception as e:
+        logging.error("Error /api/performance: %s", e)
+    
+    return JSONResponse({"error": "No performance data available"})
+
+@app.get("/api/patterns")
+def api_patterns():
+    try:
+        metrics = predictor.analyzer.get_candle_metrics()
+        if metrics:
+            return JSONResponse({
+                "market_phase": metrics.get("market_phase", "unknown"),
+                "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
+                "volatility": metrics.get("volatility", 0),
+                "momentum": metrics.get("momentum", 0),
+                "price_history": predictor.analyzer.get_price_history(),
+                "total_ticks": predictor.analyzer.tick_count
+            })
+    except Exception as e:
+        logging.error("Error /api/patterns: %s", e)
+    
+    return JSONResponse({"error": "No pattern data available"})
 
 # --------------- Start threads & server ---------------
 if __name__ == "__main__":

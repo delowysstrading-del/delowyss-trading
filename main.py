@@ -786,7 +786,7 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop COMPLETO ---------------
+# --------------- Main loop COMPLETO CON ÚLTIMA MODIFICACIÓN ---------------
 def professional_tick_analyzer():
     global current_prediction
     
@@ -804,14 +804,38 @@ def professional_tick_analyzer():
             
             if price is not None and price > 0:
                 tick_data = predictor.analyzer.add_tick(price)
+                
+                # ✅ ÚLTIMA MODIFICACIÓN: Actualizar estado global INMEDIATAMENTE
+                current_prediction.update({
+                    "price": price,
+                    "tick_count": predictor.analyzer.tick_count,
+                    "timestamp": now_iso(),
+                    "status": "CONECTADO"
+                })
+                
+                # ✅ SI HAY MÉTRICAS, ACTUALIZAR PREDICCIÓN BÁSICA
+                metrics = predictor.analyzer.get_candle_metrics()
+                if metrics and predictor.analyzer.tick_count >= 3:
+                    # Predicción simple basada en momentum inmediato
+                    price_change = metrics.get("price_change", 0)
+                    if price_change > 0.1:
+                        current_prediction.update({
+                            "direction": "ALZA",
+                            "confidence": min(75, abs(price_change) * 50),
+                            "reasons": ["Momentum alcista inicial"],
+                            "model_used": "RULES"
+                        })
+                    elif price_change < -0.1:
+                        current_prediction.update({
+                            "direction": "BAJA", 
+                            "confidence": min(75, abs(price_change) * 50),
+                            "reasons": ["Momentum bajista inicial"],
+                            "model_used": "RULES"
+                        })
+                
                 if tick_data and predictor.analyzer.tick_count <= 10:
                     logging.info(f"🎯 Tick REAL #{predictor.analyzer.tick_count}: {price:.5f}")
                     
-                # Actualizar estado global
-                current_prediction["price"] = price
-                current_prediction["tick_count"] = predictor.analyzer.tick_count
-                current_prediction["timestamp"] = now_iso()
-                
             else:
                 time.sleep(1)
                 continue
@@ -848,7 +872,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO ---------------
+# --------------- FastAPI COMPLETO SIN GRÁFICO ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -884,9 +908,6 @@ def home():
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
-    price_history = predictor.analyzer.get_price_history()
-    price_history_json = json.dumps(price_history)
-    
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
     html = f"""
@@ -896,7 +917,6 @@ def home():
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
         <title>Delowyss AI V3.8</title>
-        <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;
@@ -960,12 +980,8 @@ def home():
             .arrow-up {{ color: #00ff88; }}
             .arrow-down {{ color: #ff4444; }}
             
-            .chart-container {{
-                background: rgba(255,255,255,0.02);
-                border-radius: 8px;
-                padding: 15px;
-                margin: 15px 0;
-            }}
+            .status-connected {{ color: #00ff88; }}
+            .status-disconnected {{ color: #ff4444; }}
         </style>
     </head>
     <body>
@@ -988,10 +1004,7 @@ def home():
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
             
-            <div class="chart-container">
-                <h3>📊 Movimiento de precios en tiempo real</h3>
-                <canvas id="priceChart" width="400" height="100"></canvas>
-            </div>
+            <!-- SE ELIMINÓ EL GRÁFICO "Movimiento de precios en tiempo real" -->
             
             <div class="metrics-grid">
                 <div class="metric-cell">
@@ -1077,43 +1090,6 @@ def home():
                     .catch(error => console.error('Error:', error));
             }}
             
-            // Chart
-            const priceHistory = {price_history_json};
-            if (priceHistory.length > 1) {{
-                const ctx = document.getElementById('priceChart').getContext('2d');
-                const chart = new Chart(ctx, {{
-                    type: 'line',
-                    data: {{
-                        labels: Array.from({{length: priceHistory.length}}, (_, i) => i),
-                        datasets: [{{
-                            label: 'Precio',
-                            data: priceHistory,
-                            borderColor: '#00ff88',
-                            backgroundColor: 'rgba(0, 255, 136, 0.1)',
-                            borderWidth: 2,
-                            fill: true,
-                            tension: 0.4
-                        }}]
-                    }},
-                    options: {{
-                        responsive: true,
-                        maintainAspectRatio: false,
-                        plugins: {{
-                            legend: {{ display: false }},
-                            tooltip: {{ enabled: false }}
-                        }},
-                        scales: {{
-                            x: {{ display: false }},
-                            y: {{ 
-                                display: true,
-                                grid: {{ color: 'rgba(255,255,255,0.1)' }},
-                                ticks: {{ color: '#fff' }}
-                            }}
-                        }}
-                    }}
-                }});
-            }}
-            
             setInterval(updateCountdown, 1000);
             setInterval(updateData, 2000);
             updateCountdown();
@@ -1188,13 +1164,11 @@ def api_patterns():
 
 # --------------- Inicialización para Render ---------------
 def start_background_tasks():
-    """Iniciar todas las tareas en background - CORREGIDO PARA RENDER"""
-    # Iniciar analyzer
+    """Iniciar todas las tareas en background"""
     analyzer_thread = threading.Thread(target=professional_tick_analyzer, daemon=True)
     analyzer_thread.start()
     logging.info("📊 Background analyzer started")
     
-    # Iniciar trainer
     trainer_thread = threading.Thread(target=adaptive_trainer_loop, args=(predictor,), daemon=True)
     trainer_thread.start()
     logging.info("🧠 Background trainer started")

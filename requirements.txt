@@ -1,31 +1,20 @@
-fastapi==0.104.1
-uvicorn==0.24.0
-pandas==1.5.3
-numpy==1.24.3
-scikit-learn==1.2.2
-apscheduler==3.10.1
-requests==2.31.0
-python-dateutil==2.8.2
-pytz==2023.3
-tzdata==2023.3
-joblib==1.3.2
-threadpoolctl==3.2.0
-six==1.16.0
-typing-extensions==4.8.0
-anyio==3.7.1
-starlette==0.27.0
-pydantic==2.5.0
-pydantic-core==2.14.0
-annotated-types==0.6.0
-idna==3.4
-h11==0.14.0
-click==8.1.7
-tzlocal==4.3.1
-sniffio==1.3.0
-scipy==1.10.1
-charset-normalizer==3.3.2
-urllib3==2.0.7
-certifi==2023.11.17
-websocket-client==1.6.4
-python-dotenv==1.0.0
-setuptools==65.5.0
+# --- Core del sistema ---
+fastapi==0.115.0
+uvicorn==0.31.1
+python-dotenv==1.0.1
+
+# --- Conexión con IQ Option ---
+iqoptionapi==6.8.9
+
+# --- Ciencia de datos y IA ---
+numpy==1.26.4
+pandas==2.2.3
+scikit-learn==1.5.2
+joblib==1.4.2
+
+# --- Utilidades ---
+requests==2.32.3
+tqdm==4.66.5
+
+# --- Registro y tiempos ---
+pytz==2024.2

@@ -1308,7 +1308,7 @@ def home():
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
-        <title>Delowyss AI V3.8</title>
+        <title>Delowyss AI V3.8 - MEJORADO</title>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;

@@ -921,16 +921,12 @@ class ProfessionalIQConnector:
         self.tick_listeners = []
         self.last_price = 1.10000
         self.tick_count = 0
-        self.simulation_mode = not IQ_OPTION_AVAILABLE
-        
+        self.simulation_mode = False  # ✅ MODO REAL
+    
     def connect(self):
-        if self.simulation_mode:
-            logging.info("🔧 MODO SIMULACIÓN ACTIVADO - IQ Option no disponible")
-            self.connected = True
-            # Iniciar simulador de ticks
-            thread = threading.Thread(target=self._simulate_ticks, daemon=True)
-            thread.start()
-            return True
+        if not IQ_OPTION_AVAILABLE:
+            logging.error("❌ IQ Option API no disponible. Instala: pip install iqoptionapi")
+            return False
             
         try:
             logging.info("🌐 Conectando a IQ Option...")
@@ -941,58 +937,72 @@ class ProfessionalIQConnector:
                 self.api.change_balance("PRACTICE")
                 self.connected = True
                 logging.info("✅ Conexión IQ Option establecida")
+                
+                # ✅ SUSCRIBIRSE A VELAS EN TIEMPO REAL
+                self.api.start_candles_stream(PAR, TIMEFRAME, 1)
+                
+                # Iniciar escucha de precios
+                thread = threading.Thread(target=self._realtime_price_listener, daemon=True)
+                thread.start()
+                
                 return True
             else:
-                logging.warning(f"⚠️ Conexión IQ Option fallida: {reason}")
+                logging.error(f"❌ Conexión IQ Option fallida: {reason}")
+                logging.info("💡 Verifica email, contraseña y conexión a internet")
                 return False
                 
         except Exception as e:
             logging.error(f"❌ Error de conexión IQ Option: {e}")
             return False
 
-    def _simulate_ticks(self):
-        """Simulador de ticks realista ORIGINAL"""
-        base_price = 1.10000
-        volatility = 0.0001
+    def _realtime_price_listener(self):
+        """Escucha precios en tiempo real de IQ Option"""
+        logging.info("🎯 Iniciando escucha de precios en tiempo real...")
         
-        while True:
-            # Random walk con reversión a la media
-            change = np.random.normal(0, volatility)
-            base_price += change
-            # Suavizar movimientos
-            base_price = base_price * 0.999 + 1.10000 * 0.001
-            
-            self.last_price = base_price
-            self.tick_count += 1
-            
-            # Notificar listeners
-            timestamp = time.time()
-            for listener in self.tick_listeners:
-                try:
-                    listener(self.last_price, timestamp)
-                except Exception as e:
-                    logging.error(f"Error en listener: {e}")
-            
-            time.sleep(0.1)  # 10 ticks por segundo
+        while self.connected:
+            try:
+                # Obtener velas más recientes
+                candles = self.api.get_realtime_candles(PAR, TIMEFRAME)
+                if candles:
+                    # Obtener el precio más reciente
+                    latest_candle = list(candles.values())[-1]
+                    current_price = float(latest_candle['close'])
+                    
+                    if current_price > 0 and current_price != self.last_price:
+                        self.last_price = current_price
+                        self.tick_count += 1
+                        
+                        timestamp = time.time()
+                        
+                        # ✅ NOTIFICAR A TODOS LOS LISTENERS
+                        for listener in self.tick_listeners:
+                            try:
+                                listener(current_price, timestamp)
+                            except Exception as e:
+                                logging.error(f"Error en listener: {e}")
+                        
+                        # Log cada 50 ticks
+                        if self.tick_count % 50 == 0:
+                            logging.info(f"📊 Tick #{self.tick_count}: {current_price:.5f}")
+                
+                time.sleep(0.5)  # Consultar cada 500ms
+                
+            except Exception as e:
+                logging.error(f"Error en escucha de precios: {e}")
+                time.sleep(2)
+
+    def get_realtime_price(self):
+        """Obtener precio actual"""
+        try:
+            if self.connected and hasattr(self, 'api'):
+                return float(self.last_price)
+            return 1.10000
+        except Exception as e:
+            logging.error(f"Error obteniendo precio real: {e}")
+            return 1.10000
 
     def add_tick_listener(self, listener):
         self.tick_listeners.append(listener)
-
-    def get_realtime_price(self):
-        if self.simulation_mode:
-            return float(self.last_price)
-            
-        try:
-            if hasattr(self, 'api') and self.connected:
-                candles = self.api.get_candles(PAR, TIMEFRAME, 1, time.time())
-                if candles and len(candles) > 0:
-                    price = float(candles[-1]['close'])
-                    if price > 0:
-                        return price
-            return float(self.last_price)
-        except Exception as e:
-            logging.error(f"Error obteniendo precio real: {e}")
-            return float(self.last_price)
 
 # --------------- SISTEMA PRINCIPAL ORIGINAL ---------------
 iq_connector = ProfessionalIQConnector()
@@ -1031,58 +1041,85 @@ _last_prediction_time = 0
 _last_price = None
 
 def tick_processor(price, timestamp):
-    """Procesador de ticks ORIGINAL"""
+    """Procesador de ticks ORIGINAL MEJORADO"""
     global current_prediction
     try:
         current_time = time.time()
         seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
         
+        # ✅ LOG INICIAL PARA DEBUG
+        if predictor.analyzer.tick_count < 10:
+            logging.info(f"🎯 PROCESANDO TICK REAL #{predictor.analyzer.tick_count + 1}: {price:.5f}")
+        
         # Procesar tick en el predictor
         tick_data = predictor.process_tick(price, seconds_remaining)
         
         if tick_data:
-            # Obtener análisis completo para features ML
+            # Obtener análisis completo
             analysis = predictor.analyzer.get_comprehensive_analysis()
             
+            # ✅ ACTUALIZAR PREDICCIÓN GLOBAL BÁSICA
+            current_prediction.update({
+                "current_price": float(price),
+                "tick_count": predictor.analyzer.tick_count,
+                "timestamp": now_iso(),
+                "status": "ACTIVE" if analysis.get('status') == 'SUCCESS' else "COLLECTING_DATA",
+                "candle_progress": (current_time - predictor.analyzer.candle_start_time) / TIMEFRAME 
+                                if predictor.analyzer.candle_start_time else 0
+            })
+            
             if analysis.get('status') == 'SUCCESS':
-                # Construir features avanzados para ML
+                # Construir features para ML
                 features = build_advanced_features_from_analysis(analysis, seconds_remaining)
                 
                 # Obtener predicción ML
                 ml_prediction = online_learner.predict(features)
                 
-                # Actualizar predicción global
+                # Actualizar predicción global completa
                 current_prediction.update({
-                    "current_price": float(price),
-                    "tick_count": predictor.analyzer.tick_count,
-                    "timestamp": now_iso(),
-                    "status": "ACTIVE",
                     "buy_score": round(ml_prediction['proba'].get('ALZA', 0) * 100, 2),
                     "sell_score": round(ml_prediction['proba'].get('BAJA', 0) * 100, 2),
                     "ai_model_predicted": ml_prediction['predicted'],
                     "ml_confidence": ml_prediction['confidence'],
-                    "training_count": ml_prediction['training_count']
+                    "training_count": ml_prediction['training_count'],
+                    "market_phase": analysis.get('market_phase', 'N/A')
                 })
                 
+                # ✅ LOG DE ANÁLISIS EXITOSO
+                if predictor.analyzer.tick_count % 25 == 0:
+                    logging.info(f"📈 Análisis completado - Ticks: {predictor.analyzer.tick_count} - Fase: {analysis.get('market_phase', 'N/A')}")
+                
     except Exception as e:
-        logging.error(f"Error procesando tick: {e}")
+        logging.error(f"❌ Error procesando tick: {e}")
 
 def premium_main_loop():
-    """Loop principal ORIGINAL"""
+    """Loop principal ORIGINAL MEJORADO"""
     global current_prediction, performance_stats, _last_candle_start
     global _prediction_made_this_candle, _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
-    logging.info("🎯 Sistema HÍBRIDO: IA Avanzada + AutoLearning + Interfaz Original")
+    logging.info(f"🚀 DELOWYSS AI V5.5 INICIADA - MODO IQ OPTION REAL")
+    logging.info(f"📊 Configuración: {PAR} - {TIMEFRAME}s - Puerto {PORT}")
     
-    iq_connector.connect()
-    iq_connector.add_tick_listener(tick_processor)
-
+    # Esperar a que se conecte y reciba ticks
+    timeout = time.time() + 30
+    while not iq_connector.connected or predictor.analyzer.tick_count == 0:
+        if time.time() > timeout:
+            logging.error("⏰ Timeout esperando conexión/ticks")
+            break
+        logging.info("⏳ Esperando conexión y primeros ticks...")
+        time.sleep(2)
+    
+    loop_count = 0
     while True:
         try:
             current_time = time.time()
             current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
             seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+            
+            # Log de estado cada 30 segundos
+            loop_count += 1
+            if loop_count % 300 == 0:
+                logging.info(f"🔁 Sistema activo - Ticks: {predictor.analyzer.tick_count} - Precio: {current_prediction.get('current_price', 0):.5f}")
             
             price = iq_connector.get_realtime_price()
             if price and price > 0:
@@ -1138,13 +1175,13 @@ def premium_main_loop():
                 _prediction_made_this_candle = False
                 logging.info("🕯️ NUEVA VELA - Análisis completo reiniciado")
 
-            time.sleep(0.1)
+            time.sleep(0.5)
             
         except Exception as e:
             logging.error(f"💥 Error en loop principal: {e}")
-            time.sleep(0.5)
+            time.sleep(1)
 
-# ------------------ INTERFAZ WEB COMPLETA ORIGINAL ------------------
+# ------------------ INTERFAZ WEB 100% RESPONSIVE (ORIGINAL MEJORADA) ------------------
 app = FastAPI(
     title="Delowyss AI Premium V5.5",
     version="5.5.0",
@@ -1207,7 +1244,7 @@ def api_system_info():
     })
 
 def generate_html_interface():
-    """Interfaz HTML COMPLETA ORIGINAL"""
+    """Interfaz HTML 100% RESPONSIVE manteniendo originalidad"""
     direction = current_prediction.get("direction", "N/A")
     confidence = current_prediction.get("confidence", 0)
     current_price = current_prediction.get("current_price", 0)
@@ -1251,13 +1288,13 @@ def generate_html_interface():
     seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
     progress_percentage = min(100, max(0, (1 - seconds_remaining/TIMEFRAME) * 100))
     
-    # HTML COMPLETO ORIGINAL
+    # HTML COMPLETO 100% RESPONSIVE
     html_content = f"""
     <!DOCTYPE html>
     <html lang="es">
     <head>
         <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         <title>Delowyss AI Premium V5.5</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
@@ -1272,81 +1309,80 @@ def generate_html_interface():
                 background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
                 color: #f8fafc;
                 min-height: 100vh;
-                padding: 20px;
+                padding: 15px;
                 line-height: 1.6;
             }}
             
             .container {{
-                max-width: 1200px;
+                max-width: 1400px;
                 margin: 0 auto;
+                width: 100%;
             }}
             
-            /* HEADER ORIGINAL MEJORADO */
+            /* HEADER RESPONSIVE */
             .header {{
                 text-align: center;
-                margin-bottom: 30px;
-                padding: 25px 20px;
+                margin-bottom: 25px;
+                padding: 20px 15px;
                 background: rgba(255, 255, 255, 0.05);
                 border-radius: 20px;
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 backdrop-filter: blur(10px);
+                width: 100%;
             }}
             
             .logo {{
-                font-size: clamp(2rem, 4vw, 2.8rem);
+                font-size: clamp(1.8rem, 5vw, 2.8rem);
                 font-weight: 700;
-                margin-bottom: 10px;
+                margin-bottom: 8px;
                 background: {gradient};
                 -webkit-background-clip: text;
                 -webkit-text-fill-color: transparent;
                 background-clip: text;
                 line-height: 1.2;
+                word-wrap: break-word;
             }}
             
             .subtitle {{
                 color: #94a3b8;
-                font-size: clamp(0.9rem, 2vw, 1.1rem);
-                margin-bottom: 15px;
+                font-size: clamp(0.8rem, 2.5vw, 1.1rem);
+                margin-bottom: 12px;
+                line-height: 1.4;
             }}
             
             .version {{
                 background: rgba({primary_color.replace('#', '')}, 0.1);
                 color: {primary_color};
-                padding: 6px 12px;
+                padding: 5px 12px;
                 border-radius: 15px;
-                font-size: 0.8rem;
+                font-size: 0.75rem;
                 font-weight: 600;
                 display: inline-block;
             }}
             
-            /* DASHBOARD RESPONSIVE ORIGINAL */
+            /* DASHBOARD GRID RESPONSIVE */
             .dashboard {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
-                gap: 20px;
+                grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+                gap: 15px;
                 margin-bottom: 20px;
+                width: 100%;
             }}
             
-            @media (max-width: 768px) {{
-                .dashboard {{
-                    grid-template-columns: 1fr;
-                    gap: 15px;
-                }}
-            }}
-            
-            /* CARDS ORIGINALES MEJORADAS */
+            /* CARDS RESPONSIVE */
             .card {{
                 background: rgba(255, 255, 255, 0.05);
-                border-radius: 20px;
-                padding: 25px;
+                border-radius: 18px;
+                padding: 20px;
                 border: 1px solid rgba(255, 255, 255, 0.1);
                 backdrop-filter: blur(10px);
                 transition: transform 0.2s ease, box-shadow 0.2s ease;
+                width: 100%;
             }}
             
             .card:hover {{
-                transform: translateY(-2px);
-                box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+                transform: translateY(-3px);
+                box-shadow: 0 12px 35px rgba(0, 0, 0, 0.3);
             }}
             
             .prediction-card {{
@@ -1367,16 +1403,24 @@ def generate_html_interface():
                 background: {gradient};
             }}
             
+            /* DIRECCIÓN RESPONSIVE */
             .direction {{
-                font-size: clamp(2.5rem, 6vw, 4rem);
+                font-size: clamp(2rem, 8vw, 4rem);
                 font-weight: 700;
                 color: {primary_color};
-                margin: 20px 0;
-                text-shadow: 0 0 20px rgba({primary_color.replace('#', '')}, 0.3);
+                margin: 15px 0;
+                text-shadow: 0 0 25px rgba({primary_color.replace('#', '')}, 0.4);
+                word-wrap: break-word;
+                min-height: 80px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                flex-wrap: wrap;
+                gap: 10px;
             }}
             
             .confidence {{
-                font-size: clamp(1.1rem, 2vw, 1.3rem);
+                font-size: clamp(1rem, 3vw, 1.3rem);
                 margin-bottom: 20px;
                 display: flex;
                 align-items: center;
@@ -1388,20 +1432,42 @@ def generate_html_interface():
             .confidence-badge {{
                 background: {confidence_color};
                 color: #0f172a;
-                padding: 6px 15px;
+                padding: 5px 12px;
                 border-radius: 20px;
                 font-weight: 600;
-                font-size: 0.9em;
+                font-size: 0.8em;
                 white-space: nowrap;
             }}
             
-            /* PROGRESS BAR ORIGINAL */
+            /* ML INFO RESPONSIVE */
+            .ml-info {{
+                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                padding: 15px;
+                border-radius: 12px;
+                margin: 15px 0;
+                border: 1px solid rgba(255, 255, 255, 0.2);
+                text-align: center;
+            }}
+            
+            .ml-badge {{
+                background: rgba(255, 255, 255, 0.25);
+                color: white;
+                padding: 4px 10px;
+                border-radius: 8px;
+                font-size: 0.75rem;
+                font-weight: 600;
+                margin: 5px;
+                display: inline-block;
+            }}
+            
+            /* PROGRESS BAR RESPONSIVE */
             .candle-progress {{
                 margin: 20px 0;
                 background: rgba(255, 255, 255, 0.1);
                 border-radius: 10px;
                 overflow: hidden;
                 height: 8px;
+                width: 100%;
             }}
             
             .progress-bar {{
@@ -1415,115 +1481,77 @@ def generate_html_interface():
             .progress-info {{
                 display: flex;
                 justify-content: space-between;
-                font-size: 0.9rem;
+                font-size: 0.85rem;
                 color: #94a3b8;
                 margin-top: 8px;
+                flex-wrap: wrap;
+                gap: 10px;
             }}
             
-            /* COUNTDOWN ORIGINAL MEJORADO */
+            /* COUNTDOWN RESPONSIVE */
             .countdown {{
                 background: rgba(0, 0, 0, 0.3);
-                padding: 20px;
+                padding: 18px;
                 border-radius: 15px;
-                margin: 25px 0;
+                margin: 20px 0;
                 border: 1px solid rgba(255, 255, 255, 0.1);
+                text-align: center;
             }}
             
             .countdown-number {{
-                font-size: clamp(2rem, 5vw, 3rem);
+                font-size: clamp(1.8rem, 6vw, 3rem);
                 font-weight: 700;
                 color: {primary_color};
                 font-family: 'Courier New', monospace;
-                margin: 10px 0;
+                margin: 8px 0;
             }}
             
-            /* METRICS GRID RESPONSIVE ORIGINAL */
+            /* METRICS GRID SUPER RESPONSIVE */
             .metrics-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
-                gap: 12px;
+                grid-template-columns: repeat(auto-fit, minmax(110px, 1fr));
+                gap: 10px;
                 margin: 20px 0;
-            }}
-            
-            @media (max-width: 480px) {{
-                .metrics-grid {{
-                    grid-template-columns: repeat(2, 1fr);
-                }}
+                width: 100%;
             }}
             
             .metric {{
                 background: rgba(255, 255, 255, 0.03);
-                padding: 15px 10px;
+                padding: 15px 8px;
                 border-radius: 12px;
                 text-align: center;
                 border: 1px solid rgba(255, 255, 255, 0.05);
                 transition: all 0.2s ease;
+                min-width: 0;
             }}
             
             .metric:hover {{
                 background: rgba(255, 255, 255, 0.06);
-                transform: scale(1.02);
+                transform: scale(1.03);
             }}
             
             .metric-value {{
-                font-size: clamp(1.2rem, 3vw, 1.5rem);
+                font-size: clamp(1.1rem, 4vw, 1.5rem);
                 font-weight: 700;
                 color: {primary_color};
                 margin-bottom: 5px;
+                word-wrap: break-word;
             }}
             
             .metric-label {{
                 color: #94a3b8;
-                font-size: 0.75rem;
+                font-size: 0.7rem;
                 font-weight: 500;
+                line-height: 1.2;
             }}
             
-            /* REASONS LIST MEJORADA ORIGINAL */
-            .reasons-list {{
-                list-style: none;
-                margin-top: 15px;
-            }}
-            
-            .reason-item {{
-                background: rgba(255, 255, 255, 0.03);
-                margin: 8px 0;
-                padding: 12px 15px;
-                border-radius: 10px;
-                border-left: 3px solid {primary_color};
-                transition: all 0.2s ease;
-            }}
-            
-            .reason-item:hover {{
-                background: rgba(255, 255, 255, 0.06);
-                transform: translateX(5px);
-            }}
-            
-            /* PERFORMANCE SECTION ORIGINAL */
-            .performance {{
-                margin-top: 25px;
-                padding-top: 20px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-            }}
-            
-            .validation-result {{
-                background: rgba(255, 255, 255, 0.03);
-                padding: 18px;
-                border-radius: 12px;
-                margin: 12px 0;
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                transition: all 0.2s ease;
-            }}
-            
-            .validation-result:hover {{
-                background: rgba(255, 255, 255, 0.06);
-            }}
-            
-            /* SCORE DISPLAY ORIGINAL */
+            /* SCORE DISPLAY RESPONSIVE */
             .score-display {{
                 background: rgba(255, 255, 255, 0.03);
                 padding: 15px;
                 border-radius: 12px;
                 margin: 15px 0;
+                text-align: center;
             }}
             
             .score-bar-container {{
@@ -1532,6 +1560,7 @@ def generate_html_interface():
                 height: 8px;
                 margin: 10px 0;
                 overflow: hidden;
+                width: 100%;
             }}
             
             .score-bar {{
@@ -1550,20 +1579,61 @@ def generate_html_interface():
                 width: {current_prediction.get('sell_score', 0)}%;
             }}
             
-            /* INFO GRID RESPONSIVE ORIGINAL */
+            /* REASONS LIST RESPONSIVE */
+            .reasons-list {{
+                list-style: none;
+                margin-top: 15px;
+            }}
+            
+            .reason-item {{
+                background: rgba(255, 255, 255, 0.03);
+                margin: 8px 0;
+                padding: 12px 15px;
+                border-radius: 10px;
+                border-left: 3px solid {primary_color};
+                transition: all 0.2s ease;
+                font-size: 0.9rem;
+                word-wrap: break-word;
+            }}
+            
+            .reason-item:hover {{
+                background: rgba(255, 255, 255, 0.06);
+                transform: translateX(5px);
+            }}
+            
+            /* PERFORMANCE SECTION RESPONSIVE */
+            .performance {{
+                margin-top: 20px;
+                padding-top: 15px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }}
+            
+            .validation-result {{
+                background: rgba(255, 255, 255, 0.03);
+                padding: 15px;
+                border-radius: 12px;
+                margin: 10px 0;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                transition: all 0.2s ease;
+                text-align: center;
+            }}
+            
+            /* INFO GRID RESPONSIVE */
             .info-grid {{
                 display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 15px;
+                grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+                gap: 12px;
                 margin-top: 20px;
+                width: 100%;
             }}
             
             .info-item {{
                 background: rgba({primary_color.replace('#', '')}, 0.1);
-                padding: 20px 15px;
+                padding: 18px 12px;
                 border-radius: 12px;
                 border-left: 3px solid {primary_color};
                 transition: all 0.2s ease;
+                text-align: center;
             }}
             
             .info-item:hover {{
@@ -1571,89 +1641,188 @@ def generate_html_interface():
                 background: rgba({primary_color.replace('#', '')}, 0.15);
             }}
             
-            /* ML INFO STYLES */
-            .ml-info {{
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                padding: 15px;
-                border-radius: 12px;
-                margin: 15px 0;
-                border: 1px solid rgba(255, 255, 255, 0.2);
+            /* TÍTULOS RESPONSIVE */
+            h2 {{
+                font-size: clamp(1.3rem, 4vw, 1.6rem);
+                margin-bottom: 15px;
+                color: #e2e8f0;
             }}
             
-            .ml-badge {{
-                background: rgba(255, 255, 255, 0.2);
-                color: white;
-                padding: 4px 8px;
-                border-radius: 8px;
-                font-size: 0.8rem;
-                font-weight: 600;
+            h3 {{
+                font-size: clamp(1.1rem, 3vw, 1.3rem);
+                margin-bottom: 15px;
+                color: #e2e8f0;
             }}
             
-            /* RESPONSIVE ADJUSTMENTS ORIGINAL */
-            @media (max-width: 480px) {{
+            h4 {{
+                font-size: clamp(1rem, 2.5vw, 1.1rem);
+                margin-bottom: 10px;
+                color: #e2e8f0;
+            }}
+            
+            /* MEDIA QUERIES ESPECÍFICAS */
+            @media (max-width: 768px) {{
                 body {{
-                    padding: 15px;
+                    padding: 12px;
+                }}
+                
+                .dashboard {{
+                    grid-template-columns: 1fr;
+                    gap: 12px;
                 }}
                 
                 .card {{
-                    padding: 20px 15px;
-                    border-radius: 15px;
+                    padding: 18px 15px;
+                    border-radius: 16px;
                 }}
                 
                 .header {{
-                    padding: 20px 15px;
+                    padding: 18px 12px;
                     margin-bottom: 20px;
                 }}
                 
                 .metrics-grid {{
+                    grid-template-columns: repeat(2, 1fr);
                     gap: 8px;
+                }}
+                
+                .metric {{
+                    padding: 12px 6px;
+                }}
+                
+                .reason-item {{
+                    padding: 10px 12px;
+                    font-size: 0.85rem;
+                }}
+                
+                .info-grid {{
+                    grid-template-columns: 1fr;
+                }}
+                
+                .countdown {{
+                    padding: 15px;
+                }}
+            }}
+            
+            @media (max-width: 480px) {{
+                body {{
+                    padding: 10px;
+                }}
+                
+                .container {{
+                    padding: 0 5px;
+                }}
+                
+                .card {{
+                    padding: 15px 12px;
+                    border-radius: 14px;
+                }}
+                
+                .header {{
+                    padding: 15px 10px;
+                    margin-bottom: 15px;
+                }}
+                
+                .metrics-grid {{
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 6px;
+                }}
+                
+                .metric {{
+                    padding: 10px 5px;
+                }}
+                
+                .metric-value {{
+                    font-size: 1rem;
+                }}
+                
+                .metric-label {{
+                    font-size: 0.65rem;
+                }}
+                
+                .direction {{
+                    min-height: 60px;
+                    font-size: 1.8rem;
+                }}
+                
+                .confidence {{
+                    font-size: 0.9rem;
+                }}
+                
+                .progress-info {{
+                    flex-direction: column;
+                    text-align: center;
+                    gap: 5px;
+                }}
+                
+                .ml-info {{
+                    padding: 12px;
+                }}
+                
+                .countdown {{
+                    padding: 12px;
+                    margin: 15px 0;
+                }}
+                
+                .countdown-number {{
+                    font-size: 1.6rem;
+                }}
+            }}
+            
+            @media (max-width: 320px) {{
+                .metrics-grid {{
+                    grid-template-columns: 1fr;
                 }}
                 
                 .metric {{
                     padding: 12px 8px;
                 }}
-                
-                .reason-item {{
-                    padding: 10px 12px;
-                    font-size: 0.9rem;
-                }}
+            }}
+            
+            /* ANIMACIONES SUAVES */
+            @keyframes fadeIn {{
+                from {{ opacity: 0; transform: translateY(10px); }}
+                to {{ opacity: 1; transform: translateY(0); }}
+            }}
+            
+            .card {{
+                animation: fadeIn 0.5s ease-out;
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <!-- HEADER MEJORADO ORIGINAL -->
+            <!-- HEADER SUPER RESPONSIVE -->
             <div class="header">
                 <div class="logo">🤖 DELOWYSS AI PREMIUM V5.5</div>
                 <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis Completo</div>
-                <div class="version">VERSION 5.5 HYBRID - RENDER OPTIMIZED</div>
+                <div class="version">VERSION 5.5 HYBRID - 100% RESPONSIVE</div>
             </div>
             
-            <!-- DASHBOARD PRINCIPAL ORIGINAL -->
+            <!-- DASHBOARD PRINCIPAL RESPONSIVE -->
             <div class="dashboard">
-                <!-- PREDICCIÓN PRINCIPAL ORIGINAL -->
+                <!-- PREDICCIÓN PRINCIPAL -->
                 <div class="card prediction-card">
                     <h2>🎯 PREDICCIÓN ACTUAL HÍBRIDA</h2>
                     <div class="direction" id="direction">{direction} {status_emoji}</div>
+                    
                     <div class="confidence">
                         CONFIANZA: {confidence}%
                         <span class="confidence-badge">{confidence_level}</span>
                     </div>
                     
-                    <!-- INFORMACIÓN ML -->
+                    <!-- INFO ML RESPONSIVE -->
                     <div class="ml-info">
-                        <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
-                            <div>
-                                <strong>🤖 AutoLearning:</strong> {ml_predicted} 
+                        <div style="display: flex; flex-direction: column; gap: 8px; align-items: center;">
+                            <div style="font-weight: 600;">🤖 AutoLearning: {ml_predicted}</div>
+                            <div style="display: flex; gap: 8px; flex-wrap: wrap; justify-content: center;">
                                 <span class="ml-badge">{ml_confidence}% conf</span>
-                            </div>
-                            <div style="color: #e2e8f0; font-size: 0.9rem;">
-                                Entrenamientos: {training_count}
+                                <span class="ml-badge">Entrenamientos: {training_count}</span>
                             </div>
                         </div>
                     </div>
                     
-                    <!-- BARRA DE PROGRESO DE VELA ORIGINAL -->
+                    <!-- PROGRESO DE VELA RESPONSIVE -->
                     <div class="candle-progress">
                         <div class="progress-bar"></div>
                     </div>
@@ -1662,21 +1831,21 @@ def generate_html_interface():
                         <span>Fase: {market_phase}</span>
                     </div>
                     
-                    <!-- COUNTDOWN ORIGINAL -->
+                    <!-- COUNTDOWN RESPONSIVE -->
                     <div class="countdown">
-                        <div style="color: #94a3b8; margin-bottom: 10px; font-size: 0.9rem;">
+                        <div style="color: #94a3b8; margin-bottom: 8px; font-size: 0.9rem;">
                             SIGUIENTE PREDICCIÓN EN:
                         </div>
                         <div class="countdown-number" id="countdown">{int(seconds_remaining)}s</div>
                         <div style="color: #94a3b8; font-size: 0.8rem; margin-top: 5px;">
-                            Análisis completo de {tick_count} ticks
+                            Análisis completo de <span id="tick-count">{tick_count}</span> ticks
                         </div>
                     </div>
                     
-                    <!-- MÉTRICAS RÁPIDAS ORIGINALES -->
+                    <!-- MÉTRICAS RÁPIDAS SUPER RESPONSIVE -->
                     <div class="metrics-grid">
                         <div class="metric">
-                            <div class="metric-value" id="tick-count">{tick_count}</div>
+                            <div class="metric-value" id="tick-count-main">{tick_count}</div>
                             <div class="metric-label">TICKS ANALIZADOS</div>
                         </div>
                         <div class="metric">
@@ -1694,35 +1863,35 @@ def generate_html_interface():
                     </div>
                 </div>
                 
-                <!-- ANÁLISIS DE IA ORIGINAL -->
+                <!-- ANÁLISIS DE IA RESPONSIVE -->
                 <div class="card">
                     <h3>🧠 ANÁLISIS DE IA AVANZADO</h3>
                     
-                    <!-- BARRAS DE SCORE ORIGINALES -->
+                    <!-- SCORE BARS RESPONSIVE -->
                     <div class="score-display">
-                        <div style="display: flex; justify-content: space-between; margin-bottom: 10px;">
-                            <span style="color: #00ff88; font-weight: 600;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 10px; flex-wrap: wrap; gap: 10px;">
+                            <span style="color: #00ff88; font-weight: 600; font-size: 0.9rem;">
                                 COMPRA: <span id="buy-score">{current_prediction.get('buy_score', 0)}%</span>
                             </span>
-                            <span style="color: #ff4444; font-weight: 600;">
+                            <span style="color: #ff4444; font-weight: 600; font-size: 0.9rem;">
                                 VENTA: <span id="sell-score">{current_prediction.get('sell_score', 0)}%</span>
                             </span>
                         </div>
                         <div class="score-bar-container">
                             <div class="score-bar buy-bar"></div>
                         </div>
-                        <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 5px;">
+                        <div style="text-align: center; color: #94a3b8; font-size: 0.75rem; margin-top: 5px;">
                             Diferencia: <span id="score-diff">{current_prediction.get('score_difference', 0)}</span>
                         </div>
                     </div>
                     
-                    <h4 style="margin: 20px 0 10px 0; color: #e2e8f0;">📊 FACTORES DE DECISIÓN:</h4>
+                    <h4>📊 FACTORES DE DECISIÓN:</h4>
                     <ul class="reasons-list" id="reasons-list">
                         {reasons_html}
                     </ul>
                 </div>
                 
-                <!-- RENDIMIENTO Y VALIDACIÓN ORIGINAL -->
+                <!-- RENDIMIENTO RESPONSIVE -->
                 <div class="card">
                     <h3>📈 RENDIMIENTO DEL SISTEMA</h3>
                     <div class="metrics-grid">
@@ -1745,7 +1914,7 @@ def generate_html_interface():
                     </div>
                     
                     <div class="performance">
-                        <h4 style="margin-bottom: 15px;">✅ ÚLTIMA VALIDACIÓN</h4>
+                        <h4>✅ ÚLTIMA VALIDACIÓN</h4>
                         <div class="validation-result" id="validation-result">
                             <div style="color: #94a3b8; text-align: center; padding: 20px;">
                                 <div class="loading">⏳ Esperando validación...</div>
@@ -1755,32 +1924,32 @@ def generate_html_interface():
                 </div>
             </div>
             
-            <!-- INFORMACIÓN DEL SISTEMA MEJORADA ORIGINAL -->
+            <!-- SISTEMA AVANZADO RESPONSIVE -->
             <div class="card">
                 <h3>⚙️ SISTEMA HÍBRIDO AVANZADO</h3>
                 <div class="info-grid">
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🤖 IA AVANZADA</div>
-                        <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Análisis tick-by-tick completo + métricas avanzadas
+                        <div style="font-weight: 600; color: #00ff88; font-size: 1rem;">🤖 IA AVANZADA</div>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">
+                            Análisis tick-by-tick completo
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #667eea; font-size: 1.1rem;">🧠 AUTOLEARNING</div>
-                        <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+                        <div style="font-weight: 600; color: #667eea; font-size: 1rem;">🧠 AUTOLEARNING</div>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">
                             ML online que mejora continuamente
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #ff4444; font-size: 1.1rem;">🎯 PREDICCIÓN HÍBRIDA</div>
-                        <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            IA tradicional + Machine Learning integrado
+                        <div style="font-weight: 600; color: #ff4444; font-size: 1rem;">🎯 PREDICCIÓN HÍBRIDA</div>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">
+                            IA tradicional + Machine Learning
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🚀 RENDER OPTIMIZED</div>
-                        <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Funciona perfectamente en Render
+                        <div style="font-weight: 600; color: #00ff88; font-size: 1rem;">📱 100% RESPONSIVE</div>
+                        <div style="font-size: 0.8rem; color: #94a3b8; margin-top: 8px;">
+                            Optimizado para todos los dispositivos
                         </div>
                     </div>
                 </div>
@@ -1819,17 +1988,6 @@ def generate_html_interface():
                     directionEl.textContent = data.direction + ' ' + emoji;
                 }}
                 
-                // Actualizar colores según dirección
-                let color = '#ffbb33';
-                let gradient = 'linear-gradient(135deg, #ffbb33 0%, #cc9929 100%)';
-                if (data.direction === 'ALZA') {{
-                    color = '#00ff88';
-                    gradient = 'linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)';
-                }} else if (data.direction === 'BAJA') {{
-                    color = '#ff4444';
-                    gradient = 'linear-gradient(135deg, #ff4444 0%, #cc3636 100%)';
-                }}
-                
                 // Actualizar confianza
                 const confidence = data.confidence || 0;
                 const confidenceEl = document.querySelector('.confidence');
@@ -1839,6 +1997,7 @@ def generate_html_interface():
                 
                 // Actualizar métricas
                 updateMetric('tick-count', data.tick_count || 0);
+                updateMetric('tick-count-main', data.tick_count || 0);
                 updateMetric('buy-score', data.buy_score || 0);
                 updateMetric('sell-score', data.sell_score || 0);
                 updateMetric('score-diff', (data.score_difference || 0).toFixed(2));
@@ -1930,10 +2089,24 @@ def generate_html_interface():
 # --------------- INICIALIZACIÓN ORIGINAL ---------------
 def start_system():
     try:
+        # ✅ REGISTRAR EL PROCESADOR ANTES DE INICIAR
+        iq_connector.add_tick_listener(tick_processor)
+        logging.info("✅ Procesador de ticks registrado")
+        
+        # Iniciar conexión
+        if iq_connector.connect():
+            logging.info("✅ Conexión IQ Option establecida")
+        else:
+            logging.error("❌ No se pudo conectar a IQ Option")
+            return
+        
         thread = threading.Thread(target=premium_main_loop, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
+        
+        logging.info(f"🚀 DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
         logging.info("🎯 SISTEMA HÍBRIDO ACTIVO: IA Avanzada + AutoLearning + Interfaz Original")
+        logging.info(f"📊 Par: {PAR} | Timeframe: {TIMEFRAME}s")
+        
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 

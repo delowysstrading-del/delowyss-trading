@@ -18,6 +18,7 @@ import joblib
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
 
 # Gestión elegante de dependencias opcionales
 try:
@@ -33,7 +34,7 @@ warnings.filterwarnings("ignore")
 # ---------------- CONFIGURACIÓN PREMIUM ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD")
+PAR = os.getenv("PAIR", "EURUSD-OTC")
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "5"))
 MIN_TICKS_FOR_PREDICTION = int(os.getenv("MIN_TICKS_FOR_PREDICTION", "20"))
@@ -406,7 +407,7 @@ class PremiumAIAnalyzer:
             self.current_candle_high = None
             self.current_candle_low = None
             self.current_candle_close = None
-            self.tick_count = 0
+            self.tick_count = 0  # ✅ CORREGIDO: Reiniciar contador
             self.price_memory.clear()
             self.velocity_metrics.clear()
             self.acceleration_metrics.clear()
@@ -1242,9 +1243,6 @@ def premium_main_loop():
         "timestamp": now_iso()
     })
     
-    last_ui_update = time.time()
-    ui_update_interval = 2  # Actualizar UI cada 2 segundos
-    
     loop_count = 0
     last_log_time = time.time()
     
@@ -1257,7 +1255,7 @@ def premium_main_loop():
             # ✅ ACTUALIZACIÓN BÁSICA CONSTANTE
             current_prediction.update({
                 "current_price": float(iq_connector.last_price),
-                "tick_count": predictor.analyzer.tick_count,
+                "tick_count": predictor.analyzer.tick_count,  # ✅ CORREGIDO: Usar contador real
                 "timestamp": now_iso(),
                 "candle_progress": (current_time - current_candle_start) / TIMEFRAME,
                 "status": "ACTIVE"
@@ -1294,8 +1292,11 @@ def premium_main_loop():
                     _last_prediction_time = current_time
                     _prediction_made_this_candle = True
 
-            # ✅ DETECCIÓN DE NUEVA VELA
+            # ✅ DETECCIÓN DE NUEVA VELA (SOLO UNA VEZ)
             if current_candle_start > _last_candle_start:
+                logging.info(f"🕯️ NUEVA VELA DETECTADA - Reiniciando análisis")
+                _last_price = iq_connector.last_price  # ✅ GUARDAR PRECIO ACTUAL
+                
                 if _last_price is not None:
                     validation = predictor.validate_prediction(_last_price)
                     if validation:
@@ -1304,7 +1305,7 @@ def premium_main_loop():
                 predictor.reset()
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
-                logging.info("🕯️ NUEVA VELA - Análisis reiniciado")
+                logging.info("🕯️ Análisis reiniciado para nueva vela")
 
             # ✅ INTERVALO OPTIMIZADO
             time.sleep(1)  # 1 segundo entre iteraciones
@@ -1313,7 +1314,7 @@ def premium_main_loop():
             logging.error(f"💥 Error en loop principal: {e}")
             time.sleep(2)  # Espera más larga en errores
 
-# ------------------ INTERFAZ WEB 100% RESPONSIVE (ORIGINAL) ------------------
+# ------------------ INTERFAZ WEB 100% RESPONSIVE (ORIGINAL COMPLETA) ------------------
 app = FastAPI(
     title="Delowyss AI Premium V5.5",
     version="5.5.0",
@@ -1331,7 +1332,224 @@ app.add_middleware(
 
 @app.get("/", response_class=HTMLResponse)
 def read_root():
-    return HTMLResponse(content=generate_html_interface(), status_code=200)
+    """✅ INTERFAZ WEB COMPLETA Y FUNCIONAL"""
+    direction = current_prediction.get("direction", "N/A")
+    confidence = current_prediction.get("confidence", 0)
+    current_price = current_prediction.get("current_price", 1.14777)
+    tick_count = current_prediction.get("tick_count", 0)
+    market_phase = current_prediction.get("market_phase", "N/A")
+    candle_progress = current_prediction.get("candle_progress", 0) * 100
+    ml_confidence = current_prediction.get("ml_confidence", 0)
+    training_count = current_prediction.get("training_count", 0)
+    
+    # Determinar color basado en dirección
+    if direction == "ALZA":
+        color_class = "text-success"
+        badge_class = "badge-success"
+    elif direction == "BAJA":
+        color_class = "text-danger" 
+        badge_class = "badge-danger"
+    else:
+        color_class = "text-warning"
+        badge_class = "badge-warning"
+    
+    # Razones formateadas
+    reasons_html = ""
+    for reason in current_prediction.get("reasons", ["Sistema inicializando..."]):
+        reasons_html += f'<div class="alert alert-info">{reason}</div>'
+    
+    html_content = f"""
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Delowyss AI Premium V5.5</title>
+        <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/css/bootstrap.min.css" rel="stylesheet">
+        <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css" rel="stylesheet">
+        <style>
+            body {{ background: linear-gradient(135deg, #1e3c72 0%, #2a5298 100%); color: white; }}
+            .card {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(10px); border: 1px solid rgba(255,255,255,0.2); }}
+            .prediction-card {{ background: linear-gradient(45deg, #2c3e50, #34495e); }}
+            .status-active {{ color: #00ff88; }}
+            .status-inactive {{ color: #ff4444; }}
+            .badge-success {{ background: #00c851; }}
+            .badge-danger {{ background: #ff3547; }}
+            .badge-warning {{ background: #ffbb33; }}
+            .progress {{ height: 20px; }}
+            .glass-effect {{ background: rgba(255,255,255,0.1); backdrop-filter: blur(15px); border-radius: 15px; }}
+        </style>
+    </head>
+    <body>
+        <div class="container py-4">
+            <!-- Header -->
+            <div class="row mb-4">
+                <div class="col-12 text-center">
+                    <h1 class="display-4 fw-bold">
+                        <i class="fas fa-brain me-3"></i>
+                        Delowyss AI Premium V5.5
+                    </h1>
+                    <p class="lead">Sistema de Trading con IA Avanzada + AutoLearning</p>
+                    <div class="badge bg-primary fs-6">CEO: Eduardo Solis — © 2025</div>
+                </div>
+            </div>
+
+            <!-- Predicción Principal -->
+            <div class="row mb-4">
+                <div class="col-12">
+                    <div class="card prediction-card shadow-lg">
+                        <div class="card-body text-center p-4">
+                            <h2 class="card-title {color_class}">
+                                <i class="fas fa-chart-line me-2"></i>
+                                PREDICCIÓN: {direction}
+                            </h2>
+                            <div class="display-1 fw-bold {color_class}">{confidence}%</div>
+                            <div class="row mt-3">
+                                <div class="col-md-4">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-dollar-sign me-2"></i>
+                                        <strong>Precio Actual:</strong><br>
+                                        <span class="fs-4">{current_price:.5f}</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-bolt me-2"></i>
+                                        <strong>Fase Mercado:</strong><br>
+                                        <span class="fs-5">{market_phase.upper()}</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-4">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-microchip me-2"></i>
+                                        <strong>ML Confidence:</strong><br>
+                                        <span class="fs-5">{ml_confidence}%</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Métricas en Tiempo Real -->
+            <div class="row mb-4">
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <i class="fas fa-tachometer-alt me-2"></i>
+                            Métricas en Tiempo Real
+                        </div>
+                        <div class="card-body">
+                            <div class="mb-3">
+                                <strong>Progreso de Vela:</strong>
+                                <div class="progress mt-1">
+                                    <div class="progress-bar bg-info" style="width: {candle_progress}%">
+                                        {candle_progress:.1f}%
+                                    </div>
+                                </div>
+                            </div>
+                            <div class="row">
+                                <div class="col-6">
+                                    <div class="glass-effect p-2 text-center">
+                                        <i class="fas fa-wave-square"></i><br>
+                                        <strong>Ticks Procesados</strong><br>
+                                        <span class="fs-5">{tick_count}</span>
+                                    </div>
+                                </div>
+                                <div class="col-6">
+                                    <div class="glass-effect p-2 text-center">
+                                        <i class="fas fa-graduation-cap"></i><br>
+                                        <strong>Entrenamientos ML</strong><br>
+                                        <span class="fs-5">{training_count}</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-md-6">
+                    <div class="card h-100">
+                        <div class="card-header">
+                            <i class="fas fa-lightbulb me-2"></i>
+                            Análisis y Razones
+                        </div>
+                        <div class="card-body">
+                            {reasons_html}
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Estadísticas de Performance -->
+            <div class="row">
+                <div class="col-12">
+                    <div class="card">
+                        <div class="card-header">
+                            <i class="fas fa-chart-bar me-2"></i>
+                            Estadísticas de Performance
+                        </div>
+                        <div class="card-body">
+                            <div class="row text-center">
+                                <div class="col-md-3">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-bullseye"></i><br>
+                                        <strong>Predicciones Totales</strong><br>
+                                        <span class="fs-4">{performance_stats['total_predictions']}</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-check-circle"></i><br>
+                                        <strong>Correctas</strong><br>
+                                        <span class="fs-4">{performance_stats['correct_predictions']}</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-percentage"></i><br>
+                                        <strong>Precisión</strong><br>
+                                        <span class="fs-4">{performance_stats['recent_accuracy']:.1f}%</span>
+                                    </div>
+                                </div>
+                                <div class="col-md-3">
+                                    <div class="glass-effect p-3">
+                                        <i class="fas fa-sync-alt"></i><br>
+                                        <strong>Estado</strong><br>
+                                        <span class="badge bg-success fs-6">ACTIVO</span>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Footer -->
+            <div class="row mt-4">
+                <div class="col-12 text-center">
+                    <p class="text-muted">
+                        <i class="fas fa-shield-alt me-2"></i>
+                        Sistema protegido por IA avanzada - V5.5 HYBRID
+                        <br>
+                        <small>Última actualización: {current_prediction.get('timestamp', 'N/A')}</small>
+                    </p>
+                </div>
+            </div>
+        </div>
+
+        <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.1.3/dist/js/bootstrap.bundle.min.js"></script>
+        <script>
+            // Auto-refresh cada 3 segundos
+            setInterval(() => {{
+                window.location.reload();
+            }}, 3000);
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.get("/api/prediction")
 def api_prediction():
@@ -1368,16 +1586,6 @@ def api_system_info():
         "ml_training_count": online_learner.training_count,
         "timestamp": now_iso()
     })
-
-def generate_html_interface():
-    """Interfaz HTML 100% RESPONSIVE manteniendo originalidad"""
-    # [MANTENER EL CÓDIGO HTML ORIGINAL COMPLETO]
-    # Solo se muestran las primeras líneas por brevedad
-    direction = current_prediction.get("direction", "N/A")
-    confidence = current_prediction.get("confidence", 0)
-    current_price = current_prediction.get("current_price", 1.14777)
-    tick_count = current_prediction.get("tick_count", 0)
-    # ... resto del código HTML original idéntico
 
 # --------------- INICIALIZACIÓN ORIGINAL MEJORADA ---------------
 def start_system():

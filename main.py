@@ -1,4 +1,4 @@
-# main.py - CORRECCIÓN DEFINITIVA PARA INSTANCIAS DUPLICADAS
+# main.py
 """
 Delowyss Trading AI — V3.8-Full (Production)
 Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
@@ -14,10 +14,8 @@ from collections import deque
 import numpy as np
 import pandas as pd
 import json
-import socket
-import sys
-import atexit
-import fcntl  # Para bloqueo de archivos en Unix
+import pickle
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -25,6 +23,7 @@ from fastapi.responses import HTMLResponse, JSONResponse
 
 from iqoptionapi.stable_api import IQ_Option
 from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
 from sklearn.model_selection import train_test_split
 import joblib
 import warnings
@@ -42,86 +41,26 @@ TRAINING_CSV = os.getenv("TRAINING_CSV", f"training_data_{MODEL_VERSION}.csv")
 PERF_CSV = os.getenv("PERF_CSV", f"performance_{MODEL_VERSION}.csv")
 MODEL_PATH = os.getenv("MODEL_PATH", f"delowyss_mlp_{MODEL_VERSION}.joblib")
 SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib")
+ENSEMBLE_PATH = os.getenv("ENSEMBLE_PATH", f"ensemble_{MODEL_VERSION}.pkl")
 
 BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
 PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
-CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "55.0"))
+CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "68.0"))
 
 SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# ---------------- SINGLETON PROTECTION MEJORADO ----------------
-class InstanceLocker:
-    """🔒 BLOQUEO ROBUSTO DE INSTANCIA ÚNICA - DEFINITIVO"""
-    def __init__(self):
-        self.lock_file = "delowyss_instance.lock"
-        self.lock_fd = None
-        self.is_locked = False
-        
-    def acquire_lock(self):
-        """Adquirir bloqueo de instancia única"""
-        try:
-            self.lock_fd = open(self.lock_file, 'w')
-            try:
-                # Intentar bloqueo exclusivo (Unix)
-                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
-                self.is_locked = True
-                logging.info("🔒 Bloqueo de instancia única adquirido")
-                return True
-            except (IOError, BlockingIOError):
-                logging.warning("⚠️ Ya hay una instancia ejecutándose - Cerrando duplicado")
-                self.lock_fd.close()
-                return False
-        except Exception as e:
-            logging.warning(f"⚠️ Error con bloqueo de archivo: {e}")
-            # Fallback: verificación de puerto
-            return self._fallback_lock()
-    
-    def _fallback_lock(self):
-        """Fallback: verificación de puerto"""
-        try:
-            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            sock.bind(('0.0.0.0', 10000))
-            logging.info("🔒 Bloqueo de puerto adquirido (fallback)")
-            return True
-        except socket.error:
-            logging.warning("⚠️ Puerto ya en uso - Instancia duplicada detectada")
-            return False
-    
-    def release_lock(self):
-        """Liberar bloqueo"""
-        if self.is_locked and self.lock_fd:
-            try:
-                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
-                self.lock_fd.close()
-                if os.path.exists(self.lock_file):
-                    os.remove(self.lock_file)
-                logging.info("🔓 Bloqueo de instancia liberado")
-            except Exception as e:
-                logging.error(f"Error liberando bloqueo: {e}")
+# Nuevos parámetros de aprendizaje mejorado
+LEARNING_RATE = float(os.getenv("LEARNING_RATE", "0.001"))
+MODEL_UPDATE_FREQUENCY = int(os.getenv("MODEL_UPDATE_FREQUENCY", "15"))
+ENSEMBLE_WEIGHT_UPDATE = int(os.getenv("ENSEMBLE_WEIGHT_UPDATE", "30"))
 
-# Inicializar locker global
-instance_locker = InstanceLocker()
-
-if not instance_locker.acquire_lock():
-    logging.error("❌ No se pudo adquirir bloqueo de instancia - Saliendo")
-    sys.exit(1)
-
-# Registrar liberación al salir
-def cleanup_locker():
-    instance_locker.release_lock()
-
-atexit.register(cleanup_locker)
-
-# ---------------- LOGGING MEJORADO ----------------
+# ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[
-        logging.StreamHandler(),
-        logging.FileHandler('delowyss_trading.log')
-    ]
+    handlers=[logging.StreamHandler()]
 )
 
 def now_iso():
@@ -133,7 +72,7 @@ def safe_float(x, default=0.0):
     except:
         return default
 
-# ------------------ Incremental Scaler ------------------
+# ------------------ Incremental Scaler MEJORADO ------------------
 class IncrementalScaler:
     def __init__(self):
         self.n_samples_seen_ = 0
@@ -176,7 +115,7 @@ class IncrementalScaler:
     def fit_transform(self, X):
         return self.partial_fit(X).transform(X)
 
-# ------------------ Analyzer ------------------
+# ------------------ Analyzer MEJORADO ------------------
 class ProductionTickAnalyzer:
     def __init__(self, base_ema_alpha=0.3):
         self.ticks = deque(maxlen=MAX_TICKS_MEMORY)
@@ -193,6 +132,38 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         self.volatility_history = deque(maxlen=20)
         self.price_history = deque(maxlen=50)
+        # Nuevos atributos para aprendizaje mejorado
+        self.momentum_history = deque(maxlen=15)
+        self.volume_profile = deque(maxlen=30)
+
+    def _calculate_advanced_indicators(self, price: float) -> Dict:
+        """Calcula indicadores técnicos avanzados en tiempo real"""
+        indicators = {}
+        
+        if len(self.price_history) >= 10:
+            prices = np.array(list(self.price_history))
+            
+            # RSI-like indicator simple
+            changes = np.diff(prices[-10:])
+            gains = changes[changes > 0].sum() if len(changes[changes > 0]) > 0 else 0
+            losses = -changes[changes < 0].sum() if len(changes[changes < 0]) > 0 else 0
+            
+            if losses == 0:
+                rsi_like = 100
+            else:
+                rs = gains / losses
+                rsi_like = 100 - (100 / (1 + rs))
+            indicators['rsi_like'] = rsi_like
+            
+            # Momentum mejorado
+            if len(prices) >= 5:
+                short_momentum = (prices[-1] - prices[-5]) * 10000
+                long_momentum = (prices[-1] - prices[-10]) * 10000 if len(prices) >= 10 else short_momentum
+                indicators['momentum_acceleration'] = short_momentum - long_momentum
+            else:
+                indicators['momentum_acceleration'] = 0
+                
+        return indicators
 
     def _update_ema_alpha(self, current_volatility):
         try:
@@ -245,12 +216,16 @@ class ProductionTickAnalyzer:
         else:
             self.smoothed_price = (self.ema_alpha * price + (1 - self.ema_alpha) * self.smoothed_price)
 
+        # Calcular indicadores avanzados
+        advanced_indicators = self._calculate_advanced_indicators(price)
+
         tick_data = {
             "timestamp": current_time,
             "price": price,
             "volume": volume,
             "interval": interval,
-            "smoothed_price": self.smoothed_price
+            "smoothed_price": self.smoothed_price,
+            **advanced_indicators
         }
         self.ticks.append(tick_data)
         self.candle_ticks.append(tick_data)
@@ -298,10 +273,19 @@ class ProductionTickAnalyzer:
             return None
             
         try:
-            ticks_array = np.array([(t['price'], t['volume'], t['interval']) for t in self.candle_ticks], dtype=np.float32)
+            ticks_array = np.array([(
+                t['price'], 
+                t['volume'], 
+                t['interval'],
+                t.get('rsi_like', 50),
+                t.get('momentum_acceleration', 0)
+            ) for t in self.candle_ticks], dtype=np.float32)
+            
             prices = ticks_array[:, 0]
             volumes = ticks_array[:, 1]
             intervals = ticks_array[:, 2]
+            rsi_values = ticks_array[:, 3]
+            momentum_acc = ticks_array[:, 4]
 
             current_price = float(prices[-1])
             open_price = float(self.current_candle_open)
@@ -335,6 +319,10 @@ class ProductionTickAnalyzer:
             else:
                 direction_ratio = 0.0
 
+            # Indicadores avanzados promediados
+            avg_rsi = np.mean(rsi_values) if len(rsi_values) > 0 else 50
+            avg_momentum_acc = np.mean(momentum_acc) if len(momentum_acc) > 0 else 0
+
             if volatility < 0.5 and direction_ratio < 0.15:
                 market_phase = "consolidation"
             elif abs(momentum) > 2.5 and volatility > 1.2:
@@ -343,9 +331,6 @@ class ProductionTickAnalyzer:
                 market_phase = "weak_trend"
             else:
                 market_phase = "neutral"
-
-            # DETECCIÓN MEJORADA DE CONSOLIDACIÓN
-            consolidation_risk = self._assess_consolidation_risk()
 
             metrics = {
                 "open_price": open_price,
@@ -365,8 +350,9 @@ class ProductionTickAnalyzer:
                 "tick_speed": tick_speed,
                 "direction_ratio": direction_ratio,
                 "market_phase": market_phase,
+                "rsi_like": avg_rsi,
+                "momentum_acceleration": avg_momentum_acc,
                 "last_patterns": list(self.last_patterns)[:4],
-                "consolidation_risk": consolidation_risk,
                 "timestamp": time.time()
             }
             if seconds_remaining_norm is not None:
@@ -375,23 +361,6 @@ class ProductionTickAnalyzer:
         except Exception as e:
             logging.error(f"Error calculando métricas: {e}")
             return None
-
-    def _assess_consolidation_risk(self):
-        """Evalúa el riesgo de consolidación basado en patrones recientes"""
-        try:
-            patterns = [p for (_, p) in self.last_patterns]
-            consolidation_count = patterns.count("consolidation")
-            
-            if consolidation_count >= 3:
-                return "ALTO"
-            elif consolidation_count >= 2:
-                return "MEDIO" 
-            elif consolidation_count >= 1:
-                return "BAJO"
-            else:
-                return "NINGUNO"
-        except Exception:
-            return "NINGUNO"
 
     def reset_candle(self):
         self.candle_ticks.clear()
@@ -402,26 +371,26 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor CORREGIDO ------------------
+# ------------------ Predictor MEJORADO con Sistema de Aprendizaje Avanzado ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
         self.model = None
         self.scaler = None
+        self.ensemble_models = {}
+        self.ensemble_weights = {}
         self.prev_candle_metrics = None
         self.partial_buffer = []
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
-            'recent': deque(maxlen=50)
+            'recent': deque(maxlen=50),
+            'model_performance': {},
+            'feature_importance': {}
         }
         self.last_prediction = None
-        self.learning_insights = {
-            'consolidation_errors': 0,
-            'high_confidence_errors': 0,
-            'recent_mistakes': deque(maxlen=10)
-        }
-        self._initialize_system()
+        self.prediction_history = deque(maxlen=30)
+        self._initialize_enhanced_system()
         self._ensure_files()
 
     def _feature_names(self):
@@ -429,31 +398,46 @@ class ProductionPredictor:
             "buy_pressure", "sell_pressure", "pressure_ratio", "momentum",
             "volatility", "up_ticks", "down_ticks", "total_ticks",
             "volume_trend", "price_change", "tick_speed", "direction_ratio",
-            "seconds_remaining_norm"
+            "seconds_remaining_norm", "rsi_like", "momentum_acceleration"
         ]
 
     def _ensure_files(self):
         try:
             if not os.path.exists(TRAINING_CSV):
-                pd.DataFrame(columns=self._feature_names() + ["label", "timestamp"]).to_csv(TRAINING_CSV, index=False)
-                logging.info("📁 Archivo de entrenamiento creado")
+                pd.DataFrame(columns=self._feature_names() + ["label", "timestamp", "pattern"]).to_csv(TRAINING_CSV, index=False)
             if not os.path.exists(PERF_CSV):
-                pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
-                logging.info("📁 Archivo de performance creado")
+                pd.DataFrame(columns=[
+                    "timestamp", "prediction", "actual", "correct", "confidence", 
+                    "model_used", "ensemble_weight", "market_phase"
+                ]).to_csv(PERF_CSV, index=False)
         except Exception as e:
             logging.error("Error initializing files: %s", e)
 
-    def _initialize_system(self):
+    def _initialize_enhanced_system(self):
+        """Sistema de inicialización mejorado con ensemble learning"""
         try:
+            # Cargar modelo principal si existe
             if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
                 self.model = joblib.load(MODEL_PATH)
                 self.scaler = joblib.load(SCALER_PATH)
                 logging.info("✅ Modelo ML existente cargado")
             else:
                 self._initialize_new_model()
+
+            # Cargar o inicializar ensemble
+            if os.path.exists(ENSEMBLE_PATH):
+                with open(ENSEMBLE_PATH, 'rb') as f:
+                    ensemble_data = pickle.load(f)
+                    self.ensemble_models = ensemble_data.get('models', {})
+                    self.ensemble_weights = ensemble_data.get('weights', {})
+                logging.info("✅ Ensemble models loaded")
+            else:
+                self._initialize_ensemble_models()
+                
         except Exception as e:
-            logging.error(f"❌ Error cargando modelo: {e}")
+            logging.error(f"❌ Error cargando sistema mejorado: {e}")
             self._initialize_new_model()
+            self._initialize_ensemble_models()
 
     def _initialize_new_model(self):
         try:
@@ -483,6 +467,44 @@ class ProductionPredictor:
             self.model = None
             self.scaler = None
 
+    def _initialize_ensemble_models(self):
+        """Inicializar modelos ensemble para mejor predicción"""
+        try:
+            self.ensemble_models = {
+                'random_forest': RandomForestClassifier(
+                    n_estimators=30,
+                    max_depth=8,
+                    random_state=42
+                ),
+                'gradient_boost': GradientBoostingClassifier(
+                    n_estimators=30,
+                    max_depth=5,
+                    random_state=42
+                )
+            }
+            
+            # Pesos iniciales
+            self.ensemble_weights = {name: 1.0 for name in self.ensemble_models.keys()}
+            self.performance_stats['model_performance'] = {name: deque(maxlen=15) for name in self.ensemble_models.keys()}
+            
+            self._save_ensemble()
+            logging.info("✅ Ensemble models initialized")
+        except Exception as e:
+            logging.error(f"❌ Error initializing ensemble: {e}")
+
+    def _save_ensemble(self):
+        """Guardar estado del ensemble"""
+        try:
+            ensemble_data = {
+                'models': self.ensemble_models,
+                'weights': self.ensemble_weights,
+                'performance': self.performance_stats['model_performance']
+            }
+            with open(ENSEMBLE_PATH, 'wb') as f:
+                pickle.dump(ensemble_data, f)
+        except Exception as e:
+            logging.error(f"❌ Error saving ensemble: {e}")
+
     def _save_artifacts(self):
         try:
             if self.model and self.scaler:
@@ -506,22 +528,17 @@ class ProductionPredictor:
             row = {k: metrics.get(k,0.0) for k in self._feature_names()}
             row["label"] = int(label)
             row["timestamp"] = datetime.utcnow().isoformat()
-            
-            try:
-                pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
-                self.partial_buffer.append((row,label))
-                logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
-                
-                if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
-                    self._perform_partial_fit()
-            except Exception as e:
-                logging.error(f"❌ Error guardando sample: {e}")
-                self._ensure_files()
-                
+            row["pattern"] = metrics.get("market_phase", "unknown")
+            pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
+            self.partial_buffer.append((row,label))
+            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
+            if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
+                self._perform_enhanced_partial_fit()
         except Exception as e:
             logging.error(f"❌ Error append sample: {e}")
 
-    def _perform_partial_fit(self):
+    def _perform_enhanced_partial_fit(self):
+        """Entrenamiento parcial mejorado para múltiples modelos"""
         if not self.partial_buffer or not self.model or not self.scaler:
             self.partial_buffer.clear()
             return
@@ -534,15 +551,116 @@ class ProductionPredictor:
                 self.model.partial_fit(Xs, y_new)
             except Exception:
                 self.model.fit(Xs, y_new)
+            
+            # Entrenar modelos ensemble también
+            if len(X_new) >= 8:
+                for name, model in self.ensemble_models.items():
+                    try:
+                        if hasattr(model, 'partial_fit'):
+                            model.partial_fit(Xs, y_new, classes=[0,1])
+                    except Exception as e:
+                        logging.warning(f"⚠️ Error training ensemble model {name}: {e}")
+            
             self._save_artifacts()
-            logging.info(f"🧠 Partial fit completado con {len(X_new)} samples")
+            self._save_ensemble()
+            logging.info(f"🧠 Enhanced partial fit completado con {len(X_new)} samples")
             self.partial_buffer.clear()
         except Exception as e:
-            logging.error(f"❌ Error partial fit: {e}")
+            logging.error(f"❌ Error enhanced partial fit: {e}")
             self.partial_buffer.clear()
 
+    def _ensemble_predict(self, features):
+        """Predicción por ensemble con pesos dinámicos"""
+        if not self.ensemble_models:
+            return None
+            
+        try:
+            Xs = self.scaler.transform(features.reshape(1, -1))
+            predictions = []
+            confidences = []
+            
+            for name, model in self.ensemble_models.items():
+                try:
+                    if hasattr(model, 'predict_proba'):
+                        proba = model.predict_proba(Xs)[0]
+                        up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                        confidence = int(max(up_prob, 1 - up_prob) * 100)
+                        
+                        # Aplicar peso del modelo
+                        weight = self.ensemble_weights.get(name, 1.0)
+                        weighted_prob = (up_prob - 0.5) * weight + 0.5
+                        
+                        predictions.append(weighted_prob)
+                        confidences.append(confidence)
+                except Exception as e:
+                    logging.debug(f"Ensemble model {name} prediction failed: {e}")
+                    continue
+            
+            if predictions:
+                avg_pred = np.mean(predictions)
+                avg_confidence = int(np.mean(confidences))
+                
+                return {
+                    "prob_up": avg_pred,
+                    "confidence": avg_confidence,
+                    "direction": "ALZA" if avg_pred >= 0.5 else "BAJA",
+                    "model_type": "ENSEMBLE",
+                    "models_used": len(predictions)
+                }
+                
+        except Exception as e:
+            logging.warning(f"⚠️ Ensemble prediction error: {e}")
+            
+        return None
+
+    def _update_ensemble_weights(self, correct: bool, model_used: str):
+        """Actualizar pesos del ensemble basado en performance"""
+        try:
+            if model_used in self.ensemble_weights:
+                current_weight = self.ensemble_weights[model_used]
+                
+                if correct:
+                    new_weight = min(2.0, current_weight * 1.05)
+                else:
+                    new_weight = max(0.1, current_weight * 0.95)
+                    
+                self.ensemble_weights[model_used] = new_weight
+                
+                # Registrar performance
+                if model_used in self.performance_stats['model_performance']:
+                    self.performance_stats['model_performance'][model_used].append(1 if correct else 0)
+                
+                # Recalcular pesos periódicamente
+                if self.performance_stats['total_predictions'] % ENSEMBLE_WEIGHT_UPDATE == 0:
+                    self._rebalance_ensemble_weights()
+                    
+        except Exception as e:
+            logging.error(f"❌ Error updating ensemble weights: {e}")
+
+    def _rebalance_ensemble_weights(self):
+        """Rebalancear pesos del ensemble"""
+        try:
+            total_performance = 0
+            performances = {}
+            
+            for model_name, perf_deque in self.performance_stats['model_performance'].items():
+                if len(perf_deque) > 0:
+                    performance = sum(perf_deque) / len(perf_deque)
+                    performances[model_name] = performance
+                    total_performance += performance
+            
+            if total_performance > 0:
+                for model_name, performance in performances.items():
+                    normalized_perf = performance / total_performance
+                    self.ensemble_weights[model_name] = normalized_perf * len(performances)
+                    
+            logging.info(f"🔧 Ensemble weights rebalanced: {self.ensemble_weights}")
+            
+        except Exception as e:
+            logging.error(f"❌ Error rebalancing ensemble weights: {e}")
+
     def validate_previous_prediction(self, current_candle_metrics):
-        """Valida si la última predicción fue correcta"""
+        """Valida si la última predicción fue correcta - MEJORADA"""
         if not self.last_prediction:
             return None
             
@@ -563,7 +681,7 @@ class ProductionPredictor:
 
             result = {
                 "timestamp": now_iso(),
-                "prediction": predicted_direction,
+                "predicted": predicted_direction,
                 "actual": actual_direction,
                 "correct": correct,
                 "confidence": confidence,
@@ -574,11 +692,13 @@ class ProductionPredictor:
                 "reasons": self.last_prediction.get("reasons", [])
             }
             
+            # Actualizar pesos del ensemble si se usó
+            model_used = self.last_prediction.get("model_used", "")
+            if "ENSEMBLE" in model_used or any(name in model_used for name in self.ensemble_models.keys()):
+                self._update_ensemble_weights(correct, model_used)
+            
             status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
             logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
-            
-            if not correct:
-                self._learn_from_mistake(result)
             
             self._update_global_performance_stats(correct, result)
             
@@ -587,50 +707,6 @@ class ProductionPredictor:
         except Exception as e:
             logging.error(f"❌ Error validando predicción: {e}")
             return None
-
-    def _learn_from_mistake(self, validation_result):
-        """APRENDE DE ERRORES"""
-        try:
-            consolidation_risk = self.prev_candle_metrics.get("consolidation_risk", "NINGUNO")
-            confidence = validation_result["confidence"]
-            market_phase = self.prev_candle_metrics.get("market_phase", "unknown")
-            
-            self.learning_insights['recent_mistakes'].append({
-                'timestamp': now_iso(),
-                'consolidation_risk': consolidation_risk,
-                'confidence': confidence,
-                'market_phase': market_phase,
-                'price_change': validation_result["price_change_pips"]
-            })
-            
-            if consolidation_risk in ["ALTO", "MEDIO"]:
-                self.learning_insights['consolidation_errors'] += 1
-                logging.info(f"📝 Error en consolidación #{self.learning_insights['consolidation_errors']}")
-                
-            if confidence > 65:
-                self.learning_insights['high_confidence_errors'] += 1
-                logging.info(f"🎯 Error con alta confianza #{self.learning_insights['high_confidence_errors']}")
-                
-            if len(self.learning_insights['recent_mistakes']) % 5 == 0:
-                self._log_learning_insights()
-                
-        except Exception as e:
-            logging.error(f"❌ Error en aprendizaje: {e}")
-
-    def _log_learning_insights(self):
-        """LOG DE INSIGHTS DE APRENDIZAJE"""
-        try:
-            mistakes = list(self.learning_insights['recent_mistakes'])
-            if not mistakes:
-                return
-                
-            consolidation_errors = sum(1 for m in mistakes if m['consolidation_risk'] in ['ALTO', 'MEDIO'])
-            high_conf_errors = sum(1 for m in mistakes if m['confidence'] > 65)
-            
-            logging.info(f"🧠 LEARNING INSIGHTS: Consolidación: {consolidation_errors}/{len(mistakes)} | AltaConf: {high_conf_errors}/{len(mistakes)}")
-            
-        except Exception as e:
-            logging.error(f"❌ Error log insights: {e}")
 
     def _update_global_performance_stats(self, correct, validation_result):
         """Actualiza estadísticas globales de performance"""
@@ -645,46 +721,9 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
-        self._save_performance_to_csv({
-            "timestamp": validation_result["timestamp"],
-            "prediction": validation_result["prediction"],
-            "actual": validation_result["actual"],
-            "correct": validation_result["correct"],
-            "confidence": validation_result["confidence"],
-            "model_used": validation_result["model_used"]
-        })
-        
         if performance_stats['total_predictions'] % 5 == 0:
             overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
             logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
-
-    def _save_performance_to_csv(self, perf_data):
-        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
-        try:
-            file_exists = os.path.exists(PERF_CSV)
-            if file_exists:
-                try:
-                    existing_df = pd.read_csv(PERF_CSV)
-                    if len(existing_df) == 0:
-                        file_exists = False
-                except:
-                    file_exists = False
-            
-            pd.DataFrame([perf_data]).to_csv(
-                PERF_CSV, 
-                mode='a', 
-                header=not file_exists, 
-                index=False
-            )
-            logging.info(f"💾 Performance guardada: {perf_data['prediction']} -> {perf_data['actual']} (Correcto: {perf_data['correct']})")
-            
-        except Exception as e:
-            logging.error(f"❌ Error guardando performance: {e}")
-            try:
-                pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
-                logging.info("📁 Archivo de performance recreado con estructura corregida")
-            except Exception as e2:
-                logging.error(f"❌ Error recreando archivo: {e2}")
 
     def on_candle_closed(self, closed_metrics):
         try:
@@ -712,11 +751,11 @@ class ProductionPredictor:
                 "actual": "ALZA" if actual_label==1 else "BAJA",
                 "correct": correct, 
                 "confidence": pred.get("confidence",0), 
-                "model_used": pred.get("model_used","HYBRID")
+                "model_used": pred.get("model_used","HYBRID"),
+                "ensemble_weight": json.dumps(self.ensemble_weights),
+                "market_phase": self.prev_candle_metrics.get("market_phase", "unknown") if self.prev_candle_metrics else "unknown"
             }
-            
-            self._save_performance_to_csv(rec)
-            
+            pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['correct_predictions'] += int(correct)
             self.performance_stats['recent'].append(int(correct))
@@ -725,7 +764,7 @@ class ProductionPredictor:
             logging.error(f"❌ Error recording performance: {e}")
 
     def _rule_based(self, metrics):
-        """SISTEMA DE REGLAS MEJORADO - CON DETECCIÓN DE CONSOLIDACIÓN"""
+        """SISTEMA DE REGLAS MEJORADO - CONFIANZA EN ENTEROS"""
         signals = []
         confidences = []
         reasons = []
@@ -737,64 +776,73 @@ class ProductionPredictor:
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
-        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO")
+        rsi = metrics.get("rsi_like", 50)
+        mom_acc = metrics.get("momentum_acceleration", 0.0)
         
-        if consolidation_risk == "ALTO":
-            reasons.append("ALTA consolidación - confianza reducida")
-            max_confidence = 45
-        elif consolidation_risk == "MEDIO":
-            reasons.append("MEDIA consolidación - confianza moderada")
-            max_confidence = 60
-        else:
-            max_confidence = 95
+        # 1. ANÁLISIS RSI MEJORADO
+        if rsi > 70:
+            signals.append(0)
+            confidences.append(65)
+            reasons.append(f"RSI elevado {rsi:.1f}")
+        elif rsi < 30:
+            signals.append(1)
+            confidences.append(65)
+            reasons.append(f"RSI bajo {rsi:.1f}")
+            
+        # 2. ACELERACIÓN DEL MOMENTUM
+        if mom_acc > 0.8:
+            signals.append(1)
+            confidences.append(60 + int(min(mom_acc, 3) * 5))
+            reasons.append(f"Aceleración alcista {mom_acc:.1f}")
+        elif mom_acc < -0.8:
+            signals.append(0)
+            confidences.append(60 + int(min(abs(mom_acc), 3) * 5))
+            reasons.append(f"Aceleración bajista {mom_acc:.1f}")
         
+        # 3. PRESSURE RATIO - SEÑAL FUERTE (ORIGINAL)
         if pr > 2.2:
             signals.append(1)
-            confidences.append(min(max_confidence, 50 + int((pr - 2.0) * 15)))
+            confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
             reasons.append(f"Presión compra fuerte {pr:.1f}x")
         elif pr > 1.6:
             signals.append(1)
-            confidences.append(min(max_confidence, 40 + int((pr - 1.5) * 20)))
+            confidences.append(min(65, 40 + int((pr - 1.5) * 20)))
             reasons.append(f"Presión compra {pr:.1f}x")
         elif pr < 0.45:
             signals.append(0)
-            confidences.append(min(max_confidence, 50 + int((0.5 - pr) * 15)))
+            confidences.append(min(80, 50 + int((0.5 - pr) * 15)))
             reasons.append(f"Presión venta fuerte {pr:.1f}x")
         elif pr < 0.65:
             signals.append(0)
-            confidences.append(min(max_confidence, 40 + int((0.7 - pr) * 20)))
+            confidences.append(min(65, 40 + int((0.7 - pr) * 20)))
             reasons.append(f"Presión venta {pr:.1f}x")
         
+        # 4. MOMENTUM - SEÑAL MEDIA (ORIGINAL)
         if mom > 2.0:
             signals.append(1)
-            confidences.append(min(max_confidence, 45 + int(min(mom, 8) * 3)))
+            confidences.append(min(75, 45 + int(min(mom, 8) * 3)))
             reasons.append(f"Momento alcista {mom:.1f}pips")
         elif mom < -2.0:
             signals.append(0)
-            confidences.append(min(max_confidence, 45 + int(min(abs(mom), 8) * 3)))
+            confidences.append(min(75, 45 + int(min(abs(mom), 8) * 3)))
             reasons.append(f"Momento bajista {mom:.1f}pips")
         elif abs(mom) > 0.8:
             direction = 1 if mom > 0 else 0
             signals.append(direction)
-            confidences.append(min(max_confidence, 55))
+            confidences.append(55)
             reasons.append(f"Momento leve {mom:.1f}pips")
         
+        # 5. BUY/SELL PRESSURE - SEÑAL DIRECTA (ORIGINAL)
         if bp > 0.70:
             signals.append(1)
-            confidences.append(min(max_confidence, 70))
+            confidences.append(70)
             reasons.append(f"Dominio compra {bp:.0%}")
         elif sp > 0.70:
             signals.append(0)
-            confidences.append(min(max_confidence, 70))
+            confidences.append(70)
             reasons.append(f"Dominio venta {sp:.0%}")
         
-        if vol > 6.0:
-            if phase == "strong_trend" and abs(mom) > 1.5:
-                direction = 1 if mom > 0 else 0
-                signals.append(direction)
-                confidences.append(min(max_confidence, 60 + int(vol)))
-                reasons.append(f"Tendencia volátil {vol:.1f}pips")
-        
+        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
         if signals:
             avg_confidence = int(sum(confidences) / len(confidences))
             
@@ -803,11 +851,11 @@ class ProductionPredictor:
             
             if buy_signals > 0 and sell_signals == 0:
                 direction = 1
-                final_confidence = min(max_confidence, avg_confidence + 10)
+                final_confidence = min(90, avg_confidence + 10)
                 reasons.append("Señales alcistas consistentes")
             elif sell_signals > 0 and buy_signals == 0:
                 direction = 0
-                final_confidence = min(max_confidence, avg_confidence + 10)
+                final_confidence = min(90, avg_confidence + 10)
                 reasons.append("Señales bajistas consistentes")
             else:
                 direction = 1 if buy_signals > sell_signals else 0
@@ -821,25 +869,18 @@ class ProductionPredictor:
             price_change = metrics.get("price_change", 0)
             if abs(price_change) > 0.5:
                 direction = 1 if price_change > 0 else 0
-                final_confidence = min(max_confidence, 45 + int(min(abs(price_change), 3) * 8))
+                final_confidence = 45 + int(min(abs(price_change), 3) * 8)
                 reasons.append(f"Basado en movimiento: {price_change:.1f}pips")
             else:
                 direction = 1 if metrics.get("price_change", 0) > 0 else 0
-                final_confidence = min(max_confidence, 40)
+                final_confidence = 40
                 reasons.append("Mercado lateral")
-        
-        if consolidation_risk == "ALTO" and final_confidence > 45:
-            final_confidence = 45
-            reasons.append("Ajuste por alta consolidación")
-        elif consolidation_risk == "MEDIO" and final_confidence > 60:
-            final_confidence = 60
-            reasons.append("Ajuste por media consolidación")
         
         if total_ticks < 8:
             final_confidence = max(30, final_confidence - 15)
             reasons.append(f"Pocos datos: {total_ticks} ticks")
         elif total_ticks > 25:
-            final_confidence = min(max_confidence, final_confidence + 5)
+            final_confidence = min(95, final_confidence + 5)
         
         final_confidence = int(max(25, min(95, final_confidence)))
         
@@ -853,32 +894,26 @@ class ProductionPredictor:
         }
 
     def _fuse(self, mlp_pred, rules_pred, metrics):
-        """FUSIÓN MEJORADA - CON APRENDIZAJE DE ERRORES"""
+        """FUSIÓN MEJORADA - CONFIANZA EN ENTEROS"""
         if not mlp_pred:
             return rules_pred
             
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
-        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO")
+        rsi = metrics.get("rsi_like", 50)
         
         base_mlp_weight = 0.6
         
-        if consolidation_risk == "ALTO":
-            mlp_weight = 0.3
-            fusion_type = "CONSOLIDATION_LOW_MLP"
-        elif consolidation_risk == "MEDIO":
+        # Ajustar peso basado en condiciones de mercado
+        if phase == "consolidation":
             mlp_weight = 0.4
-            fusion_type = "CONSOLIDATION_MED_MLP"
-        elif phase == "consolidation":
-            mlp_weight = 0.4
-            fusion_type = "RANGE_MLP"
         elif phase == "strong_trend" and total_ticks > 20:
             mlp_weight = 0.7
-            fusion_type = "TREND_HIGH_MLP"
+        elif rsi > 70 or rsi < 30:
+            mlp_weight = 0.5  # Menos confianza en MLP en extremos RSI
         else:
             mlp_weight = base_mlp_weight
-            fusion_type = "BALANCED"
             
         mlp_confidence = mlp_pred.get("confidence", 50)
         if mlp_confidence < 55:
@@ -904,13 +939,6 @@ class ProductionPredictor:
         
         reasons.extend(rules_pred.get("reasons", []))
         
-        if consolidation_risk == "ALTO" and fused_confidence > 50:
-            fused_confidence = max(40, int(fused_confidence * 0.8))
-            reasons.append("Fusión ajustada por alta consolidación")
-        elif consolidation_risk == "MEDIO" and fused_confidence > 65:
-            fused_confidence = int(fused_confidence * 0.9)
-            reasons.append("Fusión ajustada por media consolidación")
-        
         fused_confidence = max(30, min(95, fused_confidence))
         
         return {
@@ -921,12 +949,11 @@ class ProductionPredictor:
             "reasons": reasons,
             "model_used": "HYBRID",
             "mlp_confidence": mlp_conf,
-            "rules_confidence": rules_conf,
-            "fusion_type": fusion_type
+            "rules_confidence": rules_conf
         }
 
     def predict_next_candle(self, seconds_remaining_norm=None):
-        """PREDICCIÓN MEJORADA - CON APRENDIZAJE INCORPORADO"""
+        """PREDICCIÓN MEJORADA - ACTIVACIÓN EN ÚLTIMOS 3-5 SEGUNDOS"""
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
         if not metrics:
             return {
@@ -948,7 +975,9 @@ class ProductionPredictor:
         
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
+        ensemble_pred = None
         
+        # PREDICCIÓN MLP PRINCIPAL
         if self.model and self.scaler and total_ticks >= 10:
             try:
                 Xs = self.scaler.transform(features)
@@ -970,16 +999,34 @@ class ProductionPredictor:
                 logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
         
+        # PREDICCIÓN ENSEMBLE MEJORADA
+        if total_ticks >= 15:
+            ensemble_pred = self._ensemble_predict(features)
+
         rules_pred = self._rule_based(metrics)
         
-        if mlp_pred and total_ticks >= 12:
+        # FUSIÓN INTELIGENTE MEJORADA
+        if mlp_pred and ensemble_pred and total_ticks >= 18:
+            # Usar ensemble como predictor principal si está disponible
+            final_pred = self._fuse(ensemble_pred, rules_pred, metrics)
+            final_pred["model_used"] = "ENSEMBLE_HYBRID"
+        elif mlp_pred and total_ticks >= 12:
             final_pred = self._fuse(mlp_pred, rules_pred, metrics)
         else:
             final_pred = rules_pred
             if total_ticks < 12 and mlp_pred:
                 final_pred["reasons"].append("Fusión no disponible - pocos datos")
         
+        # Agregar metadata adicional
+        final_pred.update({
+            "total_ticks": total_ticks,
+            "market_phase": metrics.get("market_phase", "unknown"),
+            "timestamp": now_iso()
+        })
+        
         self.last_prediction = final_pred.copy()
+        self.prediction_history.append(final_pred)
+        
         return final_pred
 
 # -------------- IQ CONNECTION COMPLETA --------------
@@ -1101,9 +1148,9 @@ class IQOptionConnector:
         except:
             return False
 
-# --------------- Adaptive Trainer Loop ---------------
-def adaptive_trainer_loop(predictor: ProductionPredictor):
-    """Loop de entrenamiento"""
+# --------------- Enhanced Adaptive Trainer Loop ---------------
+def enhanced_adaptive_trainer_loop(predictor: ProductionPredictor):
+    """Loop de entrenamiento mejorado"""
     while True:
         try:
             time.sleep(30)
@@ -1114,7 +1161,7 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
             current_size = len(df)
             
             if current_size >= BATCH_TRAIN_SIZE:
-                logging.info(f"🔁 Entrenamiento con {current_size} samples...")
+                logging.info(f"🔁 Entrenamiento mejorado con {current_size} samples...")
                 
                 X = df[predictor._feature_names()].values
                 y = df["label"].values.astype(int)
@@ -1148,9 +1195,20 @@ def adaptive_trainer_loop(predictor: ProductionPredictor):
                     predictor.scaler = scaler
                     predictor._save_artifacts()
                     logging.info(f"✅ Modelo actualizado (val_acc: {val_accuracy:.3f})")
+                    
+                    # También reentrenar modelos ensemble
+                    if current_size >= 200:
+                        for name, ensemble_model in predictor.ensemble_models.items():
+                            try:
+                                ensemble_model.fit(X_train_scaled, y_train)
+                                logging.info(f"✅ Ensemble model {name} retrained")
+                            except Exception as e:
+                                logging.warning(f"⚠️ Error retraining ensemble {name}: {e}")
+                        
+                        predictor._save_ensemble()
                         
         except Exception as e:
-            logging.error(f"❌ Error entrenamiento: {e}")
+            logging.error(f"❌ Error entrenamiento mejorado: {e}")
             time.sleep(60)
 
 # --------------- Global State ---------------
@@ -1176,27 +1234,11 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Singleton Protection MEJORADO ---------------
-_analyzer_running = False
-
+# --------------- Main loop CON VALIDACIÓN ---------------
 def professional_tick_analyzer():
-    global _analyzer_running, current_prediction
+    global current_prediction
     
-    # 🔒 PREVENIR DUPLICADOS - MANTIENE ORIGINALIDAD
-    if _analyzer_running:
-        logging.warning("⚠️ Analyzer ya está ejecutándose - evitando duplicado")
-        return
-        
-    _analyzer_running = True
-    
-    def cleanup():
-        global _analyzer_running
-        _analyzer_running = False
-        logging.info("🧹 Analyzer cleanup ejecutado")
-    
-    atexit.register(cleanup)
-    
-    logging.info("🚀 Delowyss AI V3.8 MEJORADO - CON APRENDIZAJE ACTIVO")
+    logging.info("🚀 Delowyss AI V3.8-MEJORADO iniciado - SISTEMA DE APRENDIZAJE AVANZADO")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -1232,15 +1274,17 @@ def professional_tick_analyzer():
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
                         
-                        # LOG MEJORADO CON MÁS CONTEXTO
-                        consolidation_risk = predictor.analyzer._assess_consolidation_risk()
-                        logging.info(f"🎯 PREDICCIÓN: {pred.get('direction')} | Conf: {pred.get('confidence')}% | Ticks: {pred.get('tick_count', 0)} | Consolidación: {consolidation_risk}")
+                        logging.info("🎯 PREDICCIÓN VELA SIGUIENTE: %s | Confianza: %s%% | Ticks: %s | Modelo: %s", 
+                                   pred.get("direction"), 
+                                   pred.get("confidence"),
+                                   pred.get("tick_count", 0),
+                                   pred.get("model_used", "UNKNOWN"))
             
-            # CAMBIO DE VELA CON VALIDACIÓN MEJORADA
+            # CAMBIO DE VELA CON VALIDACIÓN
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
-                    # VALIDACIÓN CON APRENDIZAJE
+                    # ✅ VALIDACIÓN AGREGADA
                     validation_result = predictor.validate_previous_prediction(closed_metrics)
                     if validation_result:
                         performance_stats['last_validation'] = validation_result
@@ -1257,7 +1301,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO MEJORADO ---------------
+# --------------- FastAPI COMPLETO CON VALIDACIÓN ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1269,16 +1313,16 @@ def home():
         training_samples = 0
         
     try:  
-        perf_df = pd.read_csv(PERF_CSV) if os.path.exists(PERF_CSV) else pd.DataFrame()
-        perf_rows = len(perf_df)
+        perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     except:
         perf_rows = 0
-        perf_df = pd.DataFrame()
         
     perf_acc = 0.0
     try:
-        if perf_rows>0 and "correct" in perf_df:
-            perf_acc = perf_df["correct"].mean()*100
+        if perf_rows>0:
+            perf_df = pd.read_csv(PERF_CSV)
+            if "correct" in perf_df:
+                perf_acc = perf_df["correct"].mean()*100
     except Exception:
         perf_acc = 0.0
         
@@ -1286,21 +1330,19 @@ def home():
         metrics = predictor.analyzer.get_candle_metrics()
         phase = metrics.get("market_phase") if metrics else "n/a"
         patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
-        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO") if metrics else "n/a"
     except:
         phase = "n/a"
         patterns = []
-        consolidation_risk = "n/a"
         
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # ESTADÍSTICAS DE APRENDIZAJE
-    learning_insights = predictor.learning_insights
-    consolidation_errors = learning_insights.get('consolidation_errors', 0)
-    high_conf_errors = learning_insights.get('high_confidence_errors', 0)
+    # Mostrar información del ensemble
+    ensemble_info = ""
+    if hasattr(predictor, 'ensemble_weights') and predictor.ensemble_weights:
+        ensemble_info = f" | Ensemble: {', '.join([f'{k}:{v:.2f}' for k, v in predictor.ensemble_weights.items()])}"
     
     html = f"""
     <!doctype html>
@@ -1308,7 +1350,7 @@ def home():
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
-        <title>Delowyss AI V3.8 - MEJORADO</title>
+        <title>Delowyss AI V3.8-Mejorado</title>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;
@@ -1334,13 +1376,6 @@ def home():
             }}
             .validation-card {{
                 border-left: 4px solid #ffbb33;
-                padding: 15px;
-                margin: 15px 0;
-                background: rgba(255,255,255,0.05);
-                border-radius: 8px;
-            }}
-            .learning-card {{
-                border-left: 4px solid #9966ff;
                 padding: 15px;
                 margin: 15px 0;
                 background: rgba(255,255,255,0.05);
@@ -1389,17 +1424,25 @@ def home():
             .status-connected {{ color: #00ff88; }}
             .status-disconnected {{ color: #ff4444; }}
             
-            .consolidation-high {{ color: #ff4444; font-weight: bold; }}
-            .consolidation-medium {{ color: #ffbb33; }}
-            .consolidation-low {{ color: #00ff88; }}
+            .ensemble-info {{
+                background: rgba(255,255,255,0.05);
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+                font-size: 0.9em;
+            }}
         </style>
     </head>
     <body>
         <div class="card">
-            <h1>🤖 Delowyss Trading AI — V3.8 MEJORADO</h1>
+            <h1>🤖 Delowyss Trading AI — V3.8-MEJORADO</h1>
             <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
             • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
+            
+            <div class="ensemble-info">
+                <strong>Sistema de Aprendizaje Avanzado Activado</strong>{ensemble_info}
+            </div>
             
             <div class="countdown" id="countdown">--</div>
             
@@ -1410,8 +1453,7 @@ def home():
             <div class="prediction-card">
                 <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% de confianza</h2>
                 <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
-                <p>Fase: <strong>{phase}</strong> • Consolidación: <span class="{'consolidation-high' if consolidation_risk=='ALTO' else 'consolidation-medium' if consolidation_risk=='MEDIO' else 'consolidation-low'}">{consolidation_risk}</span></p>
-                <p>Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
+                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
 
@@ -1422,18 +1464,6 @@ def home():
                 </div>
                 <div id="performance-stats" style="font-size: 0.9em; color: #ccc;">
                     Cargando estadísticas...
-                </div>
-            </div>
-
-            <div class="learning-card">
-                <h3>🧠 Sistema de Aprendizaje</h3>
-                <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
-                    <div>Errores en consolidación: <strong>{consolidation_errors}</strong></div>
-                    <div>Errores con alta confianza: <strong>{high_conf_errors}</strong></div>
-                    <div>Muestras de entrenamiento: <strong>{training_samples}</strong></div>
-                    <div style="font-size: 0.9em; margin-top: 8px; color: #ccc;">
-                        📈 Threshold de aprendizaje: {CONFIDENCE_SAVE_THRESHOLD}% (reducido para aprender más)
-                    </div>
                 </div>
             </div>
             
@@ -1494,11 +1524,12 @@ def home():
                         const price = data.price || 0;
                         const tickCount = data.tick_count || 0;
                         const reasons = data.reasons || [];
+                        const modelUsed = data.model_used || 'HYBRID';
                         
                         document.querySelector('.prediction-card h2').textContent = 
                             `${{direction}} — ${{confidence}}% de confianza`;
                         document.querySelector('.prediction-card p:nth-child(2)').innerHTML = 
-                            `Modelo: ${{data.model_used || 'HYBRID'}} • Precio: ${{price.toFixed(5)}}`;
+                            `Modelo: ${{modelUsed}} • Precio: ${{price.toFixed(5)}}`;
                         document.querySelector('.prediction-card p:nth-child(4)').innerHTML = 
                             `Marcas evaluadas: <strong>${{tickCount}}</strong>`;
                             
@@ -1530,7 +1561,7 @@ def home():
                             
                             document.getElementById('validation-result').innerHTML = `
                                 <div style="color:${{color}}; font-weight:bold;">
-                                    ${{icon}} Predicción: <strong>${{validation.prediction}}</strong> 
+                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
                                     | Real: <strong>${{validation.actual}}</strong>
                                 </div>
                                 <div style="font-size:0.9em; margin-top:5px;">
@@ -1576,7 +1607,7 @@ def api_prediction():
 
 @app.get("/api/validation")
 def api_validation():
-    """Endpoint para validaciones - CON ESTADÍSTICAS MEJORADAS"""
+    """Endpoint para validaciones"""
     try:
         global performance_stats
         
@@ -1587,13 +1618,6 @@ def api_validation():
         
         overall_accuracy = (correct / total * 100) if total > 0 else 0.0
         
-        learning_data = {
-            'consolidation_errors': predictor.learning_insights.get('consolidation_errors', 0),
-            'high_confidence_errors': predictor.learning_insights.get('high_confidence_errors', 0),
-            'total_mistakes': len(predictor.learning_insights.get('recent_mistakes', [])),
-            'learning_threshold': CONFIDENCE_SAVE_THRESHOLD
-        }
-        
         return JSONResponse({
             "last_validation": last_validation,
             "performance": {
@@ -1603,7 +1627,6 @@ def api_validation():
                 "recent_accuracy": round(recent_acc, 1),
                 "last_10_results": list(performance_stats.get('last_10', []))
             },
-            "learning_insights": learning_data,
             "timestamp": now_iso()
         })
     except Exception as e:
@@ -1612,7 +1635,7 @@ def api_validation():
 
 @app.get("/api/prediction_history")
 def api_prediction_history():
-    """Historial de predicciones - MEJORADO"""
+    """Historial de predicciones"""
     try:
         if os.path.exists(PERF_CSV):
             df = pd.read_csv(PERF_CSV)
@@ -1643,7 +1666,10 @@ def api_status():
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    learning_insights = predictor.learning_insights
+    # Información del ensemble
+    ensemble_info = {}
+    if hasattr(predictor, 'ensemble_weights'):
+        ensemble_info = predictor.ensemble_weights
     
     return JSONResponse({
         "status": "online",
@@ -1653,7 +1679,7 @@ def api_status():
         "training_samples": training_samples,
         "perf_rows": perf_rows,
         "total_ticks_processed": predictor.analyzer.tick_count,
-        "learning_insights": learning_insights,
+        "ensemble_weights": ensemble_info,
         "timestamp": now_iso()
     })
 
@@ -1689,7 +1715,6 @@ def api_patterns():
                 "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
                 "volatility": metrics.get("volatility", 0),
                 "momentum": metrics.get("momentum", 0),
-                "consolidation_risk": metrics.get("consolidation_risk", "NINGUNO"),
                 "price_history": predictor.analyzer.get_price_history(),
                 "total_ticks": predictor.analyzer.tick_count
             })
@@ -1705,9 +1730,9 @@ def start_background_tasks():
     analyzer_thread.start()
     logging.info("📊 Background analyzer started")
     
-    trainer_thread = threading.Thread(target=adaptive_trainer_loop, args=(predictor,), daemon=True)
+    trainer_thread = threading.Thread(target=enhanced_adaptive_trainer_loop, args=(predictor,), daemon=True)
     trainer_thread.start()
-    logging.info("🧠 Background trainer started")
+    logging.info("🧠 Background enhanced trainer started")
 
 start_background_tasks()
 

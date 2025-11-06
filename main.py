@@ -1,7 +1,7 @@
-# main.py - VERSIÓN FINAL OPTIMIZADA
+# main.py - VERSIÓN FINAL ESTABILIZADA
 """
-Delowyss Trading AI — V5.0 PREMIUM OPTIMIZADO
-Sistema profesional con IA mejorada y validación precisa
+Delowyss Trading AI — V5.0 PREMIUM ESTABLE
+Sistema profesional con IA mejorada y máxima estabilidad
 CEO: Eduardo Solis — © 2025
 """
 
@@ -14,8 +14,6 @@ from collections import deque
 import numpy as np
 import pandas as pd
 import json
-import signal
-import sys
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -31,7 +29,7 @@ IQ_PASSWORD = os.getenv("IQ_PASSWORD")
 PAR = os.getenv("PAIR", "EURUSD")
 TIMEFRAME = 60
 PREDICTION_WINDOW = 5
-MIN_TICKS_FOR_PREDICTION = 15  # Aumentado para más datos
+MIN_TICKS_FOR_PREDICTION = 15
 
 # ---------------- LOGGING PROFESIONAL ----------------
 logging.basicConfig(
@@ -44,120 +42,120 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ IA AVANZADA OPTIMIZADA ------------------
+# ------------------ IA AVANZADA ESTABILIZADA ------------------
 class PremiumAIAnalyzer:
     def __init__(self):
-        self.ticks = deque(maxlen=100)  # Reducido para más datos recientes
+        self.ticks = deque(maxlen=80)
         self.current_candle_open = None
         self.current_candle_high = None
         self.current_candle_low = None
         self.current_candle_close = None
         self.tick_count = 0
-        self.price_memory = deque(maxlen=30)  # Más enfoque en datos recientes
+        self.price_memory = deque(maxlen=25)
         self.last_candle_close = None
-        self.candle_start_time = None
         
     def add_tick(self, price: float):
-        price = float(price)
-        
-        if self.current_candle_open is None:
-            self.current_candle_open = self.current_candle_high = self.current_candle_low = price
-            self.candle_start_time = time.time()
-        
-        self.current_candle_high = max(self.current_candle_high, price)
-        self.current_candle_low = min(self.current_candle_low, price)
-        self.current_candle_close = price
-        
-        tick_data = {
-            'price': price,
-            'timestamp': time.time(),
-            'volume': 1
-        }
-        self.ticks.append(tick_data)
-        self.price_memory.append(price)
-        self.tick_count += 1
-        
-        return tick_data
+        try:
+            price = float(price)
+            
+            if self.current_candle_open is None:
+                self.current_candle_open = self.current_candle_high = self.current_candle_low = price
+            
+            self.current_candle_high = max(self.current_candle_high, price)
+            self.current_candle_low = min(self.current_candle_low, price)
+            self.current_candle_close = price
+            
+            tick_data = {
+                'price': price,
+                'timestamp': time.time(),
+                'volume': 1
+            }
+            self.ticks.append(tick_data)
+            self.price_memory.append(price)
+            self.tick_count += 1
+            
+            return tick_data
+        except Exception as e:
+            logging.error(f"Error en add_tick: {e}")
+            return None
     
     def _calculate_advanced_metrics(self):
-        """Métricas avanzadas OPTIMIZADAS para mejor precisión"""
-        if len(self.price_memory) < 10:
+        """Métricas avanzadas ESTABILIZADAS"""
+        if len(self.price_memory) < 8:
             return {}
             
-        prices = np.array(list(self.price_memory))
-        
-        # ANÁLISIS DE TENDENCIA MEJORADO
-        if len(prices) >= 15:
-            # Usar menos datos para ser más reactivo
-            short_trend = np.polyfit(range(8), prices[-8:], 1)[0]
-            medium_trend = np.polyfit(range(15), prices[-15:], 1)[0]
-            trend_strength = (short_trend * 0.7 + medium_trend * 0.3) * 10000
-        else:
-            trend_strength = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
-        
-        # ANÁLISIS DE MOMENTUM OPTIMIZADO
-        momentum_3 = (prices[-1] - prices[-3]) * 10000 if len(prices) >= 3 else 0
-        momentum_8 = (prices[-1] - prices[-8]) * 10000 if len(prices) >= 8 else 0
-        momentum = (momentum_3 * 0.7 + momentum_8 * 0.3)  # Más peso al corto plazo
-        
-        # ANÁLISIS DE VOLATILIDAD MEJORADO
-        recent_prices = prices[-10:] if len(prices) >= 10 else prices
-        if len(recent_prices) > 1:
-            volatility = (max(recent_prices) - min(recent_prices)) * 10000
-        else:
-            volatility = 0
-        
-        # ANÁLISIS DE PRESIÓN MEJORADO
-        if len(self.ticks) > 8:
-            recent_ticks = list(self.ticks)[-12:]  # Más ticks para mejor análisis
-            price_changes = [recent_ticks[i]['price'] - recent_ticks[i-1]['price'] 
-                           for i in range(1, len(recent_ticks))]
+        try:
+            prices = np.array(list(self.price_memory))
             
-            if price_changes:
-                positive_changes = len([x for x in price_changes if x > 0])
-                negative_changes = len([x for x in price_changes if x < 0])
-                total_changes = len(price_changes)
+            # ANÁLISIS SIMPLIFICADO PERO EFECTIVO
+            if len(prices) >= 12:
+                short_trend = np.polyfit(range(6), prices[-6:], 1)[0]
+                medium_trend = np.polyfit(range(12), prices[-12:], 1)[0]
+                trend_strength = (short_trend * 0.6 + medium_trend * 0.4) * 10000
+            else:
+                trend_strength = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
+            
+            # MOMENTUM MEJORADO
+            momentum_5 = (prices[-1] - prices[-5]) * 10000 if len(prices) >= 5 else 0
+            momentum_10 = (prices[-1] - prices[-10]) * 10000 if len(prices) >= 10 else 0
+            momentum = (momentum_5 * 0.7 + momentum_10 * 0.3)
+            
+            # VOLATILIDAD REALISTA
+            recent_prices = prices[-8:] if len(prices) >= 8 else prices
+            if len(recent_prices) > 1:
+                volatility = (max(recent_prices) - min(recent_prices)) * 10000
+            else:
+                volatility = 0
+            
+            # PRESIÓN DE MERCADO MEJORADA
+            if len(self.ticks) > 6:
+                recent_ticks = list(self.ticks)[-10:]
+                price_changes = []
+                for i in range(1, len(recent_ticks)):
+                    if i < len(recent_ticks):
+                        change = recent_ticks[i]['price'] - recent_ticks[i-1]['price']
+                        price_changes.append(change)
                 
-                buy_pressure = positive_changes / total_changes
-                sell_pressure = negative_changes / total_changes
-                
-                # Cálculo más robusto de pressure_ratio
-                if sell_pressure > 0.1:  # Evitar división por cero
-                    pressure_ratio = buy_pressure / sell_pressure
+                if price_changes:
+                    positive = len([x for x in price_changes if x > 0])
+                    negative = len([x for x in price_changes if x < 0])
+                    total = len(price_changes)
+                    
+                    buy_pressure = positive / total
+                    sell_pressure = negative / total
+                    
+                    if sell_pressure > 0.05:
+                        pressure_ratio = buy_pressure / sell_pressure
+                    else:
+                        pressure_ratio = 10 if buy_pressure > 0 else 1
                 else:
-                    pressure_ratio = 999 if buy_pressure > 0 else 1
+                    buy_pressure = sell_pressure = pressure_ratio = 0.5
             else:
                 buy_pressure = sell_pressure = pressure_ratio = 0.5
-        else:
-            buy_pressure = sell_pressure = pressure_ratio = 0.5
-        
-        # DETECCIÓN DE PATRONES MEJORADA
-        market_phase = self._detect_market_phase(prices, volatility, trend_strength)
-        
-        return {
-            'trend_strength': trend_strength,
-            'momentum': momentum,
-            'volatility': volatility,
-            'buy_pressure': buy_pressure,
-            'sell_pressure': sell_pressure,
-            'pressure_ratio': pressure_ratio,
-            'market_phase': market_phase,
-            'data_quality': min(1.0, self.tick_count / 20.0)  # Ajustado
-        }
-    
-    def _detect_market_phase(self, prices, volatility, trend_strength):
-        """Detección de fase de mercado OPTIMIZADA"""
-        # Umbrales ajustados para mejor detección
-        if volatility < 0.2 and abs(trend_strength) < 0.3:
-            return "consolidation"
-        elif abs(trend_strength) > 1.8 and volatility > 0.8:
-            return "strong_trend"
-        elif abs(trend_strength) > 0.8:
-            return "moderate_trend"
-        elif volatility > 1.2:
-            return "high_volatility"
-        else:
-            return "neutral"
+            
+            # FASE DE MERCADO SIMPLIFICADA
+            if volatility < 0.2 and abs(trend_strength) < 0.4:
+                market_phase = "consolidation"
+            elif abs(trend_strength) > 1.5:
+                market_phase = "trending"
+            elif volatility > 1.0:
+                market_phase = "volatile"
+            else:
+                market_phase = "normal"
+            
+            return {
+                'trend_strength': trend_strength,
+                'momentum': momentum,
+                'volatility': volatility,
+                'buy_pressure': buy_pressure,
+                'sell_pressure': sell_pressure,
+                'pressure_ratio': pressure_ratio,
+                'market_phase': market_phase,
+                'data_quality': min(1.0, self.tick_count / 20.0)
+            }
+        except Exception as e:
+            logging.error(f"Error en cálculo de métricas: {e}")
+            return {}
     
     def get_analysis(self):
         if self.tick_count < MIN_TICKS_FOR_PREDICTION:
@@ -165,6 +163,8 @@ class PremiumAIAnalyzer:
         
         try:
             advanced_metrics = self._calculate_advanced_metrics()
+            if not advanced_metrics:
+                return {'status': 'ERROR', 'message': 'Error en métricas'}
             
             return {
                 'status': 'SUCCESS',
@@ -182,185 +182,179 @@ class PremiumAIAnalyzer:
             return {'status': 'ERROR', 'message': str(e)}
     
     def reset(self):
-        if self.current_candle_close is not None:
-            self.last_candle_close = self.current_candle_close
-            
-        self.ticks.clear()
-        self.current_candle_open = None
-        self.current_candle_high = None
-        self.current_candle_low = None
-        self.current_candle_close = None
-        self.tick_count = 0
-        self.candle_start_time = None
+        try:
+            if self.current_candle_close is not None:
+                self.last_candle_close = self.current_candle_close
+                
+            self.ticks.clear()
+            self.current_candle_open = None
+            self.current_candle_high = None
+            self.current_candle_low = None
+            self.current_candle_close = None
+            self.tick_count = 0
+        except Exception as e:
+            logging.error(f"Error en reset: {e}")
 
-# ------------------ SISTEMA IA PROFESIONAL OPTIMIZADO ------------------
+# ------------------ SISTEMA IA PROFESIONAL ESTABILIZADO ------------------
 class ProfessionalAIPredictor:
     def __init__(self):
         self.analyzer = PremiumAIAnalyzer()
-        self.prediction_history = deque(maxlen=15)
+        self.prediction_history = deque(maxlen=10)
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
-            'recent_accuracy': 0.0,
-            'confidence_history': deque(maxlen=8)
+            'recent_accuracy': 0.0
         }
         self.last_prediction = None
         self.last_validation_result = None
-        self.learning_adjustment = 1.0  # Factor de aprendizaje
         
     def process_tick(self, price: float):
-        return self.analyzer.add_tick(price)
+        try:
+            return self.analyzer.add_tick(price)
+        except Exception as e:
+            logging.error(f"Error en process_tick: {e}")
+            return None
     
     def _professional_ai_analysis(self, analysis):
-        """Análisis de IA OPTIMIZADO para mejor precisión"""
-        momentum = analysis['momentum']
-        trend_strength = analysis['trend_strength']
-        pressure_ratio = analysis['pressure_ratio']
-        volatility = analysis['volatility']
-        market_phase = analysis['market_phase']
-        data_quality = analysis['data_quality']
-        
-        # SISTEMA DE PUNTUACIÓN OPTIMIZADO
-        buy_score = 0
-        sell_score = 0
-        reasons = []
-        
-        # 1. ANÁLISIS DE TENDENCIA (35% peso) - MÁS IMPORTANTE
-        trend_weight = 0.35
-        if abs(trend_strength) > 1.2:  # Umbral más bajo
-            if trend_strength > 0:
-                buy_score += 9 * trend_weight
-                reasons.append(f"📈 Tendencia alcista ({trend_strength:.1f})")
+        """Análisis de IA ESTABILIZADO y MÁS PRECISO"""
+        try:
+            momentum = analysis['momentum']
+            trend_strength = analysis['trend_strength']
+            pressure_ratio = analysis['pressure_ratio']
+            volatility = analysis['volatility']
+            market_phase = analysis['market_phase']
+            data_quality = analysis['data_quality']
+            
+            # SISTEMA DE PUNTUACIÓN MÁS CONSERVADOR
+            buy_score = 0
+            sell_score = 0
+            reasons = []
+            
+            # 1. TENDENCIA (40% peso) - MÁS IMPORTANTE
+            trend_weight = 0.40
+            if abs(trend_strength) > 1.0:
+                if trend_strength > 0:
+                    buy_score += 8 * trend_weight
+                    reasons.append(f"📈 Tendencia alcista ({trend_strength:.1f})")
+                else:
+                    sell_score += 8 * trend_weight
+                    reasons.append(f"📉 Tendencia bajista ({trend_strength:.1f})")
+            
+            # 2. MOMENTUM (35% peso)
+            momentum_weight = 0.35
+            if abs(momentum) > 0.6:
+                if momentum > 0:
+                    buy_score += 7 * momentum_weight
+                    reasons.append(f"🚀 Momentum alcista ({momentum:.1f}pips)")
+                else:
+                    sell_score += 7 * momentum_weight
+                    reasons.append(f"🔻 Momentum bajista ({momentum:.1f}pips)")
+            
+            # 3. PRESIÓN (25% peso)
+            pressure_weight = 0.25
+            if pressure_ratio > 1.5:
+                buy_score += 6 * pressure_weight
+                reasons.append(f"💰 Presión compradora ({pressure_ratio:.1f}x)")
+            elif pressure_ratio < 0.7:
+                sell_score += 6 * pressure_weight
+                reasons.append(f"💸 Presión vendedora ({pressure_ratio:.1f}x)")
+            
+            # DECISIÓN FINAL MÁS CONSERVADORA
+            score_difference = buy_score - sell_score
+            
+            # SOLO PREDECIR CON SEÑALES FUERTES
+            if abs(score_difference) > 0.4:
+                if score_difference > 0:
+                    direction = "ALZA"
+                    base_confidence = 55 + (score_difference * 35)
+                else:
+                    direction = "BAJA" 
+                    base_confidence = 55 + (abs(score_difference) * 35)
             else:
-                sell_score += 9 * trend_weight
-                reasons.append(f"📉 Tendencia bajista ({trend_strength:.1f})")
-        elif abs(trend_strength) > 0.5:
-            if trend_strength > 0:
-                buy_score += 6 * trend_weight
-                reasons.append(f"📈 Tendencia leve alcista ({trend_strength:.1f})")
-            else:
-                sell_score += 6 * trend_weight
-                reasons.append(f"📉 Tendencia leve bajista ({trend_strength:.1f})")
-        
-        # 2. ANÁLISIS DE MOMENTUM (30% peso) - MÁS PESO
-        momentum_weight = 0.30
-        if abs(momentum) > 0.8:  # Umbral más bajo
-            if momentum > 0:
-                buy_score += 8 * momentum_weight
-                reasons.append(f"🚀 Momentum alcista ({momentum:.1f}pips)")
-            else:
-                sell_score += 8 * momentum_weight
-                reasons.append(f"🔻 Momentum bajista ({momentum:.1f}pips)")
-        
-        # 3. ANÁLISIS DE PRESIÓN (25% peso)
-        pressure_weight = 0.25
-        if pressure_ratio > 1.8:  # Umbral más bajo
-            buy_score += 7 * pressure_weight
-            reasons.append(f"💰 Presión compradora ({pressure_ratio:.1f}x)")
-        elif pressure_ratio < 0.6:  # Umbral más bajo
-            sell_score += 7 * pressure_weight
-            reasons.append(f"💸 Presión vendedora ({pressure_ratio:.1f}x)")
-        
-        # 4. ANÁLISIS DE FASE DE MERCADO (10% peso) - MENOS PESO
-        phase_weight = 0.10
-        if market_phase == "strong_trend":
-            if trend_strength > 0:
-                buy_score += 5 * phase_weight
-            else:
-                sell_score += 5 * phase_weight
-            reasons.append("🎯 Tendencia fuerte")
-        elif market_phase == "consolidation":
-            # En consolidación, ser más conservador
-            buy_score *= 0.7
-            sell_score *= 0.7
-            reasons.append("⚖️ Mercado lateral")
-        
-        # DECISIÓN FINAL OPTIMIZADA
-        score_difference = buy_score - sell_score
-        
-        # UMBRALES MÁS SENSIBLES
-        if abs(score_difference) > 0.2:  # Más sensible
-            if score_difference > 0:
-                direction = "ALZA"
-                base_confidence = 50 + (score_difference * 50)  # Rango más amplio
-            else:
-                direction = "BAJA"
-                base_confidence = 50 + (abs(score_difference) * 50)
-        else:
-            direction = "LATERAL"
-            base_confidence = 40
-            reasons.append("⚡ Sin dirección clara")
-        
-        # AJUSTES DE CONFIANZA OPTIMIZADOS
-        confidence = base_confidence
-        
-        # Ajuste por calidad de datos
-        confidence *= data_quality
-        
-        # Ajuste por volatilidad - MÁS CONSERVADOR
-        if volatility > 1.5:
-            confidence *= 0.75
-            reasons.append("🌪️ Alta volatilidad")
-        elif volatility < 0.3:
-            confidence *= 1.05
-        
-        # Ajuste por cantidad de datos
-        if analysis['tick_count'] > 25:
-            confidence = min(90, confidence + 8)
-        elif analysis['tick_count'] > 35:
-            confidence = min(95, confidence + 12)
-        
-        # APLICAR APRENDIZAJE
-        confidence *= self.learning_adjustment
-        
-        confidence = max(35, min(88, confidence))
-        
-        return {
-            'direction': direction,
-            'confidence': int(confidence),
-            'buy_score': round(buy_score, 2),
-            'sell_score': round(sell_score, 2),
-            'score_difference': round(score_difference, 2),
-            'reasons': reasons,
-            'market_phase': market_phase
-        }
+                direction = "LATERAL"
+                base_confidence = 40
+                reasons.append("⚡ Señales insuficientes")
+            
+            # AJUSTES DE CONFIANZA
+            confidence = base_confidence
+            confidence *= data_quality
+            
+            # SER MÁS CONSERVADOR EN ALTA VOLATILIDAD
+            if volatility > 1.2:
+                confidence *= 0.7
+                reasons.append("🌪️ Mercado volátil")
+            
+            # MÁS DATOS = MÁS CONFIANZA
+            if analysis['tick_count'] > 25:
+                confidence = min(85, confidence + 10)
+            
+            confidence = max(35, min(80, confidence))
+            
+            return {
+                'direction': direction,
+                'confidence': int(confidence),
+                'buy_score': round(buy_score, 2),
+                'sell_score': round(sell_score, 2),
+                'score_difference': round(score_difference, 2),
+                'reasons': reasons,
+                'market_phase': market_phase
+            }
+        except Exception as e:
+            logging.error(f"Error en análisis IA: {e}")
+            return {
+                'direction': 'LATERAL',
+                'confidence': 35,
+                'reasons': ['🤖 Error en análisis - modo seguro'],
+                'buy_score': 0,
+                'sell_score': 0,
+                'score_difference': 0
+            }
     
     def predict_next_candle(self):
-        analysis = self.analyzer.get_analysis()
-        
-        if analysis.get('status') != 'SUCCESS':
+        try:
+            analysis = self.analyzer.get_analysis()
+            
+            if analysis.get('status') != 'SUCCESS':
+                return {
+                    'direction': 'LATERAL',
+                    'confidence': 0,
+                    'reason': analysis.get('message', 'Analizando...'),
+                    'timestamp': now_iso()
+                }
+            
+            prediction = self._professional_ai_analysis(analysis)
+            
+            # SOLO PREDICCIONES CON BUENA CONFIANZA
+            if prediction['confidence'] < 50:
+                prediction['direction'] = 'LATERAL'
+                prediction['reasons'].append("🔍 Confianza insuficiente")
+            
+            prediction.update({
+                'tick_count': analysis['tick_count'],
+                'current_price': analysis['current_price'],
+                'timestamp': now_iso(),
+                'model_version': 'PROFESSIONAL_AI_V5_ESTABLE'
+            })
+            
+            self.last_prediction = prediction
+            self.prediction_history.append(prediction)
+            
+            return prediction
+        except Exception as e:
+            logging.error(f"Error en predict_next_candle: {e}")
             return {
-                'direction': 'N/A',
+                'direction': 'LATERAL',
                 'confidence': 0,
-                'reason': analysis.get('message', 'Analizando mercado...'),
+                'reason': 'Error en predicción',
                 'timestamp': now_iso()
             }
-        
-        prediction = self._professional_ai_analysis(analysis)
-        
-        # FILTRO MÁS CONSERVADOR
-        if prediction['confidence'] < 50:  # Solo predicciones con buena confianza
-            prediction['direction'] = 'LATERAL'
-            prediction['reasons'].append("🔍 Confianza insuficiente")
-        
-        prediction.update({
-            'tick_count': analysis['tick_count'],
-            'current_price': analysis['current_price'],
-            'timestamp': now_iso(),
-            'model_version': 'PROFESSIONAL_AI_V5_OPTIMIZADO'
-        })
-        
-        self.last_prediction = prediction
-        self.prediction_history.append(prediction)
-        
-        return prediction
     
     def validate_prediction(self, new_candle_open_price):
-        """Validación precisa - MANTENIDA"""
-        if not self.last_prediction:
-            return None
-            
+        """Validación ESTABILIZADA"""
         try:
+            if not self.last_prediction:
+                return None
+                
             last_pred = self.last_prediction
             predicted_direction = last_pred.get('direction', 'N/A')
             
@@ -371,7 +365,9 @@ class ProfessionalAIPredictor:
                 return None
                 
             price_change = (current_open - previous_close) * 10000
-            minimal_change = 0.15  # Umbral conservador
+            
+            # UMBRAL MÁS REALISTA
+            minimal_change = 0.2
             
             if abs(price_change) < minimal_change:
                 actual_direction = "LATERAL"
@@ -384,29 +380,25 @@ class ProfessionalAIPredictor:
                 
                 is_correct = (actual_direction == predicted_direction)
             
-            # ACTUALIZAR ESTADÍSTICAS Y APRENDIZAJE
+            # ACTUALIZAR ESTADÍSTICAS
             if predicted_direction != "LATERAL":
                 self.performance_stats['total_predictions'] += 1
                 if is_correct:
                     self.performance_stats['correct_predictions'] += 1
-                    # Aumentar confianza después de aciertos
-                    self.learning_adjustment = min(1.1, self.learning_adjustment * 1.02)
-                else:
-                    # Reducir confianza después de errores
-                    self.learning_adjustment = max(0.8, self.learning_adjustment * 0.98)
             
             total = self.performance_stats['total_predictions']
             correct = self.performance_stats['correct_predictions']
             accuracy = (correct / total * 100) if total > 0 else 0
             self.performance_stats['recent_accuracy'] = accuracy
             
-            # LOGGING MEJORADO
+            # LOGGING CLARO
             status_icon = "✅" if is_correct else "❌"
-            status_text = "CORRECTA" if is_correct else "ERRÓNEA"
+            if actual_direction == "LATERAL":
+                status_icon = "⚪"
             
             logging.info(f"🎯 VALIDACIÓN: {status_icon} {predicted_direction}→{actual_direction} | Conf: {last_pred.get('confidence', 0)}% | Cambio: {price_change:.1f}pips")
             
-            if total > 0 and total % 3 == 0:  # Log más frecuente
+            if total > 0 and total % 5 == 0:
                 logging.info(f"📊 PRECISIÓN: {accuracy:.1f}% (Total: {total})")
             
             self.last_validation_result = {
@@ -419,14 +411,13 @@ class ProfessionalAIPredictor:
                 'total_predictions': total,
                 'correct_predictions': correct,
                 'status_icon': status_icon,
-                'status_text': status_text,
                 'timestamp': now_iso()
             }
             
             return self.last_validation_result
             
         except Exception as e:
-            logging.error(f"❌ Error en validación: {e}")
+            logging.error(f"Error en validación: {e}")
             return None
     
     def get_performance_stats(self):
@@ -436,9 +427,12 @@ class ProfessionalAIPredictor:
         return self.last_validation_result
     
     def reset(self):
-        self.analyzer.reset()
+        try:
+            self.analyzer.reset()
+        except Exception as e:
+            logging.error(f"Error en reset predictor: {e}")
 
-# -------------- CONEXIÓN PROFESIONAL (MANTENIDA) --------------
+# -------------- CONEXIÓN PROFESIONAL ESTABILIZADA --------------
 class ProfessionalIQConnector:
     def __init__(self):
         self.iq = None
@@ -449,7 +443,7 @@ class ProfessionalIQConnector:
     def connect(self):
         try:
             if not IQ_EMAIL or not IQ_PASSWORD:
-                logging.warning("🔐 Modo demo activado")
+                logging.info("🔧 Modo demo activado")
                 self.connected = True
                 return True
                 
@@ -463,25 +457,30 @@ class ProfessionalIQConnector:
                 logging.info("✅ Conexión establecida")
                 return True
             else:
-                logging.warning(f"⚠️ Fallo de conexión: {reason}")
-                self.connected = True  # Modo demo
+                logging.warning(f"⚠️ Conexión fallida: {reason}")
+                logging.info("🔧 Activando modo demo...")
+                self.connected = True
                 return True
                 
         except Exception as e:
             logging.error(f"❌ Error de conexión: {e}")
+            logging.info("🔧 Activando modo demo...")
             self.connected = True
             return True
 
     def get_realtime_price(self):
         try:
             if not self.connected:
+                # Precio demo realista
                 if self.last_price is None:
-                    self.last_price = 1.15000
+                    self.last_price = 1.15389  # Precio inicial realista
                 else:
-                    variation = np.random.uniform(-0.00015, 0.00015)
+                    # Variación más realista
+                    variation = np.random.uniform(-0.0001, 0.0001)
                     self.last_price += variation
                 return self.last_price
 
+            # Intentar obtener precio real
             candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
             if candles and len(candles) > 0:
                 price = float(candles[-1]['close'])
@@ -493,25 +492,27 @@ class ProfessionalIQConnector:
 
         except Exception as e:
             logging.error(f"❌ Error obteniendo precio: {e}")
-            return self.last_price if self.last_price else 1.15000
+            return self.last_price if self.last_price else 1.15389
 
     def _record_tick(self, price):
         self.tick_count += 1
         self.last_price = price
         
-        if self.tick_count <= 5 or self.tick_count % 100 == 0:
+        # Logging menos frecuente
+        if self.tick_count <= 3 or self.tick_count % 200 == 0:
             logging.info(f"💰 Tick #{self.tick_count}: {price:.5f}")
 
-# --------------- SISTEMA PRINCIPAL OPTIMIZADO ---------------
+# --------------- SISTEMA PRINCIPAL ESTABILIZADO ---------------
 iq_connector = ProfessionalIQConnector()
 predictor = ProfessionalAIPredictor()
 
+# VARIABLES GLOBALES
 current_prediction = {
     "direction": "N/A",
     "confidence": 0,
     "tick_count": 0,
     "current_price": 0.0,
-    "reasons": ["🤖 IA optimizada inicializando..."],
+    "reasons": ["🤖 Sistema inicializando..."],
     "timestamp": now_iso(),
     "status": "INITIALIZING"
 }
@@ -520,45 +521,36 @@ performance_stats = {
     'total_predictions': 0,
     'correct_predictions': 0,
     'recent_accuracy': 0.0,
-    'last_validation': None,
-    'average_confidence': 0.0
+    'last_validation': None
 }
 
-system_running = True
-
-def signal_handler(signum, frame):
-    global system_running
-    logging.info("🛑 Apagando sistema...")
-    system_running = False
-    sys.exit(0)
-
-signal.signal(signal.SIGINT, signal_handler)
-signal.signal(signal.SIGTERM, signal_handler)
-
 def premium_main_loop():
-    global current_prediction, performance_stats, system_running
+    global current_prediction, performance_stats
     
-    logging.info("🚀 DELOWYSS AI V5.0 OPTIMIZADO INICIADO")
-    logging.info("🎯 Sistema con IA mejorada y validación precisa")
+    logging.info("🚀 DELOWYSS AI V5.0 ESTABLE INICIADO")
+    logging.info("🎯 Sistema profesional con máxima estabilidad")
     
+    # Conexión simple
     iq_connector.connect()
     
     last_prediction_time = 0
     last_candle_start = time.time() // TIMEFRAME * TIMEFRAME
     last_price = None
     
-    while system_running:
+    while True:
         try:
             current_time = time.time()
             current_candle_start = current_time // TIMEFRAME * TIMEFRAME
             seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
             
+            # OBTENER PRECIO
             price = iq_connector.get_realtime_price()
             
             if price and price > 0:
                 predictor.process_tick(price)
                 last_price = price
                 
+                # ACTUALIZAR ESTADO
                 current_prediction.update({
                     "current_price": price,
                     "tick_count": predictor.analyzer.tick_count,
@@ -566,15 +558,12 @@ def premium_main_loop():
                     "status": "ACTIVE"
                 })
             
-            # PREDICCIÓN OPTIMIZADA
-            prediction_ready = (
-                seconds_remaining <= PREDICTION_WINDOW and 
+            # PREDICCIÓN CON TIMING MEJORADO
+            if (seconds_remaining <= PREDICTION_WINDOW and 
                 seconds_remaining > 2 and
                 predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
-                (time.time() - last_prediction_time) >= 3
-            )
-            
-            if prediction_ready:
+                (time.time() - last_prediction_time) >= 2):
+                
                 prediction = predictor.predict_next_candle()
                 
                 if prediction['confidence'] >= 45:
@@ -582,9 +571,9 @@ def premium_main_loop():
                     last_prediction_time = time.time()
                     
                     if prediction['direction'] != 'LATERAL':
-                        logging.info(f"🎯 PREDICCIÓN: {prediction['direction']} | Conf: {prediction['confidence']}% | Ticks: {prediction['tick_count']}")
+                        logging.info(f"🎯 PREDICCIÓN: {prediction['direction']} | Conf: {prediction['confidence']}%")
             
-            # VALIDACIÓN PRECISA
+            # CAMBIO DE VELA
             if current_candle_start > last_candle_start and last_price is not None:
                 validation_result = predictor.validate_prediction(last_price)
                 if validation_result:
@@ -599,20 +588,159 @@ def premium_main_loop():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela - Analizando...")
             
-            time.sleep(0.4)  # Optimizado
+            time.sleep(0.3)  # Loop más rápido pero estable
             
         except Exception as e:
-            logging.error(f"💥 Error: {e}")
-            time.sleep(1)
+            logging.error(f"💥 Error en loop: {e}")
+            time.sleep(1)  # Recuperación más rápida
 
-# --------------- INTERFAZ WEB (MANTENIDA) ---------------
-app = FastAPI(title="Delowyss AI Premium", version="5.0.3")
+# --------------- INTERFAZ WEB SIMPLIFICADA ---------------
+app = FastAPI(title="Delowyss AI Premium", version="5.0.4")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/", response_class=HTMLResponse)
 def premium_interface():
-    # ... (interfaz idéntica a la anterior)
-    return HTMLResponse(content="<html>...</html>")
+    direction = current_prediction.get("direction", "N/A")
+    confidence = current_prediction.get("confidence", 0)
+    accuracy = performance_stats.get('recent_accuracy', 0)
+    
+    # Colores dinámicos
+    if direction == "ALZA":
+        color = "#00ff88"
+    elif direction == "BAJA":
+        color = "#ff4444"
+    else:
+        color = "#ffbb33"
+    
+    # Generar HTML seguro
+    reasons_html = ""
+    reasons_list = current_prediction.get('reasons', ['Analizando mercado...'])
+    for reason in reasons_list:
+        reasons_html += f"<li>{reason}</li>"
+    
+    html = f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Delowyss AI Premium V5.0</title>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <style>
+            body {{
+                font-family: Arial, sans-serif;
+                background: #0f172a;
+                color: white;
+                margin: 0;
+                padding: 20px;
+            }}
+            .container {{
+                max-width: 800px;
+                margin: 0 auto;
+            }}
+            .card {{
+                background: rgba(255,255,255,0.05);
+                border-radius: 10px;
+                padding: 20px;
+                margin: 10px 0;
+                border-left: 4px solid {color};
+            }}
+            .prediction {{
+                font-size: 2em;
+                font-weight: bold;
+                color: {color};
+                text-align: center;
+            }}
+            .confidence {{
+                text-align: center;
+                font-size: 1.2em;
+                margin: 10px 0;
+            }}
+            .metrics {{
+                display: grid;
+                grid-template-columns: repeat(3, 1fr);
+                gap: 10px;
+                margin: 15px 0;
+            }}
+            .metric {{
+                background: rgba(255,255,255,0.1);
+                padding: 10px;
+                border-radius: 5px;
+                text-align: center;
+            }}
+            .reasons {{
+                list-style: none;
+                padding: 0;
+            }}
+            .reasons li {{
+                background: rgba(255,255,255,0.05);
+                margin: 5px 0;
+                padding: 8px;
+                border-radius: 5px;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <h1>🤖 DELOWYSS AI PREMIUM V5.0</h1>
+            
+            <div class="card">
+                <div class="prediction" id="direction">{direction}</div>
+                <div class="confidence" id="confidence">Confianza: {confidence}%</div>
+                
+                <div class="metrics">
+                    <div class="metric">
+                        <div id="tick-count">{current_prediction.get('tick_count', 0)}</div>
+                        <small>Ticks</small>
+                    </div>
+                    <div class="metric">
+                        <div>{current_prediction.get('current_price', 0):.5f}</div>
+                        <small>Precio</small>
+                    </div>
+                    <div class="metric">
+                        <div id="accuracy">{accuracy:.1f}%</div>
+                        <small>Precisión</small>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h3>📊 Análisis IA</h3>
+                <ul class="reasons" id="reasons">
+                    {reasons_html}
+                </ul>
+            </div>
+        </div>
+
+        <script>
+            function updateData() {{
+                fetch('/api/prediction')
+                    .then(r => r.json())
+                    .then(data => {{
+                        document.getElementById('direction').textContent = data.direction;
+                        document.getElementById('confidence').textContent = 'Confianza: ' + data.confidence + '%';
+                        document.getElementById('tick-count').textContent = data.tick_count;
+                        
+                        // Actualizar razones
+                        const reasons = data.reasons || ['Analizando...'];
+                        document.getElementById('reasons').innerHTML = reasons.map(r => `<li>${{r}}</li>`).join('');
+                    }});
+                    
+                fetch('/api/validation')
+                    .then(r => r.json())
+                    .then(data => {{
+                        if(data.performance) {{
+                            document.getElementById('accuracy').textContent = data.performance.recent_accuracy.toFixed(1) + '%';
+                        }}
+                    }});
+            }}
+            
+            setInterval(updateData, 2000);
+            updateData();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 @app.get("/api/prediction")
 def api_prediction():
@@ -627,28 +755,27 @@ def api_validation():
         "timestamp": now_iso()
     })
 
-@app.get("/api/system/status")
-def api_system_status():
+@app.get("/api/health")
+def api_health():
     return JSONResponse({
-        "status": "ACTIVE", 
-        "version": "5.0.3",
-        "accuracy": performance_stats.get('recent_accuracy', 0),
-        "timestamp": now_iso()
+        "status": "healthy",
+        "timestamp": now_iso(),
+        "version": "5.0.4"
     })
 
-# --------------- INICIALIZACIÓN ---------------
-def start_premium_system():
+# --------------- INICIALIZACIÓN SEGURA ---------------
+def start_system():
     try:
         thread = threading.Thread(target=premium_main_loop, daemon=True)
         thread.start()
-        logging.info("⭐ SISTEMA OPTIMIZADO INICIADO")
+        logging.info("⭐ SISTEMA ESTABLE INICIADO")
     except Exception as e:
-        logging.error(f"❌ Error: {e}")
+        logging.error(f"❌ Error iniciando sistema: {e}")
+
+# Iniciar automáticamente en Render
+start_system()
 
 if __name__ == "__main__":
-    start_premium_system()
     import uvicorn
     port = int(os.getenv("PORT", "10000"))
     uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")
-else:
-    start_premium_system()

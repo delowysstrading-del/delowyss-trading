@@ -1,6 +1,6 @@
-# main.py - V5.4 PREMIUM COMPLETA (IA Avanzada + AutoLearning + Interfaz Original)
+# main.py - V5.5 PREMIUM COMPLETA (IA Avanzada + AutoLearning + Interfaz Original + Mejoras Críticas)
 """
-Delowyss Trading AI — V5.4 PREMIUM COMPLETA CON AUTOLEARNING
+Delowyss Trading AI — V5.5 PREMIUM COMPLETA CON AUTOLEARNING MEJORADO
 CEO: Eduardo Solis — © 2025
 """
 
@@ -56,6 +56,107 @@ logging.basicConfig(
 
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
+
+# ------------------ NUEVO: CANDLE BUFFER PARA EVITAR FUGA DE DATOS ------------------
+class CandleBufferManager:
+    """Gestiona el buffer para evitar fugas de datos en el entrenamiento ML"""
+    def __init__(self):
+        self.pending_features = None
+        self.pending_candle_close = None
+        self.pending_timestamp = None
+        self.last_direction = None
+        
+    def store_candle_features(self, features, close_price):
+        """Almacena features de vela cerrada para entrenamiento futuro"""
+        self.pending_features = features.copy() if features is not None else None
+        self.pending_candle_close = close_price
+        self.pending_timestamp = time.time()
+        logging.info(f"📦 Features de vela almacenados para entrenamiento futuro")
+        
+    def train_with_new_direction(self, new_candle_direction):
+        """Entrena con features antiguos y dirección nueva (sin fuga de datos)"""
+        if self.pending_features is not None and new_candle_direction is not None:
+            online_learner.add_sample(self.pending_features, new_candle_direction)
+            training_result = online_learner.partial_train(batch_size=32)
+            self.last_direction = new_candle_direction
+            logging.info(f"🎓 AutoLearning: {new_candle_direction} | {training_result}")
+            self.pending_features = None  # Limpiar después del entrenamiento
+            return training_result
+        return None
+
+# ------------------ NUEVO: VALIDADOR TIEMPO REAL ------------------
+class RealTimePerformanceValidator:
+    """Valida y monitoriza performance en tiempo real sin backtesting"""
+    def __init__(self, max_history=100):
+        self.predictions_history = deque(maxlen=max_history)
+        self.performance_metrics = {
+            'accuracy_5': 0.0, 'accuracy_10': 0.0, 'accuracy_20': 0.0,
+            'accuracy_50': 0.0, 'total_predictions': 0, 'correct_predictions': 0,
+            'recent_trend': 'NEUTRAL', 'avg_confidence_correct': 0.0,
+            'avg_confidence_wrong': 0.0, 'best_patterns': {}, 'worst_patterns': {}
+        }
+        self.confidence_correct = []
+        self.confidence_wrong = []
+        
+    def add_prediction_result(self, prediction, actual_direction, market_phase):
+        """Añade resultado de predicción para análisis en tiempo real"""
+        is_correct = prediction['direction'] == actual_direction
+        
+        self.predictions_history.append({
+            'predicted': prediction['direction'],
+            'actual': actual_direction,
+            'confidence': prediction['confidence'],
+            'correct': is_correct,
+            'market_phase': market_phase,
+            'timestamp': time.time(),
+            'reasons': prediction.get('reasons', [])
+        })
+        
+        # Actualizar métricas básicas
+        self.performance_metrics['total_predictions'] += 1
+        if is_correct:
+            self.performance_metrics['correct_predictions'] += 1
+            self.confidence_correct.append(prediction['confidence'])
+        else:
+            self.confidence_wrong.append(prediction['confidence'])
+            
+        # Calcular precisiones rolling
+        self._update_rolling_accuracies()
+        
+        # Calcular confianzas promedio
+        if self.confidence_correct:
+            self.performance_metrics['avg_confidence_correct'] = np.mean(self.confidence_correct[-20:])
+        if self.confidence_wrong:
+            self.performance_metrics['avg_confidence_wrong'] = np.mean(self.confidence_wrong[-20:])
+            
+        return is_correct
+    
+    def _update_rolling_accuracies(self):
+        """Actualiza precisiones en ventanas temporales"""
+        history = list(self.predictions_history)
+        
+        for window in [5, 10, 20, 50]:
+            if len(history) >= window:
+                recent = history[-window:]
+                correct = sum(1 for p in recent if p['correct'])
+                self.performance_metrics[f'accuracy_{window}'] = (correct / window) * 100
+    
+    def get_performance_insights(self):
+        """Obtiene insights de performance para la interfaz"""
+        insights = self.performance_metrics.copy()
+        
+        # Calcular tendencia reciente
+        if len(self.predictions_history) >= 10:
+            recent = list(self.predictions_history)[-10:]
+            recent_accuracy = sum(1 for p in recent if p['correct']) / len(recent)
+            if recent_accuracy > 0.7:
+                insights['recent_trend'] = 'MEJORANDO'
+            elif recent_accuracy < 0.4:
+                insights['recent_trend'] = 'BAJANDO'
+            else:
+                insights['recent_trend'] = 'ESTABLE'
+                
+        return insights
 
 # ------------------ IA AVANZADA COMPLETA (ORIGINAL MEJORADA) ------------------
 class PremiumAIAnalyzer:
@@ -295,6 +396,9 @@ class PremiumAIAnalyzer:
             # Análisis de fases combinado
             phase_analysis = self._combine_phase_analysis()
             
+            # NUEVO: Métricas mejoradas para predicción intra-vela
+            enhanced_metrics = self._calculate_enhanced_intra_candle_metrics(phase_analysis)
+            
             # Determinar fase de mercado con análisis completo
             if volatility < 0.3 and abs(trend_strength) < 0.5:
                 market_phase = "consolidation"
@@ -321,10 +425,45 @@ class PremiumAIAnalyzer:
                 'velocity': avg_velocity,
                 'phase_analysis': phase_analysis,
                 'candle_progress': (time.time() - self.candle_start_time) / TIMEFRAME if self.candle_start_time else 0,
-                'total_ticks': self.tick_count
+                'total_ticks': self.tick_count,
+                **enhanced_metrics  # NUEVO: Métricas mejoradas
             }
         except Exception as e:
             logging.error(f"Error en cálculo de métricas avanzadas: {e}")
+            return {}
+    
+    def _calculate_enhanced_intra_candle_metrics(self, phase_analysis):
+        """NUEVO: Métricas mejoradas para predicción intra-vela"""
+        try:
+            # Fuerza de tendencia intra-vela
+            early_strength = self.analysis_phases['initial']['analysis'].get('trend_strength', 0)
+            late_strength = self.analysis_phases['final']['analysis'].get('trend_strength', 0)
+            trend_persistence = late_strength - early_strength
+            
+            # Aceleración en últimos ticks
+            acceleration_trend = 0
+            if len(self.acceleration_metrics) >= 3:
+                recent_accel = [m['acceleration'] for m in list(self.acceleration_metrics)[-3:]]
+                acceleration_trend = np.mean(recent_accel) * 10000
+            
+            # Presión neta en fase final
+            final_phase = self.analysis_phases['final']['analysis']
+            buy_pressure_final = final_phase.get('buy_pressure', 0.5)
+            
+            # Consistencia de momentum
+            initial_trend = self.analysis_phases['initial']['analysis'].get('trend', 'LATERAL')
+            final_trend = self.analysis_phases['final']['analysis'].get('trend', 'LATERAL')
+            momentum_consistency = 1.0 if initial_trend == final_trend else 0.0
+            
+            return {
+                'trend_persistence': trend_persistence,
+                'acceleration_trend': acceleration_trend,
+                'final_buy_pressure': buy_pressure_final,
+                'momentum_consistency': momentum_consistency,
+                'intra_candle_quality': min(1.0, self.tick_count / 40.0)  # Calidad del análisis intra-vela
+            }
+        except Exception as e:
+            logging.debug(f"Error en métricas mejoradas: {e}")
             return {}
     
     def _combine_phase_analysis(self):
@@ -417,15 +556,15 @@ class PremiumAIAnalyzer:
         except Exception as e:
             logging.error(f"Error en reset: {e}")
 
-# ------------------ ADAPTIVE MARKET LEARNER (NUEVO - MEJORADO) ------------------
+# ------------------ ADAPTIVE MARKET LEARNER (MEJORADO SIN FUGAS) ------------------
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
 
 class AdaptiveMarketLearner:
     """
-    Aprendizaje incremental MEJORADO con métricas avanzadas
+    Aprendizaje incremental MEJORADO sin fugas de datos
     """
-    def __init__(self, feature_size=18, classes=None, buffer_size=1000):
+    def __init__(self, feature_size=22, classes=None, buffer_size=1000):  # Aumentado por nuevas métricas
         self.feature_size = feature_size
         self.classes = np.array(['BAJA', 'LATERAL', 'ALZA']) if classes is None else np.array(classes)
         self.buffer_size = buffer_size
@@ -484,9 +623,10 @@ class AdaptiveMarketLearner:
             logging.error(f"❌ Error guardando modelo: {e}")
 
     def add_sample(self, features: np.ndarray, label: str):
-        """Añade muestra al buffer de entrenamiento"""
+        """Añade muestra al buffer de entrenamiento SIN FUGAS"""
         if features.shape[0] == self.feature_size:
             self.replay_buffer.append((features.astype(float), label))
+            logging.debug(f"📚 Muestra añadida: {label} (Total: {len(self.replay_buffer)})")
 
     def partial_train(self, batch_size=32):
         """Entrenamiento incremental MEJORADO"""
@@ -518,11 +658,24 @@ class AdaptiveMarketLearner:
                 "trained": True, 
                 "n_samples": len(samples),
                 "training_count": self.training_count,
-                "buffer_size": len(self.replay_buffer)
+                "buffer_size": len(self.replay_buffer),
+                "accuracy_self": self._calculate_self_accuracy(samples)
             }
         except Exception as e:
             logging.error(f"❌ Error en entrenamiento: {e}")
             return {"trained": False, "reason": str(e)}
+    
+    def _calculate_self_accuracy(self, samples):
+        """Calcula precisión en muestras de entrenamiento"""
+        try:
+            X = np.vstack([s[0] for s in samples])
+            y = np.array([s[1] for s in samples])
+            Xs = self.scaler.transform(X)
+            predictions = self.model.predict(Xs)
+            accuracy = np.mean(predictions == y)
+            return round(accuracy * 100, 1)
+        except:
+            return 0.0
 
     def predict_proba(self, features: np.ndarray):
         """Predicción de probabilidades MEJORADA"""
@@ -548,7 +701,8 @@ class AdaptiveMarketLearner:
                 "predicted": predicted,
                 "proba": proba,
                 "confidence": round(confidence, 2),
-                "training_count": self.training_count
+                "training_count": self.training_count,
+                "buffer_size": len(self.replay_buffer)
             }
         except Exception as e:
             logging.error(f"❌ Error en predict: {e}")
@@ -563,11 +717,12 @@ class AdaptiveMarketLearner:
 def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_window=30):
     """
     Construye features AVANZADOS combinando análisis tradicional + métricas ML
+    INCLUYE nuevas métricas intra-vela
     """
     try:
         # Features básicos de precio
         if analysis.get('status') != 'SUCCESS':
-            return np.zeros(18)
+            return np.zeros(22)  # Aumentado por nuevas métricas
             
         current_price = analysis.get('current_price', 0)
         tick_count = analysis.get('tick_count', 0)
@@ -591,10 +746,17 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
         momentum_shift = 1.0 if phase_analysis.get('momentum_shift', False) else 0.0
         consistency_score = phase_analysis.get('consistency_score', 0)
         
+        # NUEVOS: Features intra-vela mejorados
+        trend_persistence = analysis.get('trend_persistence', 0)
+        acceleration_trend = analysis.get('acceleration_trend', 0)
+        final_buy_pressure = analysis.get('final_buy_pressure', 0.5)
+        momentum_consistency = analysis.get('momentum_consistency', 0)
+        intra_candle_quality = analysis.get('intra_candle_quality', 0)
+        
         # Features de tiempo
         time_remaining = seconds_remaining / TIMEFRAME
         
-        # Construir vector de features
+        # Construir vector de features MEJORADO
         features = np.array([
             current_price,
             trend_strength,
@@ -614,22 +776,27 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
             analysis.get('candle_range', 0),
             min(1.0, tick_count / 50.0),  # Saturation feature
             np.log1p(abs(trend_strength)),  # Log feature
-            np.sqrt(abs(momentum))  # Sqrt feature
+            np.sqrt(abs(momentum)),  # Sqrt feature
+            # NUEVOS: Features intra-vela
+            trend_persistence,
+            acceleration_trend,
+            final_buy_pressure,
+            momentum_consistency
         ]).astype(float)
         
         # Asegurar tamaño consistente
-        if features.shape[0] < 18:
-            features = np.pad(features, (0, 18 - features.shape[0]))
-        elif features.shape[0] > 18:
-            features = features[:18]
+        if features.shape[0] < 22:
+            features = np.pad(features, (0, 22 - features.shape[0]))
+        elif features.shape[0] > 22:
+            features = features[:22]
             
         return features
         
     except Exception as e:
         logging.error(f"❌ Error construyendo features avanzados: {e}")
-        return np.zeros(18)
+        return np.zeros(22)
 
-# ------------------ SISTEMA IA PROFESIONAL COMPLETO ------------------
+# ------------------ SISTEMA IA PROFESIONAL COMPLETO MEJORADO ------------------
 class ComprehensiveAIPredictor:
     def __init__(self):
         self.analyzer = PremiumAIAnalyzer()
@@ -655,7 +822,7 @@ class ComprehensiveAIPredictor:
             return None
     
     def _comprehensive_ai_analysis(self, analysis, ml_prediction=None):
-        """Análisis de IA ORIGINAL MEJORADO con ML"""
+        """Análisis de IA ORIGINAL MEJORADO con ML y métricas intra-vela"""
         try:
             # Métricas tradicionales
             momentum = analysis['momentum']
@@ -666,6 +833,13 @@ class ComprehensiveAIPredictor:
             data_quality = analysis['data_quality']
             phase_analysis = analysis.get('phase_analysis', {})
             candle_progress = analysis.get('candle_progress', 0)
+            
+            # NUEVAS: Métricas intra-vela mejoradas
+            trend_persistence = analysis.get('trend_persistence', 0)
+            acceleration_trend = analysis.get('acceleration_trend', 0)
+            final_buy_pressure = analysis.get('final_buy_pressure', 0.5)
+            momentum_consistency = analysis.get('momentum_consistency', 0)
+            intra_candle_quality = analysis.get('intra_candle_quality', 0)
             
             buy_score = 0
             sell_score = 0
@@ -682,8 +856,11 @@ class ComprehensiveAIPredictor:
             # Peso basado en progreso de la vela ORIGINAL
             late_phase_weight = 1.0 if candle_progress > 0.8 else 0.7
             
-            # Tendencia (35% de peso)
-            trend_weight = 0.35 * late_phase_weight
+            # NUEVO: Peso basado en calidad intra-vela
+            quality_weight = intra_candle_quality
+            
+            # Tendencia (25% de peso)
+            trend_weight = 0.25 * late_phase_weight * quality_weight
             if abs(trend_strength) > 1.0:
                 if trend_strength > 0:
                     buy_score += 8 * trend_weight + ml_boost
@@ -692,8 +869,18 @@ class ComprehensiveAIPredictor:
                     sell_score += 8 * trend_weight + ml_boost
                     reasons.append(f"📉 Tendencia bajista fuerte ({trend_strength:.1f})")
             
-            # Momentum (30% de peso)
-            momentum_weight = 0.30 * late_phase_weight
+            # Persistencia de tendencia intra-vela (NUEVO - 15% peso)
+            persistence_weight = 0.15 * late_phase_weight
+            if abs(trend_persistence) > 0.5:
+                if trend_persistence > 0:
+                    buy_score += 6 * persistence_weight
+                    reasons.append(f"🔄 Persistencia alcista ({trend_persistence:.1f})")
+                else:
+                    sell_score += 6 * persistence_weight
+                    reasons.append(f"🔄 Persistencia bajista ({trend_persistence:.1f})")
+            
+            # Momentum (20% de peso)
+            momentum_weight = 0.20 * late_phase_weight * quality_weight
             if abs(momentum) > 0.8:
                 if momentum > 0:
                     buy_score += 7 * momentum_weight
@@ -702,8 +889,18 @@ class ComprehensiveAIPredictor:
                     sell_score += 7 * momentum_weight
                     reasons.append(f"🔻 Momentum bajista fuerte ({momentum:.1f}pips)")
             
-            # Análisis de fases (15% de peso)
-            phase_weight = 0.15 * late_phase_weight
+            # Aceleración intra-vela (NUEVO - 10% peso)
+            acceleration_weight = 0.10 * late_phase_weight
+            if abs(acceleration_trend) > 0.2:
+                if acceleration_trend > 0:
+                    buy_score += 4 * acceleration_weight
+                    reasons.append(f"⚡ Aceleración alcista ({acceleration_trend:.1f})")
+                else:
+                    sell_score += 4 * acceleration_weight
+                    reasons.append(f"⚡ Aceleración bajista ({acceleration_trend:.1f})")
+            
+            # Análisis de fases (10% de peso)
+            phase_weight = 0.10 * late_phase_weight
             if phase_analysis.get('momentum_shift', False):
                 current_trend = phase_analysis.get('final_trend', 'N/A')
                 if current_trend == 'ALCISTA':
@@ -713,8 +910,19 @@ class ComprehensiveAIPredictor:
                     sell_score += 4 * phase_weight
                     reasons.append("🔄 Cambio de momentum a bajista")
             
-            # Presión de compra/venta (20% de peso)
-            pressure_weight = 0.20 * late_phase_weight
+            # Consistencia de momentum (NUEVO - 5% peso)
+            consistency_weight = 0.05 * late_phase_weight
+            if momentum_consistency > 0.8:
+                current_trend = phase_analysis.get('final_trend', 'N/A')
+                if current_trend == 'ALCISTA':
+                    buy_score += 3 * consistency_weight
+                    reasons.append("🎯 Momentum consistente alcista")
+                elif current_trend == 'BAJISTA':
+                    sell_score += 3 * consistency_weight
+                    reasons.append("🎯 Momentum consistente bajista")
+            
+            # Presión de compra/venta (15% de peso)
+            pressure_weight = 0.15 * late_phase_weight * quality_weight
             if pressure_ratio > 2.0:
                 buy_score += 6 * pressure_weight
                 reasons.append(f"💰 Fuerte presión compradora ({pressure_ratio:.1f}x)")
@@ -724,12 +932,14 @@ class ComprehensiveAIPredictor:
             
             score_difference = buy_score - sell_score
             
-            # Umbral dinámico con boost de ML
+            # Umbral dinámico con boost de ML y calidad intra-vela
             base_threshold = 0.4
             if ml_prediction and ml_prediction.get('confidence', 0) > 70:
                 base_threshold = 0.3  # Más sensible con ML confiable
             
-            confidence_threshold = base_threshold - (0.1 * (1 - data_quality))
+            # Ajustar umbral por calidad de análisis intra-vela
+            quality_adjusted_threshold = base_threshold - (0.1 * (1 - intra_candle_quality))
+            confidence_threshold = quality_adjusted_threshold - (0.1 * (1 - data_quality))
             
             if abs(score_difference) > confidence_threshold:
                 if score_difference > 0:
@@ -743,9 +953,10 @@ class ComprehensiveAIPredictor:
                 base_confidence = 40
                 reasons.append("⚡ Señales mixtas o insuficientes")
             
-            # Ajustar confianza con ML
+            # Ajustar confianza con calidad de datos e intra-vela
             confidence = base_confidence
             confidence *= data_quality
+            confidence *= (0.7 + 0.3 * intra_candle_quality)  # Boost por calidad intra-vela
             
             # Bonus por alta calidad de datos
             if analysis['tick_count'] > 40:
@@ -757,14 +968,15 @@ class ComprehensiveAIPredictor:
             return {
                 'direction': direction,
                 'confidence': int(confidence),
-                'buy_score': round(buy_score, 2),
-                'sell_score': round(sell_score, 2),
+                'buy_score': round(buy_score * 100, 2),  # Convertir a porcentaje
+                'sell_score': round(sell_score * 100, 2),  # Convertir a porcentaje
                 'score_difference': round(score_difference, 2),
                 'reasons': reasons,
                 'market_phase': market_phase,
                 'candle_progress': round(candle_progress, 2),
                 'phase_analysis': phase_analysis,
-                'ml_boost': round(ml_boost, 2)
+                'ml_boost': round(ml_boost, 2),
+                'intra_candle_quality': round(intra_candle_quality, 2)  # NUEVO
             }
         except Exception as e:
             logging.error(f"Error en análisis IA comprehensivo: {e}")
@@ -801,7 +1013,7 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'COMPREHENSIVE_AI_V5.4_HYBRID'
+                'model_version': 'COMPREHENSIVE_AI_V5.5_HYBRID_ENHANCED'
             })
             
             self.last_prediction = prediction
@@ -810,8 +1022,9 @@ class ComprehensiveAIPredictor:
             # Log de predicción detallado
             if prediction['direction'] != 'LATERAL':
                 ml_info = f" | ML Boost: {prediction.get('ml_boost', 0):.2f}" if ml_prediction else ""
-                logging.info(f"🎯 PREDICCIÓN HÍBRIDA: {prediction['direction']} | "
-                           f"Conf: {prediction['confidence']}%{ml_info} | "
+                quality_info = f" | Calidad: {prediction.get('intra_candle_quality', 0):.2f}"
+                logging.info(f"🎯 PREDICCIÓN HÍBRIDA MEJORADA: {prediction['direction']} | "
+                           f"Conf: {prediction['confidence']}%{ml_info}{quality_info} | "
                            f"Ticks: {analysis['tick_count']}")
             
             return prediction
@@ -993,7 +1206,11 @@ class ProfessionalIQConnector:
 # --------------- SISTEMA PRINCIPAL MEJORADO ---------------
 iq_connector = ProfessionalIQConnector()
 predictor = ComprehensiveAIPredictor()
-online_learner = AdaptiveMarketLearner(feature_size=18)
+online_learner = AdaptiveMarketLearner(feature_size=22)
+
+# NUEVOS: Sistemas de gestión mejorados
+candle_buffer = CandleBufferManager()
+performance_validator = RealTimePerformanceValidator()
 
 # VARIABLES GLOBALES
 current_prediction = {
@@ -1010,7 +1227,9 @@ current_prediction = {
     "sell_score": 0,
     "ai_model_predicted": "N/A",
     "ml_confidence": 0,
-    "training_count": 0
+    "training_count": 0,
+    "intra_candle_quality": 0,  # NUEVO
+    "performance_metrics": {}   # NUEVO
 }
 
 performance_stats = {
@@ -1025,6 +1244,7 @@ _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
 _prediction_made_this_candle = False
 _last_prediction_time = 0
 _last_price = None
+_new_candle_direction = None
 
 def tick_processor(price, timestamp):
     """Procesador de ticks MEJORADO con ML integrado"""
@@ -1057,22 +1277,43 @@ def tick_processor(price, timestamp):
                     "sell_score": round(ml_prediction['proba'].get('BAJA', 0) * 100, 2),
                     "ai_model_predicted": ml_prediction['predicted'],
                     "ml_confidence": ml_prediction['confidence'],
-                    "training_count": ml_prediction['training_count']
+                    "training_count": ml_prediction['training_count'],
+                    "intra_candle_quality": analysis.get('intra_candle_quality', 0)  # NUEVO
                 })
                 
     except Exception as e:
         logging.error(f"Error procesando tick: {e}")
 
+def determine_new_candle_direction(initial_price, current_price, time_elapsed):
+    """Determina la dirección de la nueva vela después de 10 segundos"""
+    if time_elapsed < 10:  # Esperar al menos 10 segundos
+        return None
+        
+    price_change = (current_price - initial_price) * 10000
+    minimal_change = 0.3  # 0.3 pips mínimo para considerar dirección
+    
+    if abs(price_change) < minimal_change:
+        return "LATERAL"
+    elif price_change > 0:
+        return "ALZA"
+    else:
+        return "BAJA"
+
 def premium_main_loop():
-    """Loop principal MEJORADO con AutoLearning integrado"""
+    """Loop principal MEJORADO con AutoLearning integrado SIN FUGAS"""
     global current_prediction, performance_stats, _last_candle_start
     global _prediction_made_this_candle, _last_prediction_time, _last_price
+    global _new_candle_direction
     
-    logging.info(f"🚀 DELOWYSS AI V5.4 PREMIUM INICIADA EN PUERTO {PORT}")
-    logging.info("🎯 Sistema HÍBRIDO: IA Avanzada + AutoLearning + Interfaz Original")
+    logging.info(f"🚀 DELOWYSS AI V5.5 PREMIUM INICIADA EN PUERTO {PORT}")
+    logging.info("🎯 Sistema HÍBRIDO MEJORADO: IA Avanzada + AutoLearning Sin Fugas + Interfaz Original")
     
     iq_connector.connect()
     iq_connector.add_tick_listener(tick_processor)
+
+    # Variables para nueva vela
+    new_candle_initial_price = None
+    new_candle_start_time = None
 
     while True:
         try:
@@ -1120,39 +1361,58 @@ def premium_main_loop():
                     _last_prediction_time = time.time()
                     _prediction_made_this_candle = True
 
-            # Detectar nueva vela (entrenamiento AutoLearning)
+            # Detectar nueva vela (entrenamiento AutoLearning MEJORADO)
             if current_candle_start > _last_candle_start:
-                # Validar y entrenar con la vela cerrada
+                logging.info("🕯️ DETECTADA NUEVA VELA - Procesando...")
+                
+                # 1. GUARDAR FEATURES de la vela que acaba de cerrar (sin fugar datos)
                 if _last_price is not None:
-                    validation = predictor.validate_prediction(_last_price)
-                    if validation:
-                        # Determinar label para aprendizaje
-                        price_change = validation.get("price_change", 0)
-                        label = "LATERAL"
-                        if price_change > 0.5:  # Umbral de 0.5 pips
-                            label = "ALZA"
-                        elif price_change < -0.5:
-                            label = "BAJA"
+                    # Obtener análisis final de la vela cerrada
+                    closed_analysis = predictor.analyzer.get_comprehensive_analysis()
+                    if closed_analysis.get('status') == 'SUCCESS':
+                        closed_features = build_advanced_features_from_analysis(closed_analysis, 0)
+                        candle_buffer.store_candle_features(closed_features, _last_price)
                         
-                        # Obtener análisis de la vela cerrada para features
-                        analysis = predictor.analyzer.get_comprehensive_analysis()
-                        if analysis.get('status') == 'SUCCESS':
-                            features = build_advanced_features_from_analysis(analysis, 0)
+                        # Validar predicción anterior
+                        validation = predictor.validate_prediction(_last_price)
+                        if validation:
+                            # Actualizar validador en tiempo real
+                            is_correct = performance_validator.add_prediction_result(
+                                current_prediction, 
+                                validation['actual'],
+                                closed_analysis.get('market_phase', 'N/A')
+                            )
                             
-                            # Entrenar modelo online
-                            online_learner.add_sample(features, label)
-                            training_result = online_learner.partial_train(batch_size=32)
-                            
-                            logging.info(f"📚 AutoLearning: {label} | Cambio: {price_change}pips | {training_result}")
-                            
-                            # Actualizar estadísticas
+                            # Actualizar estadísticas globales
                             performance_stats['last_validation'] = validation
-
-                # Reiniciar para nueva vela
+                            current_prediction['performance_metrics'] = performance_validator.get_performance_insights()
+                
+                # 2. INICIALIZAR SEGUIMIENTO de nueva vela
+                new_candle_initial_price = _last_price
+                new_candle_start_time = current_time
+                _new_candle_direction = None
+                
+                # 3. Reiniciar para nueva vela
                 predictor.reset()
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
-                logging.info("🕯️ NUEVA VELA - Análisis completo reiniciado")
+                logging.info("🔄 Análisis completo reiniciado para nueva vela")
+
+            # 4. DETERMINAR DIRECCIÓN de nueva vela después de 10 segundos (entrenamiento SIN FUGAS)
+            if (new_candle_initial_price is not None and 
+                new_candle_start_time is not None and
+                _new_candle_direction is None):
+                
+                time_elapsed = current_time - new_candle_start_time
+                new_candle_direction = determine_new_candle_direction(
+                    new_candle_initial_price, _last_price, time_elapsed
+                )
+                
+                if new_candle_direction is not None:
+                    _new_candle_direction = new_candle_direction
+                    # ENTRENAR con features antiguos y dirección nueva (SIN FUGAS)
+                    training_result = candle_buffer.train_with_new_direction(new_candle_direction)
+                    logging.info(f"🎓 AutoLearning completado: {new_candle_direction} | Tiempo: {time_elapsed:.1f}s")
 
             time.sleep(0.1)
             
@@ -1160,10 +1420,10 @@ def premium_main_loop():
             logging.error(f"💥 Error en loop principal: {e}")
             time.sleep(0.5)
 
-# ------------------ INTERFAZ WEB COMPLETA ORIGINAL ------------------
+# ------------------ INTERFAZ WEB COMPLETA ORIGINAL MEJORADA ------------------
 app = FastAPI(
-    title="Delowyss AI Premium V5.4",
-    version="5.4.0",
+    title="Delowyss AI Premium V5.5",
+    version="5.5.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -1187,9 +1447,11 @@ def api_prediction():
 @app.get("/api/validation")
 def api_validation():
     last_val = predictor.get_last_validation()
+    performance_insights = performance_validator.get_performance_insights()
     return JSONResponse({
         "last_validation": last_val,
         "performance": performance_stats,
+        "performance_insights": performance_insights,
         "timestamp": now_iso()
     })
 
@@ -1198,7 +1460,7 @@ def api_health():
     return JSONResponse({
         "status": "healthy",
         "timestamp": now_iso(),
-        "version": "5.4.0-hybrid",
+        "version": "5.5.0-hybrid-enhanced",
         "port": PORT,
         "features": [
             "full_candle_analysis", 
@@ -1206,7 +1468,10 @@ def api_health():
             "tick_by_tick", 
             "online_learning",
             "hybrid_ai_ml",
-            "responsive_interface"
+            "responsive_interface",
+            "no_data_leaks",  # NUEVO
+            "enhanced_intra_candle",  # NUEVO
+            "realtime_validation"  # NUEVO
         ]
     })
 
@@ -1219,6 +1484,8 @@ def api_system_info():
         "prediction_window": PREDICTION_WINDOW,
         "current_ticks": predictor.analyzer.tick_count,
         "ml_training_count": online_learner.training_count,
+        "ml_buffer_size": len(online_learner.replay_buffer),
+        "performance_metrics": performance_validator.get_performance_insights(),
         "timestamp": now_iso()
     })
 
@@ -1233,10 +1500,15 @@ def generate_html_interface():
     ml_predicted = current_prediction.get("ai_model_predicted", "N/A")
     ml_confidence = current_prediction.get("ml_confidence", 0)
     training_count = current_prediction.get("training_count", 0)
+    intra_candle_quality = current_prediction.get("intra_candle_quality", 0)
     
-    accuracy = performance_stats.get('recent_accuracy', 0)
-    total_predictions = performance_stats.get('total_predictions', 0)
-    correct_predictions = performance_stats.get('correct_predictions', 0)
+    # Obtener métricas de performance
+    performance_insights = current_prediction.get('performance_metrics', {})
+    accuracy_10 = performance_insights.get('accuracy_10', 0)
+    accuracy_20 = performance_insights.get('accuracy_20', 0)
+    recent_trend = performance_insights.get('recent_trend', 'NEUTRAL')
+    avg_confidence_correct = performance_insights.get('avg_confidence_correct', 0)
+    avg_confidence_wrong = performance_insights.get('avg_confidence_wrong', 0)
     
     # Colores dinámicos ORIGINALES
     if direction == "ALZA":
@@ -1256,6 +1528,10 @@ def generate_html_interface():
     confidence_level = "ALTA" if confidence > 70 else "MEDIA" if confidence > 50 else "BAJA"
     confidence_color = "#00ff88" if confidence > 70 else "#ffbb33" if confidence > 50 else "#ff4444"
     
+    # Calcular calidad intra-vela
+    quality_level = "EXCELENTE" if intra_candle_quality > 0.8 else "BUENA" if intra_candle_quality > 0.6 else "REGULAR"
+    quality_color = "#00ff88" if intra_candle_quality > 0.8 else "#ffbb33" if intra_candle_quality > 0.6 else "#ff4444"
+    
     # Generar HTML de razones
     reasons_html = ""
     reasons_list = current_prediction.get('reasons', ['Analizando mercado...'])
@@ -1267,14 +1543,14 @@ def generate_html_interface():
     seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
     progress_percentage = min(100, max(0, (1 - seconds_remaining/TIMEFRAME) * 100))
     
-    # HTML COMPLETO ORIGINAL
+    # HTML COMPLETO ORIGINAL MEJORADO
     html_content = f"""
     <!DOCTYPE html>
     <html lang="es">
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Delowyss AI Premium V5.4</title>
+        <title>Delowyss AI Premium V5.5</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
             * {{
@@ -1409,6 +1685,17 @@ def generate_html_interface():
                 font-weight: 600;
                 font-size: 0.9em;
                 white-space: nowrap;
+            }}
+            
+            /* NUEVO: CALIDAD INTRA-VELA */
+            .quality-badge {{
+                background: {quality_color};
+                color: #0f172a;
+                padding: 4px 12px;
+                border-radius: 15px;
+                font-weight: 600;
+                font-size: 0.8em;
+                margin-left: 10px;
             }}
             
             /* PROGRESS BAR ORIGINAL */
@@ -1605,6 +1892,33 @@ def generate_html_interface():
                 font-weight: 600;
             }}
             
+            /* NUEVO: PERFORMANCE INSIGHTS */
+            .performance-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 10px;
+                margin: 15px 0;
+            }}
+            
+            .performance-metric {{
+                background: rgba(255, 255, 255, 0.03);
+                padding: 12px;
+                border-radius: 10px;
+                text-align: center;
+            }}
+            
+            .performance-value {{
+                font-size: 1.2rem;
+                font-weight: 700;
+                color: {primary_color};
+            }}
+            
+            .performance-label {{
+                font-size: 0.7rem;
+                color: #94a3b8;
+                margin-top: 5px;
+            }}
+            
             /* RESPONSIVE ADJUSTMENTS ORIGINAL */
             @media (max-width: 480px) {{
                 body {{
@@ -1640,31 +1954,32 @@ def generate_html_interface():
         <div class="container">
             <!-- HEADER MEJORADO ORIGINAL -->
             <div class="header">
-                <div class="logo">🤖 DELOWYSS AI PREMIUM V5.4</div>
-                <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis Completo</div>
-                <div class="version">VERSION 5.4 HYBRID - RENDER OPTIMIZED</div>
+                <div class="logo">🤖 DELOWYSS AI PREMIUM V5.5</div>
+                <div class="subtitle">Sistema HÍBRIDO MEJORADO: IA Avanzada + AutoLearning Sin Fugas + Análisis Intra-Vela</div>
+                <div class="version">VERSION 5.5 HYBRID ENHANCED - SIN FUGAS DE DATOS</div>
             </div>
             
             <!-- DASHBOARD PRINCIPAL ORIGINAL -->
             <div class="dashboard">
                 <!-- PREDICCIÓN PRINCIPAL ORIGINAL -->
                 <div class="card prediction-card">
-                    <h2>🎯 PREDICCIÓN ACTUAL HÍBRIDA</h2>
+                    <h2>🎯 PREDICCIÓN ACTUAL HÍBRIDA MEJORADA</h2>
                     <div class="direction" id="direction">{direction} {status_emoji}</div>
                     <div class="confidence">
                         CONFIANZA: {confidence}%
                         <span class="confidence-badge">{confidence_level}</span>
+                        <span class="quality-badge">Calidad: {quality_level}</span>
                     </div>
                     
                     <!-- INFORMACIÓN ML -->
                     <div class="ml-info">
                         <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap;">
                             <div>
-                                <strong>🤖 AutoLearning:</strong> {ml_predicted} 
+                                <strong>🤖 AutoLearning Sin Fugas:</strong> {ml_predicted} 
                                 <span class="ml-badge">{ml_confidence}% conf</span>
                             </div>
                             <div style="color: #e2e8f0; font-size: 0.9rem;">
-                                Entrenamientos: {training_count}
+                                Entrenamientos: {training_count} | Calidad: {(intra_candle_quality * 100):.1f}%
                             </div>
                         </div>
                     </div>
@@ -1685,7 +2000,7 @@ def generate_html_interface():
                         </div>
                         <div class="countdown-number" id="countdown">{int(seconds_remaining)}s</div>
                         <div style="color: #94a3b8; font-size: 0.8rem; margin-top: 5px;">
-                            Análisis completo de {tick_count} ticks
+                            Análisis completo de {tick_count} ticks | Calidad intra-vela: {(intra_candle_quality * 100):.1f}%
                         </div>
                     </div>
                     
@@ -1700,19 +2015,39 @@ def generate_html_interface():
                             <div class="metric-label">PRECIO ACTUAL</div>
                         </div>
                         <div class="metric">
-                            <div class="metric-value" id="accuracy">{accuracy:.1f}%</div>
-                            <div class="metric-label">PRECISIÓN</div>
+                            <div class="metric-value" id="accuracy">{accuracy_10:.1f}%</div>
+                            <div class="metric-label">PRECISIÓN (10)</div>
                         </div>
                         <div class="metric">
                             <div class="metric-value">{int(candle_progress * 100)}%</div>
                             <div class="metric-label">PROGRESO VELA</div>
                         </div>
                     </div>
+                    
+                    <!-- NUEVO: PERFORMANCE INSIGHTS -->
+                    <div class="performance-grid">
+                        <div class="performance-metric">
+                            <div class="performance-value" id="accuracy-10">{accuracy_10:.1f}%</div>
+                            <div class="performance-label">PREC. 10 VELAS</div>
+                        </div>
+                        <div class="performance-metric">
+                            <div class="performance-value" id="accuracy-20">{accuracy_20:.1f}%</div>
+                            <div class="performance-label">PREC. 20 VELAS</div>
+                        </div>
+                        <div class="performance-metric">
+                            <div class="performance-value" id="conf-correct">{avg_confidence_correct:.1f}%</div>
+                            <div class="performance-label">CONF. ACIERTOS</div>
+                        </div>
+                        <div class="performance-metric">
+                            <div class="performance-value" id="conf-wrong">{avg_confidence_wrong:.1f}%</div>
+                            <div class="performance-label">CONF. FALLOS</div>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- ANÁLISIS DE IA ORIGINAL -->
                 <div class="card">
-                    <h3>🧠 ANÁLISIS DE IA AVANZADO</h3>
+                    <h3>🧠 ANÁLISIS DE IA AVANZADO MEJORADO</h3>
                     
                     <!-- BARRAS DE SCORE ORIGINALES -->
                     <div class="score-display">
@@ -1729,10 +2064,11 @@ def generate_html_interface():
                         </div>
                         <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 5px;">
                             Diferencia: <span id="score-diff">{current_prediction.get('score_difference', 0)}</span>
+                            | ML Boost: <span id="ml-boost">{current_prediction.get('ml_boost', 0)}</span>
                         </div>
                     </div>
                     
-                    <h4 style="margin: 20px 0 10px 0; color: #e2e8f0;">📊 FACTORES DE DECISIÓN:</h4>
+                    <h4 style="margin: 20px 0 10px 0; color: #e2e8f0;">📊 FACTORES DE DECISIÓN MEJORADOS:</h4>
                     <ul class="reasons-list" id="reasons-list">
                         {reasons_html}
                     </ul>
@@ -1740,18 +2076,18 @@ def generate_html_interface():
                 
                 <!-- RENDIMIENTO Y VALIDACIÓN ORIGINAL -->
                 <div class="card">
-                    <h3>📈 RENDIMIENTO DEL SISTEMA</h3>
+                    <h3>📈 RENDIMIENTO EN TIEMPO REAL</h3>
                     <div class="metrics-grid">
                         <div class="metric">
-                            <div class="metric-value" style="color: #00ff88;">{accuracy:.1f}%</div>
-                            <div class="metric-label">PRECISIÓN</div>
+                            <div class="metric-value" style="color: #00ff88;">{accuracy_10:.1f}%</div>
+                            <div class="metric-label">PRECISIÓN (10)</div>
                         </div>
                         <div class="metric">
-                            <div class="metric-value" id="total-pred">{total_predictions}</div>
+                            <div class="metric-value" id="total-pred">{performance_insights.get('total_predictions', 0)}</div>
                             <div class="metric-label">TOTAL PREDICCIONES</div>
                         </div>
                         <div class="metric">
-                            <div class="metric-value" style="color: #00ff88;">{correct_predictions}</div>
+                            <div class="metric-value" style="color: #00ff88;">{performance_insights.get('correct_predictions', 0)}</div>
                             <div class="metric-label">CORRECTAS</div>
                         </div>
                         <div class="metric">
@@ -1767,24 +2103,34 @@ def generate_html_interface():
                                 <div class="loading">⏳ Esperando validación...</div>
                             </div>
                         </div>
+                        
+                        <!-- NUEVO: TENDENCIA RECIENTE -->
+                        <div style="margin-top: 15px; padding: 12px; background: rgba(255, 255, 255, 0.03); border-radius: 10px;">
+                            <div style="display: flex; justify-content: space-between; align-items: center;">
+                                <span style="color: #94a3b8;">Tendencia reciente:</span>
+                                <span style="color: { '#00ff88' if recent_trend == 'MEJORANDO' else '#ff4444' if recent_trend == 'BAJANDO' else '#ffbb33' }; font-weight: 600;">
+                                    {recent_trend}
+                                </span>
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
             
             <!-- INFORMACIÓN DEL SISTEMA MEJORADA ORIGINAL -->
             <div class="card">
-                <h3>⚙️ SISTEMA HÍBRIDO AVANZADO</h3>
+                <h3>⚙️ SISTEMA HÍBRIDO AVANZADO MEJORADO</h3>
                 <div class="info-grid">
                     <div class="info-item">
                         <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🤖 IA AVANZADA</div>
                         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Análisis tick-by-tick completo + métricas avanzadas
+                            Análisis tick-by-tick completo + métricas intra-vela
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #667eea; font-size: 1.1rem;">🧠 AUTOLEARNING</div>
+                        <div style="font-weight: 600; color: #667eea; font-size: 1.1rem;">🧠 AUTOLEARNING SIN FUGAS</div>
                         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            ML online que mejora continuamente
+                            ML mejorado sin uso de datos futuros
                         </div>
                     </div>
                     <div class="info-item">
@@ -1794,9 +2140,9 @@ def generate_html_interface():
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🚀 RENDER OPTIMIZED</div>
+                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🚀 V5.5 MEJORADA</div>
                         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Funciona perfectamente en Render
+                            Métricas intra-vela + Validación tiempo real
                         </div>
                     </div>
                 </div>
@@ -1850,7 +2196,14 @@ def generate_html_interface():
                 const confidence = data.confidence || 0;
                 const confidenceEl = document.querySelector('.confidence');
                 if (confidenceEl) {{
-                    confidenceEl.innerHTML = `CONFIANZA: ${{confidence}}% <span class="confidence-badge">${{confidence > 70 ? 'ALTA' : confidence > 50 ? 'MEDIA' : 'BAJA'}}</span>`;
+                    const confidenceLevel = confidence > 70 ? 'ALTA' : confidence > 50 ? 'MEDIA' : 'BAJA';
+                    const confidenceColor = confidence > 70 ? '#00ff88' : confidence > 50 ? '#ffbb33' : '#ff4444';
+                    
+                    const quality = data.intra_candle_quality || 0;
+                    const qualityLevel = quality > 0.8 ? 'EXCELENTE' : quality > 0.6 ? 'BUENA' : 'REGULAR';
+                    const qualityColor = quality > 0.8 ? '#00ff88' : quality > 0.6 ? '#ffbb33' : '#ff4444';
+                    
+                    confidenceEl.innerHTML = `CONFIANZA: ${{confidence}}% <span class="confidence-badge" style="background: ${{confidenceColor}}">${{confidenceLevel}}</span> <span class="quality-badge" style="background: ${{qualityColor}}">Calidad: ${{qualityLevel}}</span>`;
                 }}
                 
                 // Actualizar métricas
@@ -1858,6 +2211,7 @@ def generate_html_interface():
                 updateMetric('buy-score', data.buy_score || 0);
                 updateMetric('sell-score', data.sell_score || 0);
                 updateMetric('score-diff', (data.score_difference || 0).toFixed(2));
+                updateMetric('ml-boost', (data.ml_boost || 0).toFixed(2));
                 
                 // Actualizar barras de score
                 updateScoreBars(data.buy_score || 0, data.sell_score || 0);
@@ -1870,6 +2224,14 @@ def generate_html_interface():
                         `<li class="reason-item">${{reason}}</li>`
                     ).join('');
                 }}
+                
+                // Actualizar métricas de performance
+                const perf = data.performance_metrics || {{}};
+                updateMetric('accuracy-10', perf.accuracy_10 || 0);
+                updateMetric('accuracy-20', perf.accuracy_20 || 0);
+                updateMetric('conf-correct', perf.avg_confidence_correct || 0);
+                updateMetric('conf-wrong', perf.avg_confidence_wrong || 0);
+                updateMetric('total-pred', perf.total_predictions || 0);
             }}
             
             function updateScoreBars(buyScore, sellScore) {{
@@ -1891,9 +2253,8 @@ def generate_html_interface():
             }}
             
             function updateValidation(data) {{
-                if (data.performance) {{
-                    updateMetric('accuracy', data.performance.recent_accuracy);
-                    updateMetric('total-pred', data.performance.total_predictions);
+                if (data.performance_insights) {{
+                    updateMetric('accuracy', data.performance_insights.accuracy_10);
                 }}
                 
                 if (data.last_validation) {{
@@ -1948,8 +2309,8 @@ def start_system():
     try:
         thread = threading.Thread(target=premium_main_loop, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.4 INICIADA EN PUERTO {PORT}")
-        logging.info("🎯 SISTEMA HÍBRIDO ACTIVO: IA Avanzada + AutoLearning + Interfaz Original")
+        logging.info(f"⭐ DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
+        logging.info("🎯 SISTEMA HÍBRIDO MEJORADO: IA Avanzada + AutoLearning Sin Fugas + Interfaz Original")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 

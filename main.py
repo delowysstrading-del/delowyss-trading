@@ -1,4 +1,4 @@
-# main.py - CORRECCIÓN DEFINITIVA PARA INSTANCIAS DUPLICADAS
+# main.py
 """
 Delowyss Trading AI — V3.8-Full (Production)
 Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.

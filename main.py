@@ -1,4 +1,4 @@
-# main.py
+# main.py - CORRECCIÓN DEFINITIVA PARA INSTANCIAS DUPLICADAS
 """
 Delowyss Trading AI — V3.8-Full (Production)
 Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
@@ -14,6 +14,10 @@ from collections import deque
 import numpy as np
 import pandas as pd
 import json
+import socket
+import sys
+import atexit
+import fcntl  # Para bloqueo de archivos en Unix
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -41,17 +45,83 @@ SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib"
 
 BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
 PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
-CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "68.0"))
+CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "55.0"))
 
 SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# ---------------- LOGGING ----------------
+# ---------------- SINGLETON PROTECTION MEJORADO ----------------
+class InstanceLocker:
+    """🔒 BLOQUEO ROBUSTO DE INSTANCIA ÚNICA - DEFINITIVO"""
+    def __init__(self):
+        self.lock_file = "delowyss_instance.lock"
+        self.lock_fd = None
+        self.is_locked = False
+        
+    def acquire_lock(self):
+        """Adquirir bloqueo de instancia única"""
+        try:
+            self.lock_fd = open(self.lock_file, 'w')
+            try:
+                # Intentar bloqueo exclusivo (Unix)
+                fcntl.flock(self.lock_fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                self.is_locked = True
+                logging.info("🔒 Bloqueo de instancia única adquirido")
+                return True
+            except (IOError, BlockingIOError):
+                logging.warning("⚠️ Ya hay una instancia ejecutándose - Cerrando duplicado")
+                self.lock_fd.close()
+                return False
+        except Exception as e:
+            logging.warning(f"⚠️ Error con bloqueo de archivo: {e}")
+            # Fallback: verificación de puerto
+            return self._fallback_lock()
+    
+    def _fallback_lock(self):
+        """Fallback: verificación de puerto"""
+        try:
+            sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            sock.bind(('0.0.0.0', 10000))
+            logging.info("🔒 Bloqueo de puerto adquirido (fallback)")
+            return True
+        except socket.error:
+            logging.warning("⚠️ Puerto ya en uso - Instancia duplicada detectada")
+            return False
+    
+    def release_lock(self):
+        """Liberar bloqueo"""
+        if self.is_locked and self.lock_fd:
+            try:
+                fcntl.flock(self.lock_fd, fcntl.LOCK_UN)
+                self.lock_fd.close()
+                if os.path.exists(self.lock_file):
+                    os.remove(self.lock_file)
+                logging.info("🔓 Bloqueo de instancia liberado")
+            except Exception as e:
+                logging.error(f"Error liberando bloqueo: {e}")
+
+# Inicializar locker global
+instance_locker = InstanceLocker()
+
+if not instance_locker.acquire_lock():
+    logging.error("❌ No se pudo adquirir bloqueo de instancia - Saliendo")
+    sys.exit(1)
+
+# Registrar liberación al salir
+def cleanup_locker():
+    instance_locker.release_lock()
+
+atexit.register(cleanup_locker)
+
+# ---------------- LOGGING MEJORADO ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    handlers=[logging.StreamHandler()]
+    handlers=[
+        logging.StreamHandler(),
+        logging.FileHandler('delowyss_trading.log')
+    ]
 )
 
 def now_iso():
@@ -274,6 +344,9 @@ class ProductionTickAnalyzer:
             else:
                 market_phase = "neutral"
 
+            # DETECCIÓN MEJORADA DE CONSOLIDACIÓN
+            consolidation_risk = self._assess_consolidation_risk()
+
             metrics = {
                 "open_price": open_price,
                 "high_price": high_price,
@@ -293,6 +366,7 @@ class ProductionTickAnalyzer:
                 "direction_ratio": direction_ratio,
                 "market_phase": market_phase,
                 "last_patterns": list(self.last_patterns)[:4],
+                "consolidation_risk": consolidation_risk,
                 "timestamp": time.time()
             }
             if seconds_remaining_norm is not None:
@@ -301,6 +375,23 @@ class ProductionTickAnalyzer:
         except Exception as e:
             logging.error(f"Error calculando métricas: {e}")
             return None
+
+    def _assess_consolidation_risk(self):
+        """Evalúa el riesgo de consolidación basado en patrones recientes"""
+        try:
+            patterns = [p for (_, p) in self.last_patterns]
+            consolidation_count = patterns.count("consolidation")
+            
+            if consolidation_count >= 3:
+                return "ALTO"
+            elif consolidation_count >= 2:
+                return "MEDIO" 
+            elif consolidation_count >= 1:
+                return "BAJO"
+            else:
+                return "NINGUNO"
+        except Exception:
+            return "NINGUNO"
 
     def reset_candle(self):
         self.candle_ticks.clear()
@@ -311,7 +402,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ Predictor CON VALIDACIÓN ------------------
+# ------------------ Predictor CORREGIDO ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -325,6 +416,11 @@ class ProductionPredictor:
             'recent': deque(maxlen=50)
         }
         self.last_prediction = None
+        self.learning_insights = {
+            'consolidation_errors': 0,
+            'high_confidence_errors': 0,
+            'recent_mistakes': deque(maxlen=10)
+        }
         self._initialize_system()
         self._ensure_files()
 
@@ -340,8 +436,10 @@ class ProductionPredictor:
         try:
             if not os.path.exists(TRAINING_CSV):
                 pd.DataFrame(columns=self._feature_names() + ["label", "timestamp"]).to_csv(TRAINING_CSV, index=False)
+                logging.info("📁 Archivo de entrenamiento creado")
             if not os.path.exists(PERF_CSV):
                 pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
+                logging.info("📁 Archivo de performance creado")
         except Exception as e:
             logging.error("Error initializing files: %s", e)
 
@@ -408,11 +506,18 @@ class ProductionPredictor:
             row = {k: metrics.get(k,0.0) for k in self._feature_names()}
             row["label"] = int(label)
             row["timestamp"] = datetime.utcnow().isoformat()
-            pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
-            self.partial_buffer.append((row,label))
-            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
-            if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
-                self._perform_partial_fit()
+            
+            try:
+                pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
+                self.partial_buffer.append((row,label))
+                logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
+                
+                if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
+                    self._perform_partial_fit()
+            except Exception as e:
+                logging.error(f"❌ Error guardando sample: {e}")
+                self._ensure_files()
+                
         except Exception as e:
             logging.error(f"❌ Error append sample: {e}")
 
@@ -437,7 +542,7 @@ class ProductionPredictor:
             self.partial_buffer.clear()
 
     def validate_previous_prediction(self, current_candle_metrics):
-        """Valida si la última predicción fue correcta - MANTIENE ORIGINALIDAD"""
+        """Valida si la última predicción fue correcta"""
         if not self.last_prediction:
             return None
             
@@ -458,7 +563,7 @@ class ProductionPredictor:
 
             result = {
                 "timestamp": now_iso(),
-                "predicted": predicted_direction,
+                "prediction": predicted_direction,
                 "actual": actual_direction,
                 "correct": correct,
                 "confidence": confidence,
@@ -472,6 +577,9 @@ class ProductionPredictor:
             status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
             logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
             
+            if not correct:
+                self._learn_from_mistake(result)
+            
             self._update_global_performance_stats(correct, result)
             
             return result
@@ -479,6 +587,50 @@ class ProductionPredictor:
         except Exception as e:
             logging.error(f"❌ Error validando predicción: {e}")
             return None
+
+    def _learn_from_mistake(self, validation_result):
+        """APRENDE DE ERRORES"""
+        try:
+            consolidation_risk = self.prev_candle_metrics.get("consolidation_risk", "NINGUNO")
+            confidence = validation_result["confidence"]
+            market_phase = self.prev_candle_metrics.get("market_phase", "unknown")
+            
+            self.learning_insights['recent_mistakes'].append({
+                'timestamp': now_iso(),
+                'consolidation_risk': consolidation_risk,
+                'confidence': confidence,
+                'market_phase': market_phase,
+                'price_change': validation_result["price_change_pips"]
+            })
+            
+            if consolidation_risk in ["ALTO", "MEDIO"]:
+                self.learning_insights['consolidation_errors'] += 1
+                logging.info(f"📝 Error en consolidación #{self.learning_insights['consolidation_errors']}")
+                
+            if confidence > 65:
+                self.learning_insights['high_confidence_errors'] += 1
+                logging.info(f"🎯 Error con alta confianza #{self.learning_insights['high_confidence_errors']}")
+                
+            if len(self.learning_insights['recent_mistakes']) % 5 == 0:
+                self._log_learning_insights()
+                
+        except Exception as e:
+            logging.error(f"❌ Error en aprendizaje: {e}")
+
+    def _log_learning_insights(self):
+        """LOG DE INSIGHTS DE APRENDIZAJE"""
+        try:
+            mistakes = list(self.learning_insights['recent_mistakes'])
+            if not mistakes:
+                return
+                
+            consolidation_errors = sum(1 for m in mistakes if m['consolidation_risk'] in ['ALTO', 'MEDIO'])
+            high_conf_errors = sum(1 for m in mistakes if m['confidence'] > 65)
+            
+            logging.info(f"🧠 LEARNING INSIGHTS: Consolidación: {consolidation_errors}/{len(mistakes)} | AltaConf: {high_conf_errors}/{len(mistakes)}")
+            
+        except Exception as e:
+            logging.error(f"❌ Error log insights: {e}")
 
     def _update_global_performance_stats(self, correct, validation_result):
         """Actualiza estadísticas globales de performance"""
@@ -493,9 +645,46 @@ class ProductionPredictor:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
         
+        self._save_performance_to_csv({
+            "timestamp": validation_result["timestamp"],
+            "prediction": validation_result["prediction"],
+            "actual": validation_result["actual"],
+            "correct": validation_result["correct"],
+            "confidence": validation_result["confidence"],
+            "model_used": validation_result["model_used"]
+        })
+        
         if performance_stats['total_predictions'] % 5 == 0:
             overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
             logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
+
+    def _save_performance_to_csv(self, perf_data):
+        """GUARDADO ROBUSTO DE PERFORMANCE EN CSV"""
+        try:
+            file_exists = os.path.exists(PERF_CSV)
+            if file_exists:
+                try:
+                    existing_df = pd.read_csv(PERF_CSV)
+                    if len(existing_df) == 0:
+                        file_exists = False
+                except:
+                    file_exists = False
+            
+            pd.DataFrame([perf_data]).to_csv(
+                PERF_CSV, 
+                mode='a', 
+                header=not file_exists, 
+                index=False
+            )
+            logging.info(f"💾 Performance guardada: {perf_data['prediction']} -> {perf_data['actual']} (Correcto: {perf_data['correct']})")
+            
+        except Exception as e:
+            logging.error(f"❌ Error guardando performance: {e}")
+            try:
+                pd.DataFrame(columns=["timestamp", "prediction", "actual", "correct", "confidence", "model_used"]).to_csv(PERF_CSV, index=False)
+                logging.info("📁 Archivo de performance recreado con estructura corregida")
+            except Exception as e2:
+                logging.error(f"❌ Error recreando archivo: {e2}")
 
     def on_candle_closed(self, closed_metrics):
         try:
@@ -525,7 +714,9 @@ class ProductionPredictor:
                 "confidence": pred.get("confidence",0), 
                 "model_used": pred.get("model_used","HYBRID")
             }
-            pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
+            
+            self._save_performance_to_csv(rec)
+            
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['correct_predictions'] += int(correct)
             self.performance_stats['recent'].append(int(correct))
@@ -534,7 +725,7 @@ class ProductionPredictor:
             logging.error(f"❌ Error recording performance: {e}")
 
     def _rule_based(self, metrics):
-        """SISTEMA DE REGLAS MEJORADO - CONFIANZA EN ENTEROS"""
+        """SISTEMA DE REGLAS MEJORADO - CON DETECCIÓN DE CONSOLIDACIÓN"""
         signals = []
         confidences = []
         reasons = []
@@ -546,59 +737,64 @@ class ProductionPredictor:
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
+        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO")
         
-        # 1. PRESSURE RATIO - SEÑAL FUERTE
+        if consolidation_risk == "ALTO":
+            reasons.append("ALTA consolidación - confianza reducida")
+            max_confidence = 45
+        elif consolidation_risk == "MEDIO":
+            reasons.append("MEDIA consolidación - confianza moderada")
+            max_confidence = 60
+        else:
+            max_confidence = 95
+        
         if pr > 2.2:
             signals.append(1)
-            confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
+            confidences.append(min(max_confidence, 50 + int((pr - 2.0) * 15)))
             reasons.append(f"Presión compra fuerte {pr:.1f}x")
         elif pr > 1.6:
             signals.append(1)
-            confidences.append(min(65, 40 + int((pr - 1.5) * 20)))
+            confidences.append(min(max_confidence, 40 + int((pr - 1.5) * 20)))
             reasons.append(f"Presión compra {pr:.1f}x")
         elif pr < 0.45:
             signals.append(0)
-            confidences.append(min(80, 50 + int((0.5 - pr) * 15)))
+            confidences.append(min(max_confidence, 50 + int((0.5 - pr) * 15)))
             reasons.append(f"Presión venta fuerte {pr:.1f}x")
         elif pr < 0.65:
             signals.append(0)
-            confidences.append(min(65, 40 + int((0.7 - pr) * 20)))
+            confidences.append(min(max_confidence, 40 + int((0.7 - pr) * 20)))
             reasons.append(f"Presión venta {pr:.1f}x")
         
-        # 2. MOMENTUM - SEÑAL MEDIA
         if mom > 2.0:
             signals.append(1)
-            confidences.append(min(75, 45 + int(min(mom, 8) * 3)))
+            confidences.append(min(max_confidence, 45 + int(min(mom, 8) * 3)))
             reasons.append(f"Momento alcista {mom:.1f}pips")
         elif mom < -2.0:
             signals.append(0)
-            confidences.append(min(75, 45 + int(min(abs(mom), 8) * 3)))
+            confidences.append(min(max_confidence, 45 + int(min(abs(mom), 8) * 3)))
             reasons.append(f"Momento bajista {mom:.1f}pips")
         elif abs(mom) > 0.8:
             direction = 1 if mom > 0 else 0
             signals.append(direction)
-            confidences.append(55)
+            confidences.append(min(max_confidence, 55))
             reasons.append(f"Momento leve {mom:.1f}pips")
         
-        # 3. BUY/SELL PRESSURE - SEÑAL DIRECTA
         if bp > 0.70:
             signals.append(1)
-            confidences.append(70)
+            confidences.append(min(max_confidence, 70))
             reasons.append(f"Dominio compra {bp:.0%}")
         elif sp > 0.70:
             signals.append(0)
-            confidences.append(70)
+            confidences.append(min(max_confidence, 70))
             reasons.append(f"Dominio venta {sp:.0%}")
         
-        # 4. VOLATILIDAD + FASE MERCADO
         if vol > 6.0:
             if phase == "strong_trend" and abs(mom) > 1.5:
                 direction = 1 if mom > 0 else 0
                 signals.append(direction)
-                confidences.append(min(80, 60 + int(vol)))
+                confidences.append(min(max_confidence, 60 + int(vol)))
                 reasons.append(f"Tendencia volátil {vol:.1f}pips")
         
-        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
         if signals:
             avg_confidence = int(sum(confidences) / len(confidences))
             
@@ -607,11 +803,11 @@ class ProductionPredictor:
             
             if buy_signals > 0 and sell_signals == 0:
                 direction = 1
-                final_confidence = min(90, avg_confidence + 10)
+                final_confidence = min(max_confidence, avg_confidence + 10)
                 reasons.append("Señales alcistas consistentes")
             elif sell_signals > 0 and buy_signals == 0:
                 direction = 0
-                final_confidence = min(90, avg_confidence + 10)
+                final_confidence = min(max_confidence, avg_confidence + 10)
                 reasons.append("Señales bajistas consistentes")
             else:
                 direction = 1 if buy_signals > sell_signals else 0
@@ -625,18 +821,25 @@ class ProductionPredictor:
             price_change = metrics.get("price_change", 0)
             if abs(price_change) > 0.5:
                 direction = 1 if price_change > 0 else 0
-                final_confidence = 45 + int(min(abs(price_change), 3) * 8)
+                final_confidence = min(max_confidence, 45 + int(min(abs(price_change), 3) * 8))
                 reasons.append(f"Basado en movimiento: {price_change:.1f}pips")
             else:
                 direction = 1 if metrics.get("price_change", 0) > 0 else 0
-                final_confidence = 40
+                final_confidence = min(max_confidence, 40)
                 reasons.append("Mercado lateral")
+        
+        if consolidation_risk == "ALTO" and final_confidence > 45:
+            final_confidence = 45
+            reasons.append("Ajuste por alta consolidación")
+        elif consolidation_risk == "MEDIO" and final_confidence > 60:
+            final_confidence = 60
+            reasons.append("Ajuste por media consolidación")
         
         if total_ticks < 8:
             final_confidence = max(30, final_confidence - 15)
             reasons.append(f"Pocos datos: {total_ticks} ticks")
         elif total_ticks > 25:
-            final_confidence = min(95, final_confidence + 5)
+            final_confidence = min(max_confidence, final_confidence + 5)
         
         final_confidence = int(max(25, min(95, final_confidence)))
         
@@ -650,22 +853,32 @@ class ProductionPredictor:
         }
 
     def _fuse(self, mlp_pred, rules_pred, metrics):
-        """FUSIÓN MEJORADA - CONFIANZA EN ENTEROS"""
+        """FUSIÓN MEJORADA - CON APRENDIZAJE DE ERRORES"""
         if not mlp_pred:
             return rules_pred
             
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
+        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO")
         
         base_mlp_weight = 0.6
         
-        if phase == "consolidation":
+        if consolidation_risk == "ALTO":
+            mlp_weight = 0.3
+            fusion_type = "CONSOLIDATION_LOW_MLP"
+        elif consolidation_risk == "MEDIO":
             mlp_weight = 0.4
+            fusion_type = "CONSOLIDATION_MED_MLP"
+        elif phase == "consolidation":
+            mlp_weight = 0.4
+            fusion_type = "RANGE_MLP"
         elif phase == "strong_trend" and total_ticks > 20:
             mlp_weight = 0.7
+            fusion_type = "TREND_HIGH_MLP"
         else:
             mlp_weight = base_mlp_weight
+            fusion_type = "BALANCED"
             
         mlp_confidence = mlp_pred.get("confidence", 50)
         if mlp_confidence < 55:
@@ -691,6 +904,13 @@ class ProductionPredictor:
         
         reasons.extend(rules_pred.get("reasons", []))
         
+        if consolidation_risk == "ALTO" and fused_confidence > 50:
+            fused_confidence = max(40, int(fused_confidence * 0.8))
+            reasons.append("Fusión ajustada por alta consolidación")
+        elif consolidation_risk == "MEDIO" and fused_confidence > 65:
+            fused_confidence = int(fused_confidence * 0.9)
+            reasons.append("Fusión ajustada por media consolidación")
+        
         fused_confidence = max(30, min(95, fused_confidence))
         
         return {
@@ -701,11 +921,12 @@ class ProductionPredictor:
             "reasons": reasons,
             "model_used": "HYBRID",
             "mlp_confidence": mlp_conf,
-            "rules_confidence": rules_conf
+            "rules_confidence": rules_conf,
+            "fusion_type": fusion_type
         }
 
     def predict_next_candle(self, seconds_remaining_norm=None):
-        """PREDICCIÓN MEJORADA - ACTIVACIÓN EN ÚLTIMOS 3-5 SEGUNDOS"""
+        """PREDICCIÓN MEJORADA - CON APRENDIZAJE INCORPORADO"""
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
         if not metrics:
             return {
@@ -955,11 +1176,27 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop CON VALIDACIÓN ---------------
+# --------------- Singleton Protection MEJORADO ---------------
+_analyzer_running = False
+
 def professional_tick_analyzer():
-    global current_prediction
+    global _analyzer_running, current_prediction
     
-    logging.info("🚀 Delowyss AI V3.8 iniciado - PREDICCIÓN 3-5s ANTES DEL CIERRE")
+    # 🔒 PREVENIR DUPLICADOS - MANTIENE ORIGINALIDAD
+    if _analyzer_running:
+        logging.warning("⚠️ Analyzer ya está ejecutándose - evitando duplicado")
+        return
+        
+    _analyzer_running = True
+    
+    def cleanup():
+        global _analyzer_running
+        _analyzer_running = False
+        logging.info("🧹 Analyzer cleanup ejecutado")
+    
+    atexit.register(cleanup)
+    
+    logging.info("🚀 Delowyss AI V3.8 MEJORADO - CON APRENDIZAJE ACTIVO")
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -995,16 +1232,15 @@ def professional_tick_analyzer():
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
                         
-                        logging.info("🎯 PREDICCIÓN VELA SIGUIENTE: %s | Confianza: %s%% | Ticks: %s", 
-                                   pred.get("direction"), 
-                                   pred.get("confidence"),
-                                   pred.get("tick_count", 0))
+                        # LOG MEJORADO CON MÁS CONTEXTO
+                        consolidation_risk = predictor.analyzer._assess_consolidation_risk()
+                        logging.info(f"🎯 PREDICCIÓN: {pred.get('direction')} | Conf: {pred.get('confidence')}% | Ticks: {pred.get('tick_count', 0)} | Consolidación: {consolidation_risk}")
             
-            # CAMBIO DE VELA CON VALIDACIÓN
+            # CAMBIO DE VELA CON VALIDACIÓN MEJORADA
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
-                    # ✅ VALIDACIÓN AGREGADA
+                    # VALIDACIÓN CON APRENDIZAJE
                     validation_result = predictor.validate_previous_prediction(closed_metrics)
                     if validation_result:
                         performance_stats['last_validation'] = validation_result
@@ -1021,7 +1257,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO CON VALIDACIÓN ---------------
+# --------------- FastAPI COMPLETO MEJORADO ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1033,16 +1269,16 @@ def home():
         training_samples = 0
         
     try:  
-        perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+        perf_df = pd.read_csv(PERF_CSV) if os.path.exists(PERF_CSV) else pd.DataFrame()
+        perf_rows = len(perf_df)
     except:
         perf_rows = 0
+        perf_df = pd.DataFrame()
         
     perf_acc = 0.0
     try:
-        if perf_rows>0:
-            perf_df = pd.read_csv(PERF_CSV)
-            if "correct" in perf_df:
-                perf_acc = perf_df["correct"].mean()*100
+        if perf_rows>0 and "correct" in perf_df:
+            perf_acc = perf_df["correct"].mean()*100
     except Exception:
         perf_acc = 0.0
         
@@ -1050,14 +1286,21 @@ def home():
         metrics = predictor.analyzer.get_candle_metrics()
         phase = metrics.get("market_phase") if metrics else "n/a"
         patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
+        consolidation_risk = metrics.get("consolidation_risk", "NINGUNO") if metrics else "n/a"
     except:
         phase = "n/a"
         patterns = []
+        consolidation_risk = "n/a"
         
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
+    
+    # ESTADÍSTICAS DE APRENDIZAJE
+    learning_insights = predictor.learning_insights
+    consolidation_errors = learning_insights.get('consolidation_errors', 0)
+    high_conf_errors = learning_insights.get('high_confidence_errors', 0)
     
     html = f"""
     <!doctype html>
@@ -1065,7 +1308,7 @@ def home():
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
-        <title>Delowyss AI V3.8</title>
+        <title>Delowyss AI V3.8 - MEJORADO</title>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;
@@ -1091,6 +1334,13 @@ def home():
             }}
             .validation-card {{
                 border-left: 4px solid #ffbb33;
+                padding: 15px;
+                margin: 15px 0;
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+            }}
+            .learning-card {{
+                border-left: 4px solid #9966ff;
                 padding: 15px;
                 margin: 15px 0;
                 background: rgba(255,255,255,0.05);
@@ -1138,11 +1388,15 @@ def home():
             
             .status-connected {{ color: #00ff88; }}
             .status-disconnected {{ color: #ff4444; }}
+            
+            .consolidation-high {{ color: #ff4444; font-weight: bold; }}
+            .consolidation-medium {{ color: #ffbb33; }}
+            .consolidation-low {{ color: #00ff88; }}
         </style>
     </head>
     <body>
         <div class="card">
-            <h1>🤖 Delowyss Trading AI — V3.8</h1>
+            <h1>🤖 Delowyss Trading AI — V3.8 MEJORADO</h1>
             <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
             • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
             </p>
@@ -1156,7 +1410,8 @@ def home():
             <div class="prediction-card">
                 <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% de confianza</h2>
                 <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
-                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
+                <p>Fase: <strong>{phase}</strong> • Consolidación: <span class="{'consolidation-high' if consolidation_risk=='ALTO' else 'consolidation-medium' if consolidation_risk=='MEDIO' else 'consolidation-low'}">{consolidation_risk}</span></p>
+                <p>Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
 
@@ -1167,6 +1422,18 @@ def home():
                 </div>
                 <div id="performance-stats" style="font-size: 0.9em; color: #ccc;">
                     Cargando estadísticas...
+                </div>
+            </div>
+
+            <div class="learning-card">
+                <h3>🧠 Sistema de Aprendizaje</h3>
+                <div style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                    <div>Errores en consolidación: <strong>{consolidation_errors}</strong></div>
+                    <div>Errores con alta confianza: <strong>{high_conf_errors}</strong></div>
+                    <div>Muestras de entrenamiento: <strong>{training_samples}</strong></div>
+                    <div style="font-size: 0.9em; margin-top: 8px; color: #ccc;">
+                        📈 Threshold de aprendizaje: {CONFIDENCE_SAVE_THRESHOLD}% (reducido para aprender más)
+                    </div>
                 </div>
             </div>
             
@@ -1263,7 +1530,7 @@ def home():
                             
                             document.getElementById('validation-result').innerHTML = `
                                 <div style="color:${{color}}; font-weight:bold;">
-                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
+                                    ${{icon}} Predicción: <strong>${{validation.prediction}}</strong> 
                                     | Real: <strong>${{validation.actual}}</strong>
                                 </div>
                                 <div style="font-size:0.9em; margin-top:5px;">
@@ -1309,7 +1576,7 @@ def api_prediction():
 
 @app.get("/api/validation")
 def api_validation():
-    """Endpoint para validaciones - MANTIENE ESTILO ORIGINAL"""
+    """Endpoint para validaciones - CON ESTADÍSTICAS MEJORADAS"""
     try:
         global performance_stats
         
@@ -1320,6 +1587,13 @@ def api_validation():
         
         overall_accuracy = (correct / total * 100) if total > 0 else 0.0
         
+        learning_data = {
+            'consolidation_errors': predictor.learning_insights.get('consolidation_errors', 0),
+            'high_confidence_errors': predictor.learning_insights.get('high_confidence_errors', 0),
+            'total_mistakes': len(predictor.learning_insights.get('recent_mistakes', [])),
+            'learning_threshold': CONFIDENCE_SAVE_THRESHOLD
+        }
+        
         return JSONResponse({
             "last_validation": last_validation,
             "performance": {
@@ -1329,6 +1603,7 @@ def api_validation():
                 "recent_accuracy": round(recent_acc, 1),
                 "last_10_results": list(performance_stats.get('last_10', []))
             },
+            "learning_insights": learning_data,
             "timestamp": now_iso()
         })
     except Exception as e:
@@ -1337,7 +1612,7 @@ def api_validation():
 
 @app.get("/api/prediction_history")
 def api_prediction_history():
-    """Historial de predicciones - USA ARCHIVO EXISTENTE"""
+    """Historial de predicciones - MEJORADO"""
     try:
         if os.path.exists(PERF_CSV):
             df = pd.read_csv(PERF_CSV)
@@ -1368,6 +1643,8 @@ def api_status():
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
+    learning_insights = predictor.learning_insights
+    
     return JSONResponse({
         "status": "online",
         "connected": connected,
@@ -1376,6 +1653,7 @@ def api_status():
         "training_samples": training_samples,
         "perf_rows": perf_rows,
         "total_ticks_processed": predictor.analyzer.tick_count,
+        "learning_insights": learning_insights,
         "timestamp": now_iso()
     })
 
@@ -1411,6 +1689,7 @@ def api_patterns():
                 "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
                 "volatility": metrics.get("volatility", 0),
                 "momentum": metrics.get("momentum", 0),
+                "consolidation_risk": metrics.get("consolidation_risk", "NINGUNO"),
                 "price_history": predictor.analyzer.get_price_history(),
                 "total_ticks": predictor.analyzer.tick_count
             })

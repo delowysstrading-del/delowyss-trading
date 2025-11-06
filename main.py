@@ -1,7 +1,7 @@
-# main.py - CORRECCIÓN COMPLETA
+# main.py - VERSIÓN MEJORADA CON AJUSTES FINOS
 """
 Delowyss Trading AI — V4.0-80PCT (Production)
-Sistema mejorado para >80% precisión - VERSIÓN CORREGIDA
+Sistema optimizado para >80% precisión - VERSIÓN MEJORADA CON AJUSTES
 CEO: Eduardo Solis — © 2025
 """
 
@@ -29,7 +29,7 @@ import joblib
 import warnings
 warnings.filterwarnings("ignore")
 
-# ---------------- CONFIG ----------------
+# ---------------- CONFIG MEJORADA ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
 PAR = os.getenv("PAIR", "EURUSD")
@@ -50,11 +50,17 @@ SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
 MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
 MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
 
-# Nuevos parámetros para 80%+ precisión
+# PARÁMETROS OPTIMIZADOS PARA 80%+ PRECISIÓN
 HIGH_ACCURACY_MODE = os.getenv("HIGH_ACCURACY_MODE", "true").lower() == "true"
-MIN_HIGH_ACCURACY_CONFIDENCE = int(os.getenv("MIN_HIGH_ACCURACY_CONFIDENCE", "75"))
+MIN_HIGH_ACCURACY_CONFIDENCE = int(os.getenv("MIN_HIGH_ACCURACY_CONFIDENCE", "72"))  # Aumentado de 70
+MIN_TICKS_HIGH_ACCURACY = int(os.getenv("MIN_TICKS_HIGH_ACCURACY", "25"))  # Más ticks para mayor confiabilidad
 
-# ---------------- LOGGING ----------------
+# NUEVOS PARÁMETROS DE OPTIMIZACIÓN
+CONFIDENCE_CALIBRATION = float(os.getenv("CONFIDENCE_CALIBRATION", "0.95"))  # Calibración conservadora
+VOLATILITY_FILTER_MAX = float(os.getenv("VOLATILITY_FILTER_MAX", "2.5"))  # Filtrar alta volatilidad
+PRESSURE_RATIO_THRESHOLD = float(os.getenv("PRESSURE_RATIO_THRESHOLD", "1.8"))  # Umbral más estricto
+
+# ---------------- LOGGING MEJORADO ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -113,7 +119,7 @@ class IncrementalScaler:
     def fit_transform(self, X):
         return self.partial_fit(X).transform(X)
 
-# ------------------ Analyzer ------------------
+# ------------------ Analyzer MEJORADO ------------------
 class ProductionTickAnalyzer:
     def __init__(self, base_ema_alpha=0.3):
         self.ticks = deque(maxlen=MAX_TICKS_MEMORY)
@@ -130,6 +136,7 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         self.volatility_history = deque(maxlen=20)
         self.price_history = deque(maxlen=50)
+        self.consecutive_direction = deque(maxlen=3)  # Nuevo: track dirección consecutiva
 
     def _update_ema_alpha(self, current_volatility):
         try:
@@ -155,6 +162,7 @@ class ProductionTickAnalyzer:
             logging.warning(f"Precio inválido ignorado: {price}")
             return None
             
+        # MEJORA: Detección mejorada de anomalías
         if self.ticks and len(self.ticks) > 0:
             last_tick = self.ticks[-1]
             last_price = last_tick['price']
@@ -182,6 +190,16 @@ class ProductionTickAnalyzer:
         else:
             self.smoothed_price = (self.ema_alpha * price + (1 - self.ema_alpha) * self.smoothed_price)
 
+        # NUEVO: Track dirección del tick
+        if len(self.ticks) > 0:
+            prev_price = self.ticks[-1]['price']
+            if price > prev_price:
+                self.consecutive_direction.append(1)  # ALZA
+            elif price < prev_price:
+                self.consecutive_direction.append(-1)  # BAJA
+            else:
+                self.consecutive_direction.append(0)  # NEUTRAL
+
         tick_data = {
             "timestamp": current_time,
             "price": price,
@@ -206,6 +224,12 @@ class ProductionTickAnalyzer:
 
     def get_price_history(self):
         return list(self.price_history)
+
+    def get_consecutive_direction(self):
+        """NUEVO: Obtener dirección consecutiva de ticks"""
+        if len(self.consecutive_direction) == 0:
+            return 0
+        return sum(self.consecutive_direction) / len(self.consecutive_direction)
 
     def _detect_micro_pattern(self):
         try:
@@ -272,14 +296,20 @@ class ProductionTickAnalyzer:
             else:
                 direction_ratio = 0.0
 
+            # MEJORA: Clasificación de fase de mercado más precisa
             if volatility < 0.5 and direction_ratio < 0.15:
                 market_phase = "consolidation"
-            elif abs(momentum) > 2.5 and volatility > 1.2:
-                market_phase = "strong_trend"
+            elif abs(momentum) > 2.5 and volatility > 1.2 and buy_pressure > 0.65:
+                market_phase = "strong_trend_up"
+            elif abs(momentum) > 2.5 and volatility > 1.2 and sell_pressure > 0.65:
+                market_phase = "strong_trend_down"
             elif abs(momentum) > 1.0:
                 market_phase = "weak_trend"
             else:
                 market_phase = "neutral"
+
+            # NUEVO: Calidad de datos
+            data_quality = min(1.0, (total_ticks / 30) * 0.5 + (volatility / 2.0) * 0.3 + (1 - direction_ratio) * 0.2)
 
             metrics = {
                 "open_price": open_price,
@@ -300,6 +330,8 @@ class ProductionTickAnalyzer:
                 "direction_ratio": direction_ratio,
                 "market_phase": market_phase,
                 "last_patterns": list(self.last_patterns)[:4],
+                "data_quality": data_quality,  # NUEVO
+                "consecutive_direction": self.get_consecutive_direction(),  # NUEVO
                 "timestamp": time.time()
             }
             if seconds_remaining_norm is not None:
@@ -316,12 +348,14 @@ class ProductionTickAnalyzer:
         self.current_candle_low = None
         self.sequence.clear()
         self.tick_count = 0
+        self.consecutive_direction.clear()  # NUEVO
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ SISTEMAS MEJORADOS PARA 80%+ PRECISIÓN ------------------
+# ------------------ SISTEMAS OPTIMIZADOS PARA 80%+ PRECISIÓN ------------------
 class MetaLearningPredictor:
     def __init__(self):
         self.performance_by_condition = {}
+        self.consecutive_predictions = deque(maxlen=5)  # NUEVO: track predicciones consecutivas
         
     def analyze_error_patterns(self, prediction, actual, metrics):
         """Análisis de errores para aprendizaje"""
@@ -337,11 +371,20 @@ class MetaLearningPredictor:
         if prediction['direction'] == actual:
             self.performance_by_condition[condition_key]['correct'] += 1
 
+        # NUEVO: Track predicciones consecutivas
+        self.consecutive_predictions.append({
+            'direction': prediction['direction'],
+            'correct': prediction['direction'] == actual,
+            'confidence': prediction.get('confidence', 0),
+            'timestamp': datetime.utcnow().isoformat()
+        })
+
     def _get_condition_key(self, metrics):
         """Crear clave única para condiciones"""
         phase = metrics.get('market_phase', 'unknown')
         volatility = 'high' if metrics.get('volatility', 0) > 1.5 else 'low'
-        return f"{phase}_{volatility}"
+        pressure = 'high_pressure' if metrics.get('pressure_ratio', 1) > 1.8 else 'low_pressure'
+        return f"{phase}_{volatility}_{pressure}"
 
     def get_condition_accuracy(self, metrics):
         """Obtener accuracy para condiciones actuales"""
@@ -352,9 +395,26 @@ class MetaLearningPredictor:
             return performance['correct'] / performance['total']
         return 0.5
 
+    def get_consecutive_bias(self):
+        """NUEVO: Detectar sesgo en predicciones consecutivas"""
+        if len(self.consecutive_predictions) < 3:
+            return 0
+            
+        directions = [p['direction'] for p in self.consecutive_predictions]
+        if all(d == 'ALZA' for d in directions):
+            return 1  # Sesgo alcista
+        elif all(d == 'BAJA' for d in directions):
+            return -1  # Sesgo bajista
+        return 0  # Sin sesgo claro
+
 class RealTimeErrorAnalysis:
     def __init__(self):
         self.error_log = deque(maxlen=100)
+        self.accuracy_insights = {
+            'high_confidence': {'correct': 0, 'total': 0},
+            'medium_confidence': {'correct': 0, 'total': 0},
+            'low_confidence': {'correct': 0, 'total': 0}
+        }
         
     def log_prediction_result(self, prediction, actual_direction, metrics):
         """Registrar resultado de predicción"""
@@ -367,22 +427,58 @@ class RealTimeErrorAnalysis:
         }
         self.error_log.append(result)
 
+        # NUEVO: Análisis por nivel de confianza
+        confidence = prediction.get('confidence', 0)
+        if confidence >= 70:
+            bucket = 'high_confidence'
+        elif confidence >= 60:
+            bucket = 'medium_confidence'
+        else:
+            bucket = 'low_confidence'
+            
+        self.accuracy_insights[bucket]['total'] += 1
+        if result['correct']:
+            self.accuracy_insights[bucket]['correct'] += 1
+
     def get_accuracy_insights(self):
-        """Obtener insights de precisión - CORREGIDO"""
+        """Obtener insights de precisión - MEJORADO"""
         total = len(self.error_log)
         if total == 0:
-            return {"accuracy": 0.0, "total_predictions": 0, "correct_predictions": 0}
+            return {
+                "accuracy": 0.0, 
+                "total_predictions": 0, 
+                "correct_predictions": 0,
+                "high_confidence_accuracy": 0.0,
+                "medium_confidence_accuracy": 0.0,
+                "low_confidence_accuracy": 0.0
+            }
         
         correct = sum(1 for entry in self.error_log if entry['correct'])
         accuracy = correct / total
         
+        # Calcular accuracy por nivel de confianza
+        high_acc = 0.0
+        if self.accuracy_insights['high_confidence']['total'] > 0:
+            high_acc = self.accuracy_insights['high_confidence']['correct'] / self.accuracy_insights['high_confidence']['total']
+            
+        medium_acc = 0.0
+        if self.accuracy_insights['medium_confidence']['total'] > 0:
+            medium_acc = self.accuracy_insights['medium_confidence']['correct'] / self.accuracy_insights['medium_confidence']['total']
+            
+        low_acc = 0.0
+        if self.accuracy_insights['low_confidence']['total'] > 0:
+            low_acc = self.accuracy_insights['low_confidence']['correct'] / self.accuracy_insights['low_confidence']['total']
+        
         return {
             "accuracy": accuracy,
             "total_predictions": total,
-            "correct_predictions": correct
+            "correct_predictions": correct,
+            "high_confidence_accuracy": high_acc,
+            "medium_confidence_accuracy": medium_acc,
+            "low_confidence_accuracy": low_acc
         }
 
-# ------------------ Predictor MEJORADO ------------------
+# ------------------ Predictor OPTIMIZADO ------------------
 class ProductionPredictor:
     def __init__(self):
         self.analyzer = ProductionTickAnalyzer()
@@ -397,10 +493,11 @@ class ProductionPredictor:
         }
         self.last_prediction = None
         
-        # NUEVOS SISTEMAS PARA 80%+ PRECISIÓN
+        # SISTEMAS OPTIMIZADOS
         self.meta_learner = MetaLearningPredictor()
         self.error_analyzer = RealTimeErrorAnalysis()
         self.high_accuracy_mode = HIGH_ACCURACY_MODE
+        self.consecutive_high_confidence = 0  # NUEVO: track alta confianza consecutiva
         
         self._initialize_system()
         self._ensure_files()
@@ -410,7 +507,7 @@ class ProductionPredictor:
             "buy_pressure", "sell_pressure", "pressure_ratio", "momentum",
             "volatility", "up_ticks", "down_ticks", "total_ticks",
             "volume_trend", "price_change", "tick_speed", "direction_ratio",
-            "seconds_remaining_norm"
+            "seconds_remaining_norm", "data_quality", "consecutive_direction"  # NUEVAS features
         ]
 
     def _ensure_files(self):
@@ -480,14 +577,20 @@ class ProductionPredictor:
 
     def append_sample_if_confident(self, metrics, label, confidence):
         try:
+            # MEJORA: Guardar solo muestras de calidad
             if confidence < CONFIDENCE_SAVE_THRESHOLD:
                 return
+                
+            data_quality = metrics.get('data_quality', 0.5)
+            if data_quality < 0.4:  # NUEVO: filtrar por calidad
+                return
+                
             row = {k: metrics.get(k,0.0) for k in self._feature_names()}
             row["label"] = int(label)
             row["timestamp"] = datetime.utcnow().isoformat()
             pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
             self.partial_buffer.append((row,label))
-            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
+            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% calidad={data_quality:.2f} buffer={len(self.partial_buffer)}")
             if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
                 self._perform_partial_fit()
         except Exception as e:
@@ -513,33 +616,78 @@ class ProductionPredictor:
             logging.error(f"❌ Error partial fit: {e}")
             self.partial_buffer.clear()
 
-    # NUEVO: PREDICCIÓN DE ALTA PRECISIÓN
+    # PREDICCIÓN DE ALTA PRECISIÓN OPTIMIZADA
     def _high_accuracy_prediction(self, metrics):
-        """Predicción de alta precisión para 80%+ accuracy"""
-        if not metrics or metrics.get('total_ticks', 0) < 15:
+        """Predicción de alta precisión optimizada"""
+        if not metrics or metrics.get('total_ticks', 0) < MIN_TICKS_HIGH_ACCURACY:
             return None
             
+        # MEJORA: Filtros más estrictos
+        volatility = metrics.get('volatility', 0)
+        if volatility > VOLATILITY_FILTER_MAX:
+            return None
+            
+        data_quality = metrics.get('data_quality', 0.5)
+        if data_quality < 0.6:
+            return None
+
         # 1. Obtener predicción base
         base_pred = self.predict_next_candle_base(metrics)
         
-        # 2. Verificar si cumple criterios de alta precisión
-        if base_pred['confidence'] >= MIN_HIGH_ACCURACY_CONFIDENCE:
-            # 3. Aplicar calibración por meta-learning
-            calibrated_conf = self._calibrate_confidence(base_pred, metrics)
+        # 2. Aplicar calibración mejorada
+        calibrated_conf = self._calibrate_confidence(base_pred, metrics)
+        
+        # 3. Verificar criterios optimizados
+        if (calibrated_conf >= MIN_HIGH_ACCURACY_CONFIDENCE and 
+            self._meets_high_accuracy_criteria(metrics, base_pred)):
             
-            if calibrated_conf >= MIN_HIGH_ACCURACY_CONFIDENCE:
-                return {
-                    'direction': base_pred['direction'],
-                    'confidence': calibrated_conf,
-                    'model_used': 'HIGH_ACCURACY',
-                    'reasons': base_pred.get('reasons', []) + ['Calibración alta precisión'],
-                    'high_accuracy': True
-                }
+            # NUEVO: Track alta confianza consecutiva
+            if calibrated_conf >= 80:
+                self.consecutive_high_confidence += 1
+            else:
+                self.consecutive_high_confidence = 0
+                
+            return {
+                'direction': base_pred['direction'],
+                'confidence': calibrated_conf,
+                'model_used': 'HIGH_ACCURACY',
+                'reasons': base_pred.get('reasons', []) + ['Calibración alta precisión'],
+                'high_accuracy': True,
+                'consecutive_high_confidence': self.consecutive_high_confidence
+            }
         
         return None
 
+    def _meets_high_accuracy_criteria(self, metrics, prediction):
+        """NUEVO: Criterios más estrictos para alta precisión"""
+        pressure_ratio = metrics.get('pressure_ratio', 1.0)
+        momentum = abs(metrics.get('momentum', 0))
+        market_phase = metrics.get('market_phase', 'neutral')
+        
+        criteria_met = 0
+        
+        # Criterio 1: Presión de compra/venta definida
+        if pressure_ratio > PRESSURE_RATIO_THRESHOLD or pressure_ratio < (1/PRESSURE_RATIO_THRESHOLD):
+            criteria_met += 1
+            
+        # Criterio 2: Momentum significativo
+        if momentum > 1.5:
+            criteria_met += 1
+            
+        # Criterio 3: Fase de mercado favorable
+        if market_phase in ['strong_trend_up', 'strong_trend_down']:
+            criteria_met += 1
+        elif market_phase == 'consolidation' and metrics.get('volatility', 0) < 0.8:
+            criteria_met += 1
+            
+        # Criterio 4: Calidad de datos
+        if metrics.get('data_quality', 0) > 0.7:
+            criteria_met += 1
+            
+        return criteria_met >= 3  # Requerir al menos 3 criterios
+
     def predict_next_candle_base(self, metrics):
-        """Predicción original base"""
+        """Predicción base optimizada"""
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
@@ -551,6 +699,7 @@ class ProductionPredictor:
                 
                 mlp_confidence = int(max(up_prob, 1 - up_prob) * 100)
                 
+                # MEJORA: Calibración de confianza MLP
                 if abs(up_prob - 0.5) < 0.15:
                     mlp_confidence = max(40, int(mlp_confidence * 0.8))
                 
@@ -563,7 +712,7 @@ class ProductionPredictor:
             except Exception as e:
                 logging.warning(f"⚠️ MLP predict error: {e}")
                 mlp_pred = None
-
+        
         rules_pred = self._rule_based(metrics)
         
         if mlp_pred and metrics.get('total_ticks', 0) >= 12:
@@ -574,39 +723,72 @@ class ProductionPredictor:
         return final_pred
 
     def _calibrate_confidence(self, prediction, metrics):
-        """Calibrar confianza basado en historial"""
+        """Calibración de confianza mejorada"""
         base_confidence = prediction['confidence']
         
         # Factor de accuracy histórica
         historical_accuracy = self.meta_learner.get_condition_accuracy(metrics)
-        accuracy_factor = historical_accuracy / 0.5
+        accuracy_factor = max(0.7, min(1.3, historical_accuracy / 0.5))
         
         # Factor de calidad de datos
-        data_quality = self._assess_data_quality(metrics)
-        quality_factor = 0.7 + (data_quality * 0.3)
+        data_quality = metrics.get('data_quality', 0.5)
+        quality_factor = 0.6 + (data_quality * 0.4)
         
-        calibrated = base_confidence * accuracy_factor * quality_factor
+        # NUEVO: Factor de sesgo consecutivo
+        bias_factor = 1.0
+        consecutive_bias = self.meta_learner.get_consecutive_bias()
+        if consecutive_bias != 0 and prediction['direction'] == ('ALZA' if consecutive_bias > 0 else 'BAJA'):
+            bias_factor = 0.9  # Reducir confianza en predicciones con sesgo
+        
+        # NUEVO: Factor de volatilidad
+        volatility = metrics.get('volatility', 0)
+        volatility_factor = 1.0
+        if volatility > 2.0:
+            volatility_factor = 0.8
+        elif volatility < 0.3:
+            volatility_factor = 0.9
+            
+        calibrated = base_confidence * accuracy_factor * quality_factor * bias_factor * volatility_factor * CONFIDENCE_CALIBRATION
         return int(max(25, min(95, calibrated)))
 
     def _assess_data_quality(self, metrics):
-        """Evaluar calidad de datos"""
+        """Evaluación de calidad de datos mejorada"""
         total_ticks = metrics.get('total_ticks', 0)
         volatility = metrics.get('volatility', 0)
+        direction_ratio = metrics.get('direction_ratio', 0)
         
         quality_score = 0.0
         
+        # Peso de ticks (40%)
         if total_ticks >= 30:
             quality_score += 0.4
-        elif total_ticks >= 15:
-            quality_score += 0.2
-            
-        if 0.5 <= volatility <= 3.0:
+        elif total_ticks >= 20:
             quality_score += 0.3
+        elif total_ticks >= 10:
+            quality_score += 0.2
+        else:
+            quality_score += 0.1
+            
+        # Peso de volatilidad (30%)
+        if 0.5 <= volatility <= 2.0:
+            quality_score += 0.3
+        elif 0.3 <= volatility <= 2.5:
+            quality_score += 0.2
+        else:
+            quality_score += 0.1
+            
+        # Peso de consistencia (30%)
+        if direction_ratio < 0.3:  # Menos cambios de dirección = más consistente
+            quality_score += 0.3
+        elif direction_ratio < 0.5:
+            quality_score += 0.2
+        else:
+            quality_score += 0.1
             
         return min(1.0, quality_score)
 
     def validate_previous_prediction(self, current_candle_metrics):
-        """Valida si la última predicción fue correcta"""
+        """Valida si la última predicción fue correcta - MEJORADO"""
         if not self.last_prediction:
             return None
             
@@ -635,10 +817,11 @@ class ProductionPredictor:
                 "previous_price": round(prev_close, 5),
                 "current_price": round(current_close, 5),
                 "model_used": self.last_prediction.get("model_used", "UNKNOWN"),
-                "reasons": self.last_prediction.get("reasons", [])
+                "reasons": self.last_prediction.get("reasons", []),
+                "high_accuracy": self.last_prediction.get("high_accuracy", False)
             }
             
-            # NUEVO: ANÁLISIS DE ERRORES
+            # ANÁLISIS DE ERRORES MEJORADO
             self.error_analyzer.log_prediction_result(self.last_prediction, actual_direction, self.prev_candle_metrics)
             self.meta_learner.analyze_error_patterns(self.last_prediction, actual_direction, self.prev_candle_metrics)
             
@@ -646,7 +829,19 @@ class ProductionPredictor:
             self._update_global_performance_stats(correct, result)
             
             status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
-            logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
+            accuracy_icon = "🎯" if self.last_prediction.get("high_accuracy", False) else ""
+            logging.info(f"🎯 VALIDACIÓN: {status} {accuracy_icon} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
+            
+            # NUEVO: Log de insights de precisión periódico
+            if performance_stats['total_predictions'] % 10 == 0:
+                insights = self.error_analyzer.get_accuracy_insights()
+                logging.info(f"📊 PRECISIÓN DEL SISTEMA: Global: {insights['accuracy']:.1%} | Total: {insights['total_predictions']}")
+                if insights['high_confidence_accuracy'] > 0:
+                    logging.info(f"    📈 Precisión ALTA confianza: {insights['high_confidence_accuracy']:.1%}")
+                if insights['medium_confidence_accuracy'] > 0:
+                    logging.info(f"    📈 Precisión MEDIA confianza: {insights['medium_confidence_accuracy']:.1%}")
+                if insights['low_confidence_accuracy'] > 0:
+                    logging.info(f"    📈 Precisión BAJA confianza: {insights['low_confidence_accuracy']:.1%}")
             
             return result
             
@@ -693,7 +888,8 @@ class ProductionPredictor:
                 "actual": "ALZA" if actual_label==1 else "BAJA",
                 "correct": correct, 
                 "confidence": pred.get("confidence",0), 
-                "model_used": pred.get("model_used","HYBRID")
+                "model_used": pred.get("model_used","HYBRID"),
+                "high_accuracy": pred.get("high_accuracy", False)
             }
             pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
             self.performance_stats['total_predictions'] += 1
@@ -703,7 +899,7 @@ class ProductionPredictor:
             logging.error(f"❌ Error recording performance: {e}")
 
     def _rule_based(self, metrics):
-        """SISTEMA DE REGLAS ORIGINAL"""
+        """SISTEMA DE REGLAS OPTIMIZADO"""
         signals = []
         confidences = []
         reasons = []
@@ -715,9 +911,10 @@ class ProductionPredictor:
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
+        data_quality = metrics.get("data_quality", 0.5)
         
-        # REGLAS ORIGINALES
-        if pr > 2.2:
+        # REGLAS OPTIMIZADAS
+        if pr > PRESSURE_RATIO_THRESHOLD:
             signals.append(1)
             confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
             reasons.append(f"Presión compra fuerte {pr:.1f}x")
@@ -725,7 +922,7 @@ class ProductionPredictor:
             signals.append(1)
             confidences.append(min(65, 40 + int((pr - 1.5) * 20)))
             reasons.append(f"Presión compra {pr:.1f}x")
-        elif pr < 0.45:
+        elif pr < (1/PRESSURE_RATIO_THRESHOLD):
             signals.append(0)
             confidences.append(min(80, 50 + int((0.5 - pr) * 15)))
             reasons.append(f"Presión venta fuerte {pr:.1f}x")
@@ -757,7 +954,22 @@ class ProductionPredictor:
             confidences.append(70)
             reasons.append(f"Dominio venta {sp:.0%}")
         
-        # DECISIÓN FINAL
+        # NUEVO: Reglas basadas en fase de mercado
+        if phase == "strong_trend_up":
+            signals.append(1)
+            confidences.append(75)
+            reasons.append("Tendencia alcista fuerte")
+        elif phase == "strong_trend_down":
+            signals.append(0)
+            confidences.append(75)
+            reasons.append("Tendencia bajista fuerte")
+        elif phase == "consolidation" and vol < 0.8:
+            # En consolidación, ser más conservador
+            if signals:
+                confidences = [int(c * 0.8) for c in confidences]
+            reasons.append("Mercado en consolidación - confianza reducida")
+        
+        # DECISIÓN FINAL OPTIMIZADA
         if signals:
             avg_confidence = int(sum(confidences) / len(confidences))
             
@@ -787,12 +999,21 @@ class ProductionPredictor:
                 final_confidence = 40
                 reasons.append("Mercado lateral")
         
+        # AJUSTES FINALES OPTIMIZADOS
         if total_ticks < 8:
             final_confidence = max(30, final_confidence - 15)
             reasons.append(f"Pocos datos: {total_ticks} ticks")
         elif total_ticks > 25:
             final_confidence = min(95, final_confidence + 5)
-        
+            
+        # Ajuste por calidad de datos
+        if data_quality < 0.4:
+            final_confidence = max(30, int(final_confidence * 0.8))
+            reasons.append("Calidad de datos baja")
+        elif data_quality > 0.8:
+            final_confidence = min(95, int(final_confidence * 1.1))
+            reasons.append("Calidad de datos alta")
+
         final_confidence = int(max(25, min(95, final_confidence)))
         
         return {
@@ -805,20 +1026,26 @@ class ProductionPredictor:
         }
 
     def _fuse(self, mlp_pred, rules_pred, metrics):
-        """FUSIÓN ORIGINAL"""
+        """FUSIÓN OPTIMIZADA"""
         if not mlp_pred:
             return rules_pred
             
         vol = metrics.get("volatility", 0.0)
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
+        data_quality = metrics.get("data_quality", 0.5)
         
         base_mlp_weight = 0.6
         
+        # MEJORA: Peso dinámico basado en múltiples factores
         if phase == "consolidation":
             mlp_weight = 0.4
-        elif phase == "strong_trend" and total_ticks > 20:
+        elif phase in ["strong_trend_up", "strong_trend_down"] and total_ticks > 20:
             mlp_weight = 0.7
+        elif data_quality > 0.7:
+            mlp_weight = base_mlp_weight * 1.1
+        elif data_quality < 0.4:
+            mlp_weight = base_mlp_weight * 0.7
         else:
             mlp_weight = base_mlp_weight
             
@@ -846,6 +1073,11 @@ class ProductionPredictor:
         
         reasons.extend(rules_pred.get("reasons", []))
         
+        # MEJORA: Ajuste final por calidad de datos
+        if data_quality < 0.5:
+            fused_confidence = max(30, int(fused_confidence * 0.9))
+            reasons.append("Fusión: calidad de datos moderada")
+        
         fused_confidence = max(30, min(95, fused_confidence))
         
         return {
@@ -860,7 +1092,7 @@ class ProductionPredictor:
         }
 
     def predict_next_candle(self, seconds_remaining_norm=None):
-        """PREDICCIÓN MEJORADA CON MODO ALTA PRECISIÓN"""
+        """PREDICCIÓN OPTIMIZADA CON MODO ALTA PRECISIÓN"""
         metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
         if not metrics:
             return {
@@ -880,15 +1112,16 @@ class ProductionPredictor:
                 "timestamp": now_iso()
             }
         
-        # NUEVO: INTENTAR PREDICCIÓN DE ALTA PRECISIÓN
+        # PREDICCIÓN DE ALTA PRECISIÓN OPTIMIZADA
         if self.high_accuracy_mode and seconds_remaining_norm and seconds_remaining_norm <= 0.1:
             high_acc_pred = self._high_accuracy_prediction(metrics)
             if high_acc_pred:
-                logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN: {high_acc_pred['direction']} - {high_acc_pred['confidence']}%")
+                accuracy_icon = "🎯" if high_acc_pred.get('consecutive_high_confidence', 0) > 1 else ""
+                logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN {accuracy_icon}: {high_acc_pred['direction']} | Confianza: {high_acc_pred['confidence']}% | Ticks: {total_ticks}")
                 self.last_prediction = high_acc_pred.copy()
                 return high_acc_pred
         
-        # PREDICCIÓN ORIGINAL
+        # PREDICCIÓN ESTÁNDAR OPTIMIZADA
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
@@ -921,9 +1154,20 @@ class ProductionPredictor:
             final_pred = rules_pred
         
         self.last_prediction = final_pred.copy()
+        
+        # Log de predicción estándar
+        if final_pred['confidence'] >= 70:
+            confidence_level = "ALTA"
+        elif final_pred['confidence'] >= 60:
+            confidence_level = "MEDIA"
+        else:
+            confidence_level = "BAJA"
+            
+        logging.info(f"🎯 PREDICCIÓN VELA SIGUIENTE: {final_pred['direction']} | Confianza: {final_pred['confidence']}% ({confidence_level}) | Garrapatas: {total_ticks}")
+        
         return final_pred
 
-# -------------- IQ CONNECTION COMPLETA --------------
+# -------------- IQ CONNECTION OPTIMIZADA --------------
 class IQOptionConnector:
     def __init__(self):
         self.iq = None
@@ -1040,7 +1284,7 @@ class IQOptionConnector:
 
 # --------------- Adaptive Trainer Loop ---------------
 def adaptive_trainer_loop(predictor: ProductionPredictor):
-    """Loop de entrenamiento"""
+    """Loop de entrenamiento optimizado"""
     while True:
         try:
             time.sleep(30)
@@ -1113,11 +1357,13 @@ current_prediction = {
     "model_used":"INIT"
 }
 
-# --------------- Main loop CON VALIDACIÓN ---------------
+# --------------- Main loop OPTIMIZADO ---------------
 def professional_tick_analyzer():
     global current_prediction
     
     logging.info("🚀 Delowyss AI V4.0-80PCT iniciado - MODO ALTA PRECISIÓN ACTIVADO")
+    logging.info("🎯 OBJETIVO: 80%+ precisión con calibración optimizada")
+    
     last_prediction_time = 0
     last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
@@ -1145,18 +1391,13 @@ def professional_tick_analyzer():
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
             
-            # PREDICCIÓN ACTIVA SOLO EN ÚLTIMOS 3-5 SEGUNDOS
+            # PREDICCIÓN ACTIVA SOLO EN ÚLTIMOS SEGUNDOS
             if seconds_remaining <= PREDICTION_WINDOW and seconds_remaining > 1:
                 if predictor.analyzer.tick_count >= 8:
                     if (time.time() - last_prediction_time) > 2:
                         pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
-                        
-                        if pred.get('high_accuracy', False):
-                            logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN: {pred.get('direction')} | Confianza: {pred.get('confidence')}%")
-                        else:
-                            logging.info(f"🎯 PREDICCIÓN VELA SIGUIENTE: {pred.get('direction')} | Confianza: {pred.get('confidence')}%")
             
             # CAMBIO DE VELA CON VALIDACIÓN
             if current_candle_start > last_candle_start:
@@ -1178,7 +1419,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO CORREGIDO ---------------
+# --------------- FastAPI OPTIMIZADO ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1207,21 +1448,25 @@ def home():
         metrics = predictor.analyzer.get_candle_metrics()
         phase = metrics.get("market_phase") if metrics else "n/a"
         patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
+        data_quality = metrics.get("data_quality", 0) if metrics else 0
     except:
         phase = "n/a"
         patterns = []
+        data_quality = 0
         
     direction = current_prediction.get("direction","N/A")
     color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # CORRECCIÓN: Manejo seguro de insights
+    # INSIGHTS MEJORADOS
     high_accuracy_info = ""
     if predictor.high_accuracy_mode:
         insights = predictor.error_analyzer.get_accuracy_insights()
-        if insights and 'accuracy' in insights:  # CLAVE CORREGIDA
-            high_accuracy_info = f" | Precisión: {insights['accuracy']:.1%}"
+        if insights and 'accuracy' in insights:
+            high_accuracy_info = f" | Precisión Global: {insights['accuracy']:.1%}"
+            if insights['high_confidence_accuracy'] > 0:
+                high_accuracy_info += f" | Alta Conf: {insights['high_confidence_accuracy']:.1%}"
     
     html = f"""
     <!doctype html>
@@ -1229,7 +1474,7 @@ def home():
     <head>
         <meta charset='utf-8'>
         <meta name='viewport' content='width=device-width'>
-        <title>Delowyss AI V4.0-80PCT</title>
+        <title>Delowyss AI V4.0-80PCT OPTIMIZADO</title>
         <style>
             body {{
                 font-family: 'Arial', sans-serif;
@@ -1310,11 +1555,22 @@ def home():
                 font-weight: bold;
                 margin-left: 10px;
             }}
+            
+            .quality-indicator {{
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 5px;
+            }}
+            .quality-high {{ background: #00ff88; }}
+            .quality-medium {{ background: #ffbb33; }}
+            .quality-low {{ background: #ff4444; }}
         </style>
     </head>
     <body>
         <div class="card">
-            <h1>🤖 Delowyss Trading AI — V4.0-80PCT {'<span class="high-accuracy-badge">ALTA PRECISIÓN</span>' if predictor.high_accuracy_mode else ''}</h1>
+            <h1>🤖 Delowyss Trading AI — V4.0-80PCT OPTIMIZADO {'<span class="high-accuracy-badge">ALTA PRECISIÓN</span>' if predictor.high_accuracy_mode else ''}</h1>
             <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
             • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
             {high_accuracy_info}
@@ -1329,7 +1585,7 @@ def home():
             <div class="prediction-card">
                 <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% de confianza {'🎯' if current_prediction.get('high_accuracy') else ''}</h2>
                 <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
-                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
+                <p>Fase: <strong>{phase}</strong> • Calidad: <span class="quality-indicator {'quality-high' if data_quality > 0.7 else 'quality-medium' if data_quality > 0.4 else 'quality-low'}"></span>{data_quality:.0%} • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
                 <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
             </div>
 
@@ -1435,10 +1691,11 @@ def home():
                             const correct = validation.correct;
                             const color = correct ? '#00ff88' : '#ff4444';
                             const icon = correct ? '✅' : '❌';
+                            const highAccuracyIcon = validation.high_accuracy ? '🎯' : '';
                             
                             document.getElementById('validation-result').innerHTML = `
                                 <div style="color:${{color}}; font-weight:bold;">
-                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
+                                    ${{icon}} ${{highAccuracyIcon}} Predicción: <strong>${{validation.predicted}}</strong> 
                                     | Real: <strong>${{validation.actual}}</strong>
                                 </div>
                                 <div style="font-size:0.9em; margin-top:5px;">

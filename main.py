@@ -1,7 +1,7 @@
-# main.py
+# main.py - CORRECCIÓN COMPLETA
 """
 Delowyss Trading AI — V4.0-80PCT (Production)
-Sistema mejorado para >80% precisión manteniendo código original.
+Sistema mejorado para >80% precisión - VERSIÓN CORREGIDA
 CEO: Eduardo Solis — © 2025
 """
 
@@ -41,8 +41,6 @@ TRAINING_CSV = os.getenv("TRAINING_CSV", f"training_data_{MODEL_VERSION}.csv")
 PERF_CSV = os.getenv("PERF_CSV", f"performance_{MODEL_VERSION}.csv")
 MODEL_PATH = os.getenv("MODEL_PATH", f"delowyss_mlp_{MODEL_VERSION}.joblib")
 SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib")
-ENSEMBLE_PATH = os.getenv("ENSEMBLE_PATH", f"ensemble_{MODEL_VERSION}.pkl")
-META_LEARNER_PATH = os.getenv("META_LEARNER_PATH", f"meta_learner_{MODEL_VERSION}.pkl")
 
 BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
 PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
@@ -320,143 +318,68 @@ class ProductionTickAnalyzer:
         self.tick_count = 0
         logging.info("🔄 Vela reiniciada")
 
-# ------------------ SISTEMAS NUEVOS PARA 80%+ PRECISIÓN ------------------
+# ------------------ SISTEMAS MEJORADOS PARA 80%+ PRECISIÓN ------------------
 class MetaLearningPredictor:
     def __init__(self):
-        self.market_regimes = {}
-        self.error_patterns = deque(maxlen=100)
         self.performance_by_condition = {}
         
     def analyze_error_patterns(self, prediction, actual, metrics):
-        """Análisis detallado de errores para aprendizaje"""
-        error_analysis = {
-            'timestamp': now_iso(),
-            'predicted': prediction['direction'],
-            'actual': actual,
-            'confidence': prediction['confidence'],
-            'market_phase': metrics.get('market_phase', 'unknown'),
-            'conditions': self._get_current_conditions(metrics)
-        }
-        
-        self.error_patterns.append(error_analysis)
-        self._update_performance_stats(error_analysis)
-        
-    def _get_current_conditions(self, metrics):
-        """Obtener condiciones de mercado actuales"""
+        """Análisis de errores para aprendizaje"""
         if not metrics:
-            return {}
+            return
             
-        return {
-            'volatility': metrics.get('volatility', 0),
-            'momentum': metrics.get('momentum', 0),
-            'tick_density': metrics.get('total_ticks', 0),
-            'pressure_ratio': metrics.get('pressure_ratio', 1),
-            'market_phase': metrics.get('market_phase', 'unknown')
-        }
-
-    def _update_performance_stats(self, error_analysis):
-        """Actualizar estadísticas de performance"""
-        condition_key = str(error_analysis['conditions'])
+        condition_key = self._get_condition_key(metrics)
         
         if condition_key not in self.performance_by_condition:
             self.performance_by_condition[condition_key] = {'correct': 0, 'total': 0}
         
         self.performance_by_condition[condition_key]['total'] += 1
-        if error_analysis['predicted'] == error_analysis['actual']:
+        if prediction['direction'] == actual:
             self.performance_by_condition[condition_key]['correct'] += 1
+
+    def _get_condition_key(self, metrics):
+        """Crear clave única para condiciones"""
+        phase = metrics.get('market_phase', 'unknown')
+        volatility = 'high' if metrics.get('volatility', 0) > 1.5 else 'low'
+        return f"{phase}_{volatility}"
 
     def get_condition_accuracy(self, metrics):
         """Obtener accuracy para condiciones actuales"""
-        condition_key = str(self._get_current_conditions(metrics))
+        condition_key = self._get_condition_key(metrics)
         performance = self.performance_by_condition.get(condition_key, {'correct': 0, 'total': 0})
         
         if performance['total'] > 0:
             return performance['correct'] / performance['total']
-        return 0.5  # Accuracy por defecto
+        return 0.5
 
 class RealTimeErrorAnalysis:
     def __init__(self):
-        self.error_log = deque(maxlen=200)
-        self.performance_metrics = {
-            'by_market_phase': {},
-            'by_confidence_level': {},
-            'by_volatility_regime': {}
-        }
+        self.error_log = deque(maxlen=100)
         
     def log_prediction_result(self, prediction, actual_direction, metrics):
-        """Registrar resultado de cada predicción"""
+        """Registrar resultado de predicción"""
         result = {
             'timestamp': now_iso(),
-            'prediction': prediction,
+            'predicted': prediction['direction'],
             'actual': actual_direction,
             'correct': prediction['direction'] == actual_direction,
-            'conditions': self._extract_conditions(metrics),
-            'confidence_level': self._categorize_confidence(prediction['confidence'])
+            'confidence': prediction.get('confidence', 0)
         }
-        
         self.error_log.append(result)
-        self._update_performance_metrics(result)
-        
-    def _extract_conditions(self, metrics):
-        """Extraer condiciones del mercado"""
-        if not metrics:
-            return {}
-        return {
-            'market_phase': metrics.get('market_phase', 'unknown'),
-            'volatility': 'high' if metrics.get('volatility', 0) > 1.5 else 'low',
-            'momentum': 'strong' if abs(metrics.get('momentum', 0)) > 2.0 else 'weak'
-        }
-
-    def _categorize_confidence(self, confidence):
-        """Categorizar nivel de confianza"""
-        if confidence >= 75:
-            return 'HIGH'
-        elif confidence >= 60:
-            return 'MEDIUM'
-        else:
-            return 'LOW'
-
-    def _update_performance_metrics(self, result):
-        """Actualizar métricas de performance"""
-        conditions = result['conditions']
-        
-        # Por fase de mercado
-        phase = conditions.get('market_phase', 'unknown')
-        if phase not in self.performance_metrics['by_market_phase']:
-            self.performance_metrics['by_market_phase'][phase] = {'correct': 0, 'total': 0}
-        self.performance_metrics['by_market_phase'][phase]['total'] += 1
-        if result['correct']:
-            self.performance_metrics['by_market_phase'][phase]['correct'] += 1
 
     def get_accuracy_insights(self):
-        """Obtener insights de accuracy para mejora continua"""
+        """Obtener insights de precisión - CORREGIDO"""
         total = len(self.error_log)
         if total == 0:
-            return {"accuracy": 0, "insights": []}
+            return {"accuracy": 0.0, "total_predictions": 0, "correct_predictions": 0}
         
         correct = sum(1 for entry in self.error_log if entry['correct'])
-        overall_accuracy = correct / total
-        
-        insights = []
-        
-        # Análisis por confianza
-        for conf_level in ['HIGH', 'MEDIUM', 'LOW']:
-            level_data = [e for e in self.error_log if e['confidence_level'] == conf_level]
-            if level_data:
-                level_acc = sum(1 for e in level_data if e['correct']) / len(level_data)
-                insights.append(f"Accuracy {conf_level} confidence: {level_acc:.1%}")
-        
-        # Análisis por condiciones
-        for condition, performance in self.performance_metrics['by_market_phase'].items():
-            if performance['total'] > 5:
-                acc = performance['correct'] / performance['total']
-                insights.append(f"Accuracy en {condition}: {acc:.1%}")
+        accuracy = correct / total
         
         return {
-            "overall_accuracy": overall_accuracy,
+            "accuracy": accuracy,
             "total_predictions": total,
-            "correct_predictions": correct,
-            "insights": insights
+            "correct_predictions": correct
         }
 
 # ------------------ Predictor MEJORADO ------------------
@@ -465,16 +388,12 @@ class ProductionPredictor:
         self.analyzer = ProductionTickAnalyzer()
         self.model = None
         self.scaler = None
-        self.ensemble_models = {}
-        self.ensemble_weights = {}
         self.prev_candle_metrics = None
         self.partial_buffer = []
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
-            'recent': deque(maxlen=50),
-            'model_performance': {},
-            'feature_importance': {}
+            'recent': deque(maxlen=50)
         }
         self.last_prediction = None
         
@@ -620,7 +539,7 @@ class ProductionPredictor:
         return None
 
     def predict_next_candle_base(self, metrics):
-        """Tu predicción original base"""
+        """Predicción original base"""
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
@@ -655,68 +574,39 @@ class ProductionPredictor:
         return final_pred
 
     def _calibrate_confidence(self, prediction, metrics):
-        """Calibrar confianza basado en historial de condiciones similares"""
+        """Calibrar confianza basado en historial"""
         base_confidence = prediction['confidence']
         
-        # 1. Factor de accuracy histórica en condiciones similares
+        # Factor de accuracy histórica
         historical_accuracy = self.meta_learner.get_condition_accuracy(metrics)
-        accuracy_factor = historical_accuracy / 0.5  # Normalizar a 0.5 como base
+        accuracy_factor = historical_accuracy / 0.5
         
-        # 2. Factor de calidad de datos
+        # Factor de calidad de datos
         data_quality = self._assess_data_quality(metrics)
-        quality_factor = 0.7 + (data_quality * 0.3)  # 0.7-1.0
+        quality_factor = 0.7 + (data_quality * 0.3)
         
-        # 3. Factor de consistencia de señales
-        consistency_factor = self._assess_signal_consistency(metrics)
-        
-        calibrated = base_confidence * accuracy_factor * quality_factor * consistency_factor
+        calibrated = base_confidence * accuracy_factor * quality_factor
         return int(max(25, min(95, calibrated)))
 
     def _assess_data_quality(self, metrics):
-        """Evaluar calidad de datos actuales"""
+        """Evaluar calidad de datos"""
         total_ticks = metrics.get('total_ticks', 0)
         volatility = metrics.get('volatility', 0)
         
         quality_score = 0.0
         
-        # Más ticks = mejor calidad
         if total_ticks >= 30:
             quality_score += 0.4
         elif total_ticks >= 15:
             quality_score += 0.2
             
-        # Volatilidad moderada = buena calidad
         if 0.5 <= volatility <= 3.0:
-            quality_score += 0.3
-        elif volatility > 0:
-            quality_score += 0.1
-            
-        # Actividad consistente
-        tick_speed = metrics.get('tick_speed', 0)
-        if tick_speed > 0.5:
             quality_score += 0.3
             
         return min(1.0, quality_score)
 
-    def _assess_signal_consistency(self, metrics):
-        """Evaluar consistencia de señales"""
-        buy_pressure = metrics.get('buy_pressure', 0.5)
-        sell_pressure = metrics.get('sell_pressure', 0.5)
-        momentum = metrics.get('momentum', 0)
-        
-        # Consistencia entre presión y momentum
-        pressure_difference = abs(buy_pressure - sell_pressure)
-        momentum_aligned = (momentum > 0 and buy_pressure > sell_pressure) or (momentum < 0 and sell_pressure > buy_pressure)
-        
-        if pressure_difference > 0.3 and momentum_aligned:
-            return 1.2  # Boost por alta consistencia
-        elif pressure_difference > 0.15:
-            return 1.0  # Neutral
-        else:
-            return 0.8  # Reducción por inconsistencia
-
     def validate_previous_prediction(self, current_candle_metrics):
-        """Valida si la última predicción fue correcta - MEJORADA CON ANÁLISIS DE ERRORES"""
+        """Valida si la última predicción fue correcta"""
         if not self.last_prediction:
             return None
             
@@ -748,22 +638,15 @@ class ProductionPredictor:
                 "reasons": self.last_prediction.get("reasons", [])
             }
             
-            # NUEVO: ANÁLISIS DE ERRORES EN TIEMPO REAL
+            # NUEVO: ANÁLISIS DE ERRORES
             self.error_analyzer.log_prediction_result(self.last_prediction, actual_direction, self.prev_candle_metrics)
             self.meta_learner.analyze_error_patterns(self.last_prediction, actual_direction, self.prev_candle_metrics)
             
-            # ACTUALIZAR ESTADÍSTICAS GLOBALES
+            # ACTUALIZAR ESTADÍSTICAS
             self._update_global_performance_stats(correct, result)
             
             status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
             logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
-            
-            # MOSTRAR INSIGHTS DE PRECISIÓN PERIÓDICAMENTE
-            if self.performance_stats['total_predictions'] % 10 == 0:
-                insights = self.error_analyzer.get_accuracy_insights()
-                logging.info(f"📊 INSIGHTS PRECISIÓN: Global: {insights['overall_accuracy']:.1%} | Total: {insights['total_predictions']}")
-                for insight in insights['insights'][:3]:  # Mostrar solo 3 insights
-                    logging.info(f"   📈 {insight}")
             
             return result
             
@@ -772,7 +655,7 @@ class ProductionPredictor:
             return None
 
     def _update_global_performance_stats(self, correct, validation_result):
-        """Actualiza estadísticas globales de performance"""
+        """Actualiza estadísticas globales"""
         global performance_stats
         
         performance_stats['total_predictions'] += 1
@@ -783,10 +666,6 @@ class ProductionPredictor:
         if performance_stats['last_10']:
             recent_correct = sum(performance_stats['last_10'])
             performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
-        
-        if performance_stats['total_predictions'] % 5 == 0:
-            overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
-            logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
 
     def on_candle_closed(self, closed_metrics):
         try:
@@ -820,12 +699,11 @@ class ProductionPredictor:
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['correct_predictions'] += int(correct)
             self.performance_stats['recent'].append(int(correct))
-            logging.info(f"📊 Performance registrada - Correcto: {correct}")
         except Exception as e:
             logging.error(f"❌ Error recording performance: {e}")
 
     def _rule_based(self, metrics):
-        """SISTEMA DE REGLAS MEJORADO - CONFIANZA EN ENTEROS"""
+        """SISTEMA DE REGLAS ORIGINAL"""
         signals = []
         confidences = []
         reasons = []
@@ -838,7 +716,7 @@ class ProductionPredictor:
         phase = metrics.get("market_phase", "neutral")
         total_ticks = metrics.get("total_ticks", 0)
         
-        # 1. PRESSURE RATIO - SEÑAL FUERTE
+        # REGLAS ORIGINALES
         if pr > 2.2:
             signals.append(1)
             confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
@@ -856,7 +734,6 @@ class ProductionPredictor:
             confidences.append(min(65, 40 + int((0.7 - pr) * 20)))
             reasons.append(f"Presión venta {pr:.1f}x")
         
-        # 2. MOMENTUM - SEÑAL MEDIA
         if mom > 2.0:
             signals.append(1)
             confidences.append(min(75, 45 + int(min(mom, 8) * 3)))
@@ -871,7 +748,6 @@ class ProductionPredictor:
             confidences.append(55)
             reasons.append(f"Momento leve {mom:.1f}pips")
         
-        # 3. BUY/SELL PRESSURE - SEÑAL DIRECTA
         if bp > 0.70:
             signals.append(1)
             confidences.append(70)
@@ -881,15 +757,7 @@ class ProductionPredictor:
             confidences.append(70)
             reasons.append(f"Dominio venta {sp:.0%}")
         
-        # 4. VOLATILIDAD + FASE MERCADO
-        if vol > 6.0:
-            if phase == "strong_trend" and abs(mom) > 1.5:
-                direction = 1 if mom > 0 else 0
-                signals.append(direction)
-                confidences.append(min(80, 60 + int(vol)))
-                reasons.append(f"Tendencia volátil {vol:.1f}pips")
-        
-        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
+        # DECISIÓN FINAL
         if signals:
             avg_confidence = int(sum(confidences) / len(confidences))
             
@@ -908,10 +776,6 @@ class ProductionPredictor:
                 direction = 1 if buy_signals > sell_signals else 0
                 final_confidence = max(40, avg_confidence - 15)
                 reasons.append("Señales mixtas")
-                
-                if abs(buy_signals - sell_signals) <= 1:
-                    final_confidence = max(35, final_confidence - 10)
-                    reasons.append("Alta indecisión")
         else:
             price_change = metrics.get("price_change", 0)
             if abs(price_change) > 0.5:
@@ -941,7 +805,7 @@ class ProductionPredictor:
         }
 
     def _fuse(self, mlp_pred, rules_pred, metrics):
-        """FUSIÓN MEJORADA - CONFIANZA EN ENTEROS"""
+        """FUSIÓN ORIGINAL"""
         if not mlp_pred:
             return rules_pred
             
@@ -1017,14 +881,14 @@ class ProductionPredictor:
             }
         
         # NUEVO: INTENTAR PREDICCIÓN DE ALTA PRECISIÓN
-        if self.high_accuracy_mode and seconds_remaining_norm and seconds_remaining_norm <= 0.1:  # Últimos 6 segundos
+        if self.high_accuracy_mode and seconds_remaining_norm and seconds_remaining_norm <= 0.1:
             high_acc_pred = self._high_accuracy_prediction(metrics)
             if high_acc_pred:
                 logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN: {high_acc_pred['direction']} - {high_acc_pred['confidence']}%")
                 self.last_prediction = high_acc_pred.copy()
                 return high_acc_pred
         
-        # PREDICCIÓN ORIGINAL (TU CÓDIGO)
+        # PREDICCIÓN ORIGINAL
         features = self.extract_features(metrics).reshape(1, -1)
         mlp_pred = None
         
@@ -1055,8 +919,6 @@ class ProductionPredictor:
             final_pred = self._fuse(mlp_pred, rules_pred, metrics)
         else:
             final_pred = rules_pred
-            if total_ticks < 12 and mlp_pred:
-                final_pred["reasons"].append("Fusión no disponible - pocos datos")
         
         self.last_prediction = final_pred.copy()
         return final_pred
@@ -1100,11 +962,7 @@ class IQOptionConnector:
 
     def _find_working_pair(self):
         """Encontrar un par que funcione"""
-        test_pairs = [
-            "EURUSD",
-            "EURUSD-OTC", 
-            "EURUSD",
-        ]
+        test_pairs = ["EURUSD", "EURUSD-OTC", "EURUSD"]
         
         for pair in test_pairs:
             try:
@@ -1282,7 +1140,7 @@ def professional_tick_analyzer():
                     "status": "CONECTADO"
                 })
                 
-            # LÓGICA DE VELAS MEJORADA
+            # LÓGICA DE VELAS
             now = time.time()
             current_candle_start = now//TIMEFRAME*TIMEFRAME
             seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
@@ -1295,17 +1153,15 @@ def professional_tick_analyzer():
                         current_prediction.update(pred)
                         last_prediction_time = time.time()
                         
-                        # NUEVO: LOG MEJORADO PARA ALTA PRECISIÓN
                         if pred.get('high_accuracy', False):
-                            logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN: {pred.get('direction')} | Confianza: {pred.get('confidence')}% | Ticks: {pred.get('tick_count', 0)}")
+                            logging.info(f"🎯 PREDICCIÓN ALTA PRECISIÓN: {pred.get('direction')} | Confianza: {pred.get('confidence')}%")
                         else:
-                            logging.info(f"🎯 PREDICCIÓN VELA SIGUIENTE: {pred.get('direction')} | Confianza: {pred.get('confidence')}% | Ticks: {pred.get('tick_count', 0)}")
+                            logging.info(f"🎯 PREDICCIÓN VELA SIGUIENTE: {pred.get('direction')} | Confianza: {pred.get('confidence')}%")
             
             # CAMBIO DE VELA CON VALIDACIÓN
             if current_candle_start > last_candle_start:
                 closed_metrics = predictor.analyzer.get_candle_metrics()
                 if closed_metrics:
-                    # ✅ VALIDACIÓN AGREGADA
                     validation_result = predictor.validate_previous_prediction(closed_metrics)
                     if validation_result:
                         performance_stats['last_validation'] = validation_result
@@ -1322,7 +1178,7 @@ def professional_tick_analyzer():
             logging.error(f"💥 Error en loop: {e}")
             time.sleep(2)
 
-# --------------- FastAPI COMPLETO CON VALIDACIÓN ---------------
+# --------------- FastAPI COMPLETO CORREGIDO ---------------
 app = FastAPI()
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
@@ -1360,11 +1216,12 @@ def home():
     
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # NUEVO: Mostrar información de alta precisión
+    # CORRECCIÓN: Manejo seguro de insights
     high_accuracy_info = ""
     if predictor.high_accuracy_mode:
         insights = predictor.error_analyzer.get_accuracy_insights()
-        high_accuracy_info = f" | Modo Alta Precisión: {insights['overall_accuracy']:.1%}"
+        if insights and 'accuracy' in insights:  # CLAVE CORREGIDA
+            high_accuracy_info = f" | Precisión: {insights['accuracy']:.1%}"
     
     html = f"""
     <!doctype html>
@@ -1484,9 +1341,6 @@ def home():
                 <div id="performance-stats" style="font-size: 0.9em; color: #ccc;">
                     Cargando estadísticas...
                 </div>
-                <div id="accuracy-insights" style="font-size: 0.8em; color: #888; margin-top: 10px;">
-                    Cargando insights...
-                </div>
             </div>
             
             <div class="metrics-grid">
@@ -1576,7 +1430,6 @@ def home():
                     .then(data => {{
                         const validation = data.last_validation;
                         const perf = data.performance;
-                        const insights = data.accuracy_insights || {{}};
                         
                         if (validation && validation.timestamp) {{
                             const correct = validation.correct;
@@ -1609,12 +1462,6 @@ def home():
                                 | <strong>Total:</strong> ${{perf.total_predictions}} predicciones
                             `;
                         }}
-                        
-                        if (insights.insights) {{
-                            document.getElementById('accuracy-insights').innerHTML = `
-                                <strong>Insights:</strong> ${{insights.insights.slice(0, 2).join(' | ')}}
-                            `;
-                        }}
                     }})
                     .catch(error => console.error('Error:', error));
             }}
@@ -1637,7 +1484,7 @@ def api_prediction():
 
 @app.get("/api/validation")
 def api_validation():
-    """Endpoint para validaciones - MEJORADO CON INSIGHTS"""
+    """Endpoint para validaciones"""
     try:
         global performance_stats
         
@@ -1648,50 +1495,19 @@ def api_validation():
         
         overall_accuracy = (correct / total * 100) if total > 0 else 0.0
         
-        # NUEVO: Obtener insights de precisión
-        accuracy_insights = predictor.error_analyzer.get_accuracy_insights()
-        
         return JSONResponse({
             "last_validation": last_validation,
             "performance": {
                 "total_predictions": total,
                 "correct_predictions": correct,
                 "overall_accuracy": round(overall_accuracy, 1),
-                "recent_accuracy": round(recent_acc, 1),
-                "last_10_results": list(performance_stats.get('last_10', []))
+                "recent_accuracy": round(recent_acc, 1)
             },
-            "accuracy_insights": accuracy_insights,
             "timestamp": now_iso()
         })
     except Exception as e:
         logging.error(f"Error en /api/validation: {e}")
         return JSONResponse({"error": "Error obteniendo validación"})
-
-@app.get("/api/prediction_history")
-def api_prediction_history():
-    """Historial de predicciones"""
-    try:
-        if os.path.exists(PERF_CSV):
-            df = pd.read_csv(PERF_CSV)
-            if not df.empty:
-                if 'timestamp' in df.columns:
-                    df = df.sort_values('timestamp', ascending=False)
-                recent = df.head(20).to_dict('records')
-                
-                if 'correct' in df.columns:
-                    hist_accuracy = df['correct'].mean() * 100
-                else:
-                    hist_accuracy = 0.0
-                    
-                return JSONResponse({
-                    "recent_predictions": recent,
-                    "historical_accuracy": round(hist_accuracy, 1),
-                    "total_historical": len(df)
-                })
-    except Exception as e:
-        logging.error(f"Error reading prediction history: {e}")
-    
-    return JSONResponse({"recent_predictions": [], "historical_accuracy": 0.0})
 
 @app.get("/api/status")
 def api_status():
@@ -1700,7 +1516,6 @@ def api_status():
     perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
     actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
     
-    # NUEVO: Información de alta precisión
     accuracy_insights = predictor.error_analyzer.get_accuracy_insights()
     
     return JSONResponse({
@@ -1715,46 +1530,6 @@ def api_status():
         "accuracy_insights": accuracy_insights,
         "timestamp": now_iso()
     })
-
-@app.get("/api/performance")
-def api_performance():
-    try:
-        if os.path.exists(PERF_CSV):
-            perf_df = pd.read_csv(PERF_CSV)
-            total = len(perf_df)
-            if total > 0 and "correct" in perf_df:
-                accuracy = perf_df["correct"].mean() * 100
-                recent_perf = perf_df.tail(min(20, total))
-                recent_accuracy = recent_perf["correct"].mean() * 100 if len(recent_perf) > 0 else 0
-                
-                return JSONResponse({
-                    "total_predictions": total,
-                    "overall_accuracy": round(accuracy, 2),
-                    "recent_accuracy": round(recent_accuracy, 2),
-                    "confidence_avg": round(perf_df["confidence"].mean(), 2) if "confidence" in perf_df else 0
-                })
-    except Exception as e:
-        logging.error("Error /api/performance: %s", e)
-    
-    return JSONResponse({"error": "No performance data available"})
-
-@app.get("/api/patterns")
-def api_patterns():
-    try:
-        metrics = predictor.analyzer.get_candle_metrics()
-        if metrics:
-            return JSONResponse({
-                "market_phase": metrics.get("market_phase", "unknown"),
-                "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
-                "volatility": metrics.get("volatility", 0),
-                "momentum": metrics.get("momentum", 0),
-                "price_history": predictor.analyzer.get_price_history(),
-                "total_ticks": predictor.analyzer.tick_count
-            })
-    except Exception as e:
-        logging.error("Error /api/patterns: %s", e)
-    
-    return JSONResponse({"error": "No pattern data available"})
 
 # --------------- Inicialización para Render ---------------
 def start_background_tasks():

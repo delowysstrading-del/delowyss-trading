@@ -18,7 +18,6 @@ import joblib
 from fastapi import FastAPI, BackgroundTasks
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
-from fastapi.staticfiles import StaticFiles
 
 # Gestión elegante de dependencias opcionales
 try:
@@ -1160,10 +1159,10 @@ current_prediction = {
     "direction": "N/A",
     "confidence": 0,
     "tick_count": 0,
-    "current_price": 1.14777,  # ✅ PRECIO INICIAL REALISTA
+    "current_price": 1.14777,
     "reasons": ["🤖 Sistema inicializando..."],
     "timestamp": now_iso(),
-    "status": "ACTIVE",  # ✅ ACTIVO INMEDIATAMENTE
+    "status": "ACTIVE",
     "candle_progress": 0,
     "market_phase": "N/A",
     "buy_score": 0,
@@ -1201,7 +1200,7 @@ def tick_processor(price, timestamp):
             # ✅ ACTUALIZACIÓN INMEDIATA DE DATOS BÁSICOS
             current_prediction.update({
                 "current_price": float(price),
-                "tick_count": predictor.analyzer.tick_count,
+                "tick_count": predictor.analyzer.tick_count,  # ✅ USAR CONTADOR REAL DEL ANALIZADOR
                 "timestamp": now_iso(),
                 "status": "ACTIVE",
                 "candle_progress": (current_time - predictor.analyzer.candle_start_time) / TIMEFRAME 
@@ -1255,7 +1254,7 @@ def premium_main_loop():
             # ✅ ACTUALIZACIÓN BÁSICA CONSTANTE
             current_prediction.update({
                 "current_price": float(iq_connector.last_price),
-                "tick_count": predictor.analyzer.tick_count,  # ✅ CORREGIDO: Usar contador real
+                "tick_count": predictor.analyzer.tick_count,  # ✅ USAR CONTADOR REAL DEL ANALIZADOR
                 "timestamp": now_iso(),
                 "candle_progress": (current_time - current_candle_start) / TIMEFRAME,
                 "status": "ACTIVE"

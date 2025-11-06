@@ -1,4 +1,4 @@
-# main.py - VERSIÓN PREMIUM PROFESIONAL
+# main.py - VERSIÓN PREMIUM PROFESIONAL MEJORADA
 """
 Delowyss Trading AI — V5.0 PREMIUM
 Sistema profesional con interfaz premium y IA avanzada
@@ -589,6 +589,12 @@ def premium_interface():
     current_time = time.time()
     seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
     
+    # Generar HTML de razones de forma segura
+    reasons_html = ""
+    reasons_list = current_prediction.get('reasons', ['IA analizando factores de mercado...'])
+    for reason in reasons_list:
+        reasons_html += f"<li>{reason}</li>"
+    
     html = f"""
     <!DOCTYPE html>
     <html lang="es">
@@ -910,7 +916,7 @@ def premium_interface():
                     
                     <h4 style="margin-top: 20px; margin-bottom: 10px;">📊 FACTORES DE DECISIÓN:</h4>
                     <ul class="reasons-list" id="reasons-list">
-                        {"".join([f"<li>{r}</li>" for r in current_prediction.get('reasons', ['IA analizando factores de mercado...'])])}
+                        {reasons_html}
                     </ul>
                 </div>
                 
@@ -1023,7 +1029,7 @@ def premium_interface():
                 
                 // Actualizar razones
                 const reasonsList = document.getElementById('reasons-list');
-                reasonsList.innerHTML = reasons.map(r => `<li>${r}</li>`).join('') || 
+                reasonsList.innerHTML = reasons.map(reason => `<li>${{reason}}</li>`).join('') || 
                     '<li>🤖 IA analizando factores de mercado...</li>';
             }}
             
@@ -1039,15 +1045,15 @@ def premium_interface():
                     const bgColor = correct ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 68, 68, 0.1)';
                     
                     document.getElementById('validation-result').innerHTML = `
-                        <div style="background: ${bgColor}; padding: 20px; border-radius: 10px; border-left: 4px solid ${color};">
+                        <div style="background: ${{bgColor}}; padding: 20px; border-radius: 10px; border-left: 4px solid ${{color}};">
                             <div style="display: flex; align-items: center; margin-bottom: 10px;">
-                                <span style="font-size: 2em; margin-right: 15px;">${icon}</span>
+                                <span style="font-size: 2em; margin-right: 15px;">${{icon}}</span>
                                 <div>
-                                    <div style="font-size: 1.3em; font-weight: 600; color: ${color};">
-                                        ${validation.predicted} → ${validation.actual}
+                                    <div style="font-size: 1.3em; font-weight: 600; color: ${{color}};">
+                                        ${{validation.predicted}} → ${{validation.actual}}
                                     </div>
                                     <div style="color: #94a3b8; font-size: 0.9em;">
-                                        Cambio: ${validation.price_change_pips}pips | Confianza: ${validation.confidence}%
+                                        Cambio: ${{validation.price_change}}pips | Confianza: ${{validation.confidence}}%
                                     </div>
                                 </div>
                             </div>
@@ -1059,7 +1065,7 @@ def premium_interface():
                     document.getElementById('accuracy').textContent = performance.recent_accuracy.toFixed(1) + '%';
                     document.getElementById('total-pred').textContent = performance.total_predictions;
                     document.getElementById('correct-pred').textContent = performance.correct_predictions;
-                    document.getElementById('avg-confidence').textContent = data.average_confidence?.toFixed(1) || '0.0' + '%';
+                    document.getElementById('avg-confidence').textContent = (data.average_confidence || 0).toFixed(1) + '%';
                     
                     // Actualizar historial para gráfico
                     performanceHistory.push(performance.recent_accuracy);
@@ -1097,7 +1103,7 @@ def premium_interface():
                 window.performanceChart = new Chart(ctx, {{
                     type: 'line',
                     data: {{
-                        labels: Array.from({length: performanceHistory.length}, (_, i) => i + 1),
+                        labels: Array.from({{length: performanceHistory.length}}, (_, i) => i + 1),
                         datasets: [{{
                             label: 'Precisión (%)',
                             data: performanceHistory,
@@ -1143,14 +1149,8 @@ def premium_interface():
             // Inicializar
             setInterval(updateCountdown, 1000);
             setInterval(updateAllData, 2000);
-            setInterval(updateCountdown, 1000);
             updateAllData();
             updateCountdown();
-            
-            // Efectos de sonido (opcional)
-            function playSound(sound) {{
-                // Implementar sonidos opcionales para alerts
-            }}
         </script>
     </body>
     </html>

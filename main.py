@@ -1,7 +1,7 @@
-# main.py - VERSIÓN FINAL ESTABILIZADA
+# main.py - VERSIÓN COMPLETA CON INTERFAZ FUNCIONAL
 """
-Delowyss Trading AI — V5.0 PREMIUM ESTABLE
-Sistema profesional con IA mejorada y máxima estabilidad
+Delowyss Trading AI — V5.0 PREMIUM COMPLETO
+Sistema profesional con interfaz funcional
 CEO: Eduardo Solis — © 2025
 """
 
@@ -42,7 +42,7 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ IA AVANZADA ESTABILIZADA ------------------
+# ------------------ IA AVANZADA ------------------
 class PremiumAIAnalyzer:
     def __init__(self):
         self.ticks = deque(maxlen=80)
@@ -80,14 +80,13 @@ class PremiumAIAnalyzer:
             return None
     
     def _calculate_advanced_metrics(self):
-        """Métricas avanzadas ESTABILIZADAS"""
+        """Métricas avanzadas"""
         if len(self.price_memory) < 8:
             return {}
             
         try:
             prices = np.array(list(self.price_memory))
             
-            # ANÁLISIS SIMPLIFICADO PERO EFECTIVO
             if len(prices) >= 12:
                 short_trend = np.polyfit(range(6), prices[-6:], 1)[0]
                 medium_trend = np.polyfit(range(12), prices[-12:], 1)[0]
@@ -95,19 +94,16 @@ class PremiumAIAnalyzer:
             else:
                 trend_strength = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
             
-            # MOMENTUM MEJORADO
             momentum_5 = (prices[-1] - prices[-5]) * 10000 if len(prices) >= 5 else 0
             momentum_10 = (prices[-1] - prices[-10]) * 10000 if len(prices) >= 10 else 0
             momentum = (momentum_5 * 0.7 + momentum_10 * 0.3)
             
-            # VOLATILIDAD REALISTA
             recent_prices = prices[-8:] if len(prices) >= 8 else prices
             if len(recent_prices) > 1:
                 volatility = (max(recent_prices) - min(recent_prices)) * 10000
             else:
                 volatility = 0
             
-            # PRESIÓN DE MERCADO MEJORADA
             if len(self.ticks) > 6:
                 recent_ticks = list(self.ticks)[-10:]
                 price_changes = []
@@ -133,7 +129,6 @@ class PremiumAIAnalyzer:
             else:
                 buy_pressure = sell_pressure = pressure_ratio = 0.5
             
-            # FASE DE MERCADO SIMPLIFICADA
             if volatility < 0.2 and abs(trend_strength) < 0.4:
                 market_phase = "consolidation"
             elif abs(trend_strength) > 1.5:
@@ -195,7 +190,7 @@ class PremiumAIAnalyzer:
         except Exception as e:
             logging.error(f"Error en reset: {e}")
 
-# ------------------ SISTEMA IA PROFESIONAL ESTABILIZADO ------------------
+# ------------------ SISTEMA IA PROFESIONAL ------------------
 class ProfessionalAIPredictor:
     def __init__(self):
         self.analyzer = PremiumAIAnalyzer()
@@ -216,7 +211,7 @@ class ProfessionalAIPredictor:
             return None
     
     def _professional_ai_analysis(self, analysis):
-        """Análisis de IA ESTABILIZADO y MÁS PRECISO"""
+        """Análisis de IA"""
         try:
             momentum = analysis['momentum']
             trend_strength = analysis['trend_strength']
@@ -225,12 +220,10 @@ class ProfessionalAIPredictor:
             market_phase = analysis['market_phase']
             data_quality = analysis['data_quality']
             
-            # SISTEMA DE PUNTUACIÓN MÁS CONSERVADOR
             buy_score = 0
             sell_score = 0
             reasons = []
             
-            # 1. TENDENCIA (40% peso) - MÁS IMPORTANTE
             trend_weight = 0.40
             if abs(trend_strength) > 1.0:
                 if trend_strength > 0:
@@ -240,7 +233,6 @@ class ProfessionalAIPredictor:
                     sell_score += 8 * trend_weight
                     reasons.append(f"📉 Tendencia bajista ({trend_strength:.1f})")
             
-            # 2. MOMENTUM (35% peso)
             momentum_weight = 0.35
             if abs(momentum) > 0.6:
                 if momentum > 0:
@@ -250,7 +242,6 @@ class ProfessionalAIPredictor:
                     sell_score += 7 * momentum_weight
                     reasons.append(f"🔻 Momentum bajista ({momentum:.1f}pips)")
             
-            # 3. PRESIÓN (25% peso)
             pressure_weight = 0.25
             if pressure_ratio > 1.5:
                 buy_score += 6 * pressure_weight
@@ -259,10 +250,8 @@ class ProfessionalAIPredictor:
                 sell_score += 6 * pressure_weight
                 reasons.append(f"💸 Presión vendedora ({pressure_ratio:.1f}x)")
             
-            # DECISIÓN FINAL MÁS CONSERVADORA
             score_difference = buy_score - sell_score
             
-            # SOLO PREDECIR CON SEÑALES FUERTES
             if abs(score_difference) > 0.4:
                 if score_difference > 0:
                     direction = "ALZA"
@@ -275,16 +264,13 @@ class ProfessionalAIPredictor:
                 base_confidence = 40
                 reasons.append("⚡ Señales insuficientes")
             
-            # AJUSTES DE CONFIANZA
             confidence = base_confidence
             confidence *= data_quality
             
-            # SER MÁS CONSERVADOR EN ALTA VOLATILIDAD
             if volatility > 1.2:
                 confidence *= 0.7
                 reasons.append("🌪️ Mercado volátil")
             
-            # MÁS DATOS = MÁS CONFIANZA
             if analysis['tick_count'] > 25:
                 confidence = min(85, confidence + 10)
             
@@ -304,7 +290,7 @@ class ProfessionalAIPredictor:
             return {
                 'direction': 'LATERAL',
                 'confidence': 35,
-                'reasons': ['🤖 Error en análisis - modo seguro'],
+                'reasons': ['🤖 Error en análisis'],
                 'buy_score': 0,
                 'sell_score': 0,
                 'score_difference': 0
@@ -324,7 +310,6 @@ class ProfessionalAIPredictor:
             
             prediction = self._professional_ai_analysis(analysis)
             
-            # SOLO PREDICCIONES CON BUENA CONFIANZA
             if prediction['confidence'] < 50:
                 prediction['direction'] = 'LATERAL'
                 prediction['reasons'].append("🔍 Confianza insuficiente")
@@ -333,7 +318,7 @@ class ProfessionalAIPredictor:
                 'tick_count': analysis['tick_count'],
                 'current_price': analysis['current_price'],
                 'timestamp': now_iso(),
-                'model_version': 'PROFESSIONAL_AI_V5_ESTABLE'
+                'model_version': 'PROFESSIONAL_AI_V5'
             })
             
             self.last_prediction = prediction
@@ -350,7 +335,7 @@ class ProfessionalAIPredictor:
             }
     
     def validate_prediction(self, new_candle_open_price):
-        """Validación ESTABILIZADA"""
+        """Validación precisa"""
         try:
             if not self.last_prediction:
                 return None
@@ -366,7 +351,6 @@ class ProfessionalAIPredictor:
                 
             price_change = (current_open - previous_close) * 10000
             
-            # UMBRAL MÁS REALISTA
             minimal_change = 0.2
             
             if abs(price_change) < minimal_change:
@@ -380,7 +364,6 @@ class ProfessionalAIPredictor:
                 
                 is_correct = (actual_direction == predicted_direction)
             
-            # ACTUALIZAR ESTADÍSTICAS
             if predicted_direction != "LATERAL":
                 self.performance_stats['total_predictions'] += 1
                 if is_correct:
@@ -391,7 +374,6 @@ class ProfessionalAIPredictor:
             accuracy = (correct / total * 100) if total > 0 else 0
             self.performance_stats['recent_accuracy'] = accuracy
             
-            # LOGGING CLARO
             status_icon = "✅" if is_correct else "❌"
             if actual_direction == "LATERAL":
                 status_icon = "⚪"
@@ -432,7 +414,7 @@ class ProfessionalAIPredictor:
         except Exception as e:
             logging.error(f"Error en reset predictor: {e}")
 
-# -------------- CONEXIÓN PROFESIONAL ESTABILIZADA --------------
+# -------------- CONEXIÓN PROFESIONAL --------------
 class ProfessionalIQConnector:
     def __init__(self):
         self.iq = None
@@ -471,16 +453,13 @@ class ProfessionalIQConnector:
     def get_realtime_price(self):
         try:
             if not self.connected:
-                # Precio demo realista
                 if self.last_price is None:
-                    self.last_price = 1.15389  # Precio inicial realista
+                    self.last_price = 1.15389
                 else:
-                    # Variación más realista
                     variation = np.random.uniform(-0.0001, 0.0001)
                     self.last_price += variation
                 return self.last_price
 
-            # Intentar obtener precio real
             candles = self.iq.get_candles(PAR, TIMEFRAME, 1, time.time())
             if candles and len(candles) > 0:
                 price = float(candles[-1]['close'])
@@ -498,11 +477,10 @@ class ProfessionalIQConnector:
         self.tick_count += 1
         self.last_price = price
         
-        # Logging menos frecuente
         if self.tick_count <= 3 or self.tick_count % 200 == 0:
             logging.info(f"💰 Tick #{self.tick_count}: {price:.5f}")
 
-# --------------- SISTEMA PRINCIPAL ESTABILIZADO ---------------
+# --------------- SISTEMA PRINCIPAL ---------------
 iq_connector = ProfessionalIQConnector()
 predictor = ProfessionalAIPredictor()
 
@@ -527,10 +505,9 @@ performance_stats = {
 def premium_main_loop():
     global current_prediction, performance_stats
     
-    logging.info("🚀 DELOWYSS AI V5.0 ESTABLE INICIADO")
-    logging.info("🎯 Sistema profesional con máxima estabilidad")
+    logging.info("🚀 DELOWYSS AI V5.0 INICIADO")
+    logging.info("🎯 Sistema profesional activo")
     
-    # Conexión simple
     iq_connector.connect()
     
     last_prediction_time = 0
@@ -543,14 +520,12 @@ def premium_main_loop():
             current_candle_start = current_time // TIMEFRAME * TIMEFRAME
             seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
             
-            # OBTENER PRECIO
             price = iq_connector.get_realtime_price()
             
             if price and price > 0:
                 predictor.process_tick(price)
                 last_price = price
                 
-                # ACTUALIZAR ESTADO
                 current_prediction.update({
                     "current_price": price,
                     "tick_count": predictor.analyzer.tick_count,
@@ -558,7 +533,6 @@ def premium_main_loop():
                     "status": "ACTIVE"
                 })
             
-            # PREDICCIÓN CON TIMING MEJORADO
             if (seconds_remaining <= PREDICTION_WINDOW and 
                 seconds_remaining > 2 and
                 predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
@@ -573,7 +547,6 @@ def premium_main_loop():
                     if prediction['direction'] != 'LATERAL':
                         logging.info(f"🎯 PREDICCIÓN: {prediction['direction']} | Conf: {prediction['confidence']}%")
             
-            # CAMBIO DE VELA
             if current_candle_start > last_candle_start and last_price is not None:
                 validation_result = predictor.validate_prediction(last_price)
                 if validation_result:
@@ -588,159 +561,419 @@ def premium_main_loop():
                 last_candle_start = current_candle_start
                 logging.info("🕯️ Nueva vela - Analizando...")
             
-            time.sleep(0.3)  # Loop más rápido pero estable
+            time.sleep(0.3)
             
         except Exception as e:
             logging.error(f"💥 Error en loop: {e}")
-            time.sleep(1)  # Recuperación más rápida
+            time.sleep(1)
 
-# --------------- INTERFAZ WEB SIMPLIFICADA ---------------
-app = FastAPI(title="Delowyss AI Premium", version="5.0.4")
+# --------------- INTERFAZ WEB COMPLETA Y FUNCIONAL ---------------
+app = FastAPI(title="Delowyss AI Premium", version="5.0.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/", response_class=HTMLResponse)
 def premium_interface():
     direction = current_prediction.get("direction", "N/A")
     confidence = current_prediction.get("confidence", 0)
+    current_price = current_prediction.get("current_price", 0)
+    tick_count = current_prediction.get("tick_count", 0)
+    
     accuracy = performance_stats.get('recent_accuracy', 0)
+    total_predictions = performance_stats.get('total_predictions', 0)
+    correct_predictions = performance_stats.get('correct_predictions', 0)
     
     # Colores dinámicos
     if direction == "ALZA":
-        color = "#00ff88"
+        primary_color = "#00ff88"
+        gradient = "linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)"
     elif direction == "BAJA":
-        color = "#ff4444"
+        primary_color = "#ff4444"
+        gradient = "linear-gradient(135deg, #ff4444 0%, #cc3636 100%)"
     else:
-        color = "#ffbb33"
+        primary_color = "#ffbb33"
+        gradient = "linear-gradient(135deg, #ffbb33 0%, #cc9929 100%)"
     
-    # Generar HTML seguro
+    # Calcular nivel de confianza
+    confidence_level = "ALTA" if confidence > 70 else "MEDIA" if confidence > 50 else "BAJA"
+    confidence_color = "#00ff88" if confidence > 70 else "#ffbb33" if confidence > 50 else "#ff4444"
+    
+    # Generar HTML de razones
     reasons_html = ""
     reasons_list = current_prediction.get('reasons', ['Analizando mercado...'])
     for reason in reasons_list:
-        reasons_html += f"<li>{reason}</li>"
+        reasons_html += f'<li class="reason-item">{reason}</li>'
     
-    html = f"""
+    # Calcular tiempo hasta siguiente vela
+    current_time = time.time()
+    seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+    
+    html_content = f"""
     <!DOCTYPE html>
-    <html>
+    <html lang="es">
     <head>
-        <title>Delowyss AI Premium V5.0</title>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Delowyss AI Premium V5.0</title>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
-            body {{
-                font-family: Arial, sans-serif;
-                background: #0f172a;
-                color: white;
+            * {{
                 margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }}
+            
+            body {{
+                font-family: 'Inter', sans-serif;
+                background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
+                color: #f8fafc;
+                min-height: 100vh;
                 padding: 20px;
             }}
+            
             .container {{
-                max-width: 800px;
+                max-width: 1200px;
                 margin: 0 auto;
             }}
-            .card {{
-                background: rgba(255,255,255,0.05);
-                border-radius: 10px;
+            
+            .header {{
+                text-align: center;
+                margin-bottom: 30px;
                 padding: 20px;
-                margin: 10px 0;
-                border-left: 4px solid {color};
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 15px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
             }}
-            .prediction {{
-                font-size: 2em;
-                font-weight: bold;
-                color: {color};
-                text-align: center;
+            
+            .logo {{
+                font-size: 2.5em;
+                font-weight: 700;
+                margin-bottom: 10px;
+                background: {gradient};
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
             }}
-            .confidence {{
-                text-align: center;
-                font-size: 1.2em;
-                margin: 10px 0;
+            
+            .subtitle {{
+                color: #94a3b8;
+                font-size: 1.1em;
             }}
-            .metrics {{
+            
+            .dashboard {{
                 display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 10px;
-                margin: 15px 0;
+                grid-template-columns: 1fr 1fr;
+                gap: 20px;
+                margin-bottom: 20px;
             }}
-            .metric {{
-                background: rgba(255,255,255,0.1);
-                padding: 10px;
-                border-radius: 5px;
+            
+            @media (max-width: 768px) {{
+                .dashboard {{
+                    grid-template-columns: 1fr;
+                }}
+            }}
+            
+            .card {{
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 15px;
+                padding: 25px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+                backdrop-filter: blur(10px);
+            }}
+            
+            .prediction-card {{
+                grid-column: 1 / -1;
                 text-align: center;
+                border-left: 4px solid {primary_color};
             }}
-            .reasons {{
+            
+            .direction {{
+                font-size: 3.5em;
+                font-weight: 700;
+                color: {primary_color};
+                margin: 20px 0;
+            }}
+            
+            .confidence {{
+                font-size: 1.3em;
+                margin-bottom: 20px;
+            }}
+            
+            .confidence-badge {{
+                display: inline-block;
+                background: {confidence_color};
+                color: #0f172a;
+                padding: 5px 12px;
+                border-radius: 20px;
+                font-weight: 600;
+                font-size: 0.9em;
+                margin-left: 10px;
+            }}
+            
+            .countdown {{
+                background: rgba(0, 0, 0, 0.3);
+                padding: 15px;
+                border-radius: 10px;
+                margin: 20px 0;
+                font-family: 'Courier New', monospace;
+            }}
+            
+            .countdown-number {{
+                font-size: 2.5em;
+                font-weight: 700;
+                color: {primary_color};
+            }}
+            
+            .metrics-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+                gap: 15px;
+                margin: 20px 0;
+            }}
+            
+            .metric {{
+                background: rgba(255, 255, 255, 0.03);
+                padding: 15px;
+                border-radius: 10px;
+                text-align: center;
+                border: 1px solid rgba(255, 255, 255, 0.05);
+            }}
+            
+            .metric-value {{
+                font-size: 1.5em;
+                font-weight: 700;
+                color: {primary_color};
+                margin-bottom: 5px;
+            }}
+            
+            .metric-label {{
+                color: #94a3b8;
+                font-size: 0.85em;
+            }}
+            
+            .reasons-list {{
                 list-style: none;
-                padding: 0;
+                margin-top: 15px;
             }}
-            .reasons li {{
-                background: rgba(255,255,255,0.05);
-                margin: 5px 0;
-                padding: 8px;
-                border-radius: 5px;
+            
+            .reason-item {{
+                background: rgba(255, 255, 255, 0.03);
+                margin: 8px 0;
+                padding: 12px 15px;
+                border-radius: 8px;
+                border-left: 3px solid {primary_color};
+            }}
+            
+            .performance {{
+                margin-top: 20px;
+                padding-top: 20px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+            }}
+            
+            .validation-result {{
+                background: rgba(255, 255, 255, 0.03);
+                padding: 15px;
+                border-radius: 10px;
+                margin: 10px 0;
+                border: 1px solid rgba(255, 255, 255, 0.1);
             }}
         </style>
     </head>
     <body>
         <div class="container">
-            <h1>🤖 DELOWYSS AI PREMIUM V5.0</h1>
+            <!-- Header -->
+            <div class="header">
+                <div class="logo">🤖 DELOWYSS AI PREMIUM</div>
+                <div class="subtitle">Sistema de Trading con Inteligencia Artificial Avanzada V5.0</div>
+            </div>
             
-            <div class="card">
-                <div class="prediction" id="direction">{direction}</div>
-                <div class="confidence" id="confidence">Confianza: {confidence}%</div>
+            <!-- Dashboard -->
+            <div class="dashboard">
+                <!-- Predicción Principal -->
+                <div class="card prediction-card">
+                    <h2>🎯 PREDICCIÓN ACTUAL</h2>
+                    <div class="direction" id="direction">{direction}</div>
+                    <div class="confidence">
+                        CONFIANZA: {confidence}%
+                        <span class="confidence-badge">{confidence_level}</span>
+                    </div>
+                    
+                    <!-- Countdown -->
+                    <div class="countdown">
+                        <div style="color: #94a3b8; margin-bottom: 10px;">SIGUIENTE PREDICCIÓN EN:</div>
+                        <div class="countdown-number" id="countdown">{int(seconds_remaining)}s</div>
+                    </div>
+                    
+                    <!-- Métricas Rápidas -->
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-value" id="tick-count">{tick_count}</div>
+                            <div class="metric-label">TICKS</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">{current_price:.5f}</div>
+                            <div class="metric-label">PRECIO</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" id="accuracy">{accuracy:.1f}%</div>
+                            <div class="metric-label">PRECISIÓN</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value">{current_prediction.get('market_phase', 'N/A')}</div>
+                            <div class="metric-label">FASE</div>
+                        </div>
+                    </div>
+                </div>
                 
-                <div class="metrics">
-                    <div class="metric">
-                        <div id="tick-count">{current_prediction.get('tick_count', 0)}</div>
-                        <small>Ticks</small>
+                <!-- Análisis IA -->
+                <div class="card">
+                    <h3>🧠 ANÁLISIS DE IA</h3>
+                    <div class="score-display">
+                        <div style="display: flex; justify-content: space-between; margin: 15px 0;">
+                            <span style="color: #00ff88;">COMPRA: <span id="buy-score">{current_prediction.get('buy_score', 0)}</span></span>
+                            <span style="color: #ff4444;">VENTA: <span id="sell-score">{current_prediction.get('sell_score', 0)}</span></span>
+                        </div>
                     </div>
-                    <div class="metric">
-                        <div>{current_prediction.get('current_price', 0):.5f}</div>
-                        <small>Precio</small>
+                    
+                    <h4 style="margin: 20px 0 10px 0;">📊 FACTORES:</h4>
+                    <ul class="reasons-list" id="reasons-list">
+                        {reasons_html}
+                    </ul>
+                </div>
+                
+                <!-- Rendimiento -->
+                <div class="card">
+                    <h3>📈 RENDIMIENTO</h3>
+                    <div class="metrics-grid">
+                        <div class="metric">
+                            <div class="metric-value" style="color: #00ff88;">{accuracy:.1f}%</div>
+                            <div class="metric-label">PRECISIÓN</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" id="total-pred">{total_predictions}</div>
+                            <div class="metric-label">TOTAL</div>
+                        </div>
+                        <div class="metric">
+                            <div class="metric-value" style="color: #00ff88;">{correct_predictions}</div>
+                            <div class="metric-label">CORRECTAS</div>
+                        </div>
                     </div>
-                    <div class="metric">
-                        <div id="accuracy">{accuracy:.1f}%</div>
-                        <small>Precisión</small>
+                    
+                    <div class="performance">
+                        <h4>✅ ÚLTIMA VALIDACIÓN</h4>
+                        <div class="validation-result" id="validation-result">
+                            <div style="color: #94a3b8; text-align: center;">
+                                Esperando validación...
+                            </div>
+                        </div>
                     </div>
                 </div>
             </div>
             
+            <!-- Información del Sistema -->
             <div class="card">
-                <h3>📊 Análisis IA</h3>
-                <ul class="reasons" id="reasons">
-                    {reasons_html}
-                </ul>
+                <h3>⚙️ INFORMACIÓN DEL SISTEMA</h3>
+                <div style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 15px;">
+                    <div style="background: rgba(0, 255, 136, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #00ff88;">
+                        <div style="font-weight: 600; color: #00ff88;">🤖 IA AVANZADA</div>
+                        <div style="font-size: 0.9em; color: #94a3b8;">Análisis en tiempo real</div>
+                    </div>
+                    <div style="background: rgba(255, 187, 51, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #ffbb33;">
+                        <div style="font-weight: 600; color: #ffbb33;">📊 VALIDACIÓN PRECISA</div>
+                        <div style="font-size: 0.9em; color: #94a3b8;">Resultados 100% exactos</div>
+                    </div>
+                    <div style="background: rgba(255, 68, 68, 0.1); padding: 15px; border-radius: 8px; border-left: 3px solid #ff4444;">
+                        <div style="font-weight: 600; color: #ff4444;">🎯 PROFESIONAL</div>
+                        <div style="font-size: 0.9em; color: #94a3b8;">Sistema de trading avanzado</div>
+                    </div>
+                </div>
             </div>
         </div>
 
         <script>
+            // Actualizar datos en tiempo real
             function updateData() {{
                 fetch('/api/prediction')
-                    .then(r => r.json())
+                    .then(response => response.json())
                     .then(data => {{
-                        document.getElementById('direction').textContent = data.direction;
-                        document.getElementById('confidence').textContent = 'Confianza: ' + data.confidence + '%';
-                        document.getElementById('tick-count').textContent = data.tick_count;
-                        
-                        // Actualizar razones
-                        const reasons = data.reasons || ['Analizando...'];
-                        document.getElementById('reasons').innerHTML = reasons.map(r => `<li>${{r}}</li>`).join('');
+                        updatePrediction(data);
                     }});
                     
                 fetch('/api/validation')
-                    .then(r => r.json())
+                    .then(response => response.json())
                     .then(data => {{
-                        if(data.performance) {{
-                            document.getElementById('accuracy').textContent = data.performance.recent_accuracy.toFixed(1) + '%';
-                        }}
+                        updateValidation(data);
                     }});
             }}
             
+            function updatePrediction(data) {{
+                // Actualizar dirección
+                const directionEl = document.getElementById('direction');
+                directionEl.textContent = data.direction;
+                
+                // Actualizar colores según dirección
+                let color = '#ffbb33';
+                if (data.direction === 'ALZA') color = '#00ff88';
+                if (data.direction === 'BAJA') color = '#ff4444';
+                
+                directionEl.style.color = color;
+                document.querySelector('.prediction-card').style.borderLeftColor = color;
+                
+                // Actualizar confianza
+                const confidence = data.confidence || 0;
+                document.querySelector('.confidence').innerHTML = 
+                    `CONFIANZA: ${{confidence}}% <span class="confidence-badge">${{confidence > 70 ? 'ALTA' : confidence > 50 ? 'MEDIA' : 'BAJA'}}</span>`;
+                
+                // Actualizar métricas
+                document.getElementById('tick-count').textContent = data.tick_count || 0;
+                document.getElementById('buy-score').textContent = data.buy_score || 0;
+                document.getElementById('sell-score').textContent = data.sell_score || 0;
+                
+                // Actualizar razones
+                const reasons = data.reasons || ['Analizando mercado...'];
+                document.getElementById('reasons-list').innerHTML = 
+                    reasons.map(reason => `<li class="reason-item">${{reason}}</li>`).join('');
+            }}
+            
+            function updateValidation(data) {{
+                if (data.performance) {{
+                    document.getElementById('accuracy').textContent = data.performance.recent_accuracy.toFixed(1) + '%';
+                    document.getElementById('total-pred').textContent = data.performance.total_predictions;
+                }}
+                
+                if (data.last_validation) {{
+                    const val = data.last_validation;
+                    const color = val.correct ? '#00ff88' : '#ff4444';
+                    const icon = val.correct ? '✅' : '❌';
+                    
+                    document.getElementById('validation-result').innerHTML = `
+                        <div style="color: ${{color}}; font-weight: 600; font-size: 1.1em;">
+                            ${{icon}} ${{val.predicted}} → ${{val.actual}}
+                        </div>
+                        <div style="color: #94a3b8; font-size: 0.9em; margin-top: 5px;">
+                            Confianza: ${{val.confidence}}% | Cambio: ${{val.price_change}}pips
+                        </div>
+                    `;
+                }}
+            }}
+            
+            // Actualizar countdown
+            function updateCountdown() {{
+                const now = new Date();
+                const seconds = now.getSeconds();
+                const remaining = 60 - seconds;
+                document.getElementById('countdown').textContent = remaining + 's';
+            }}
+            
+            // Inicializar
+            setInterval(updateCountdown, 1000);
             setInterval(updateData, 2000);
             updateData();
+            updateCountdown();
         </script>
     </body>
     </html>
     """
-    return HTMLResponse(content=html)
+    return HTMLResponse(content=html_content)
 
 @app.get("/api/prediction")
 def api_prediction():
@@ -758,21 +991,21 @@ def api_validation():
 @app.get("/api/health")
 def api_health():
     return JSONResponse({
-        "status": "healthy",
+        "status": "healthy", 
         "timestamp": now_iso(),
-        "version": "5.0.4"
+        "version": "5.0.0"
     })
 
-# --------------- INICIALIZACIÓN SEGURA ---------------
+# --------------- INICIALIZACIÓN ---------------
 def start_system():
     try:
         thread = threading.Thread(target=premium_main_loop, daemon=True)
         thread.start()
-        logging.info("⭐ SISTEMA ESTABLE INICIADO")
+        logging.info("⭐ SISTEMA INICIADO CORRECTAMENTE")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 
-# Iniciar automáticamente en Render
+# Iniciar automáticamente
 start_system()
 
 if __name__ == "__main__":

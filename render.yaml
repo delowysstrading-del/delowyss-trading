@@ -1,0 +1,29 @@
+# render.yaml — Configuración de despliegue para Delowyss Trading AI
+# © 2025 Eduardo Solis
+
+services:
+  - type: web
+    name: delowyss-ai
+    env: python
+    region: oregon               # puedes cambiarlo a frankfurt, singapore, etc.
+    buildCommand: pip install -r requirements_render_compatible.txt
+    startCommand: uvicorn main_render_ready:app --host 0.0.0.0 --port $PORT
+    autoDeploy: true
+    plan: free                   # puedes cambiarlo a starter o pro si necesitas más potencia
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.13.4
+      - key: TIMEFRAME
+        value: "60"
+      - key: PREDICTION_WINDOW
+        value: "5"
+      - key: MIN_TICKS_FOR_PREDICTION
+        value: "20"
+      - key: TICK_BUFFER_SIZE
+        value: "500"
+      - key: MODEL_DIR
+        value: "models"
+      - key: IQ_EMAIL
+        value: "tu_email_iqoption"
+      - key: IQ_PASSWORD
+        value: "tu_password_iqoption"

@@ -1,6 +1,6 @@
-# main.py - V5.5 PREMIUM COMPLETA (IA Avanzada + AutoLearning + Interfaz Original)
+# main.py - V5.4 PREMIUM COMPLETA (IA Avanzada + AutoLearning + Interfaz Original)
 """
-Delowyss Trading AI — V5.5 PREMIUM COMPLETA CON AUTOLEARNING
+Delowyss Trading AI — V5.4 PREMIUM COMPLETA CON AUTOLEARNING
 CEO: Eduardo Solis — © 2025
 """
 
@@ -88,7 +88,7 @@ class PremiumAIAnalyzer:
             price = float(price)
             current_time = time.time()
             
-            # ✅ FIX: Inicializar vela SIEMPRE al primer tick
+            # Inicializar vela si es el primer tick
             if self.current_candle_open is None:
                 self.current_candle_open = self.current_candle_high = self.current_candle_low = price
                 self.candle_start_time = current_time
@@ -112,10 +112,6 @@ class PremiumAIAnalyzer:
             self.ticks.append(tick_data)
             self.price_memory.append(price)
             self.tick_count += 1
-            
-            # ✅ FIX: Log inicial para verificar ticks
-            if self.tick_count <= 5 or self.tick_count % 25 == 0:
-                logging.info(f"📊 Tick {self.tick_count} - Precio: {price:.5f}")
             
             # Calcular métricas en tiempo real ORIGINAL
             self._calculate_comprehensive_metrics(tick_data)
@@ -421,13 +417,13 @@ class PremiumAIAnalyzer:
         except Exception as e:
             logging.error(f"Error en reset: {e}")
 
-# ------------------ ADAPTIVE MARKET LEARNER (ORIGINAL) ------------------
+# ------------------ ADAPTIVE MARKET LEARNER (NUEVO - MEJORADO) ------------------
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
 
 class AdaptiveMarketLearner:
     """
-    Aprendizaje incremental ORIGINAL
+    Aprendizaje incremental MEJORADO con métricas avanzadas
     """
     def __init__(self, feature_size=18, classes=None, buffer_size=1000):
         self.feature_size = feature_size
@@ -493,7 +489,7 @@ class AdaptiveMarketLearner:
             self.replay_buffer.append((features.astype(float), label))
 
     def partial_train(self, batch_size=32):
-        """Entrenamiento incremental ORIGINAL"""
+        """Entrenamiento incremental MEJORADO"""
         if len(self.replay_buffer) < 10:
             return {"trained": False, "reason": "not_enough_samples", "buffer_size": len(self.replay_buffer)}
         
@@ -529,7 +525,7 @@ class AdaptiveMarketLearner:
             return {"trained": False, "reason": str(e)}
 
     def predict_proba(self, features: np.ndarray):
-        """Predicción de probabilidades ORIGINAL"""
+        """Predicción de probabilidades MEJORADA"""
         X = np.atleast_2d(features.astype(float))
         try:
             Xs = self.scaler.transform(X)
@@ -540,7 +536,7 @@ class AdaptiveMarketLearner:
             return dict(zip(self.classes, np.ones(len(self.classes)) / len(self.classes)))
 
     def predict(self, features: np.ndarray):
-        """Predicción completa ORIGINAL"""
+        """Predicción completa MEJORADA"""
         try:
             X = np.atleast_2d(features.astype(float))
             Xs = self.scaler.transform(X)
@@ -563,7 +559,7 @@ class AdaptiveMarketLearner:
                 "training_count": self.training_count
             }
 
-# ------------------ FEATURE BUILDER ORIGINAL ------------------
+# ------------------ FEATURE BUILDER MEJORADO ------------------
 def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_window=30):
     """
     Construye features AVANZADOS combinando análisis tradicional + métricas ML
@@ -633,7 +629,7 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
         logging.error(f"❌ Error construyendo features avanzados: {e}")
         return np.zeros(18)
 
-# ------------------ SISTEMA IA PROFESIONAL COMPLETO ORIGINAL ------------------
+# ------------------ SISTEMA IA PROFESIONAL COMPLETO ------------------
 class ComprehensiveAIPredictor:
     def __init__(self):
         self.analyzer = PremiumAIAnalyzer()
@@ -805,7 +801,7 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'COMPREHENSIVE_AI_V5.5_HYBRID'
+                'model_version': 'COMPREHENSIVE_AI_V5.4_HYBRID'
             })
             
             self.last_prediction = prediction
@@ -914,7 +910,7 @@ class ComprehensiveAIPredictor:
         except Exception as e:
             logging.error(f"Error en reset predictor: {e}")
 
-# ------------------ CONEXIÓN PROFESIONAL ORIGINAL ------------------
+# ------------------ CONEXIÓN PROFESIONAL MEJORADA ------------------
 class ProfessionalIQConnector:
     def __init__(self):
         self.connected = False
@@ -951,7 +947,7 @@ class ProfessionalIQConnector:
             return False
 
     def _simulate_ticks(self):
-        """Simulador de ticks realista ORIGINAL"""
+        """Simulador de ticks realista"""
         base_price = 1.10000
         volatility = 0.0001
         
@@ -994,12 +990,12 @@ class ProfessionalIQConnector:
             logging.error(f"Error obteniendo precio real: {e}")
             return float(self.last_price)
 
-# --------------- SISTEMA PRINCIPAL ORIGINAL ---------------
+# --------------- SISTEMA PRINCIPAL MEJORADO ---------------
 iq_connector = ProfessionalIQConnector()
 predictor = ComprehensiveAIPredictor()
 online_learner = AdaptiveMarketLearner(feature_size=18)
 
-# VARIABLES GLOBALES ORIGINALES
+# VARIABLES GLOBALES
 current_prediction = {
     "direction": "N/A",
     "confidence": 0,
@@ -1031,7 +1027,7 @@ _last_prediction_time = 0
 _last_price = None
 
 def tick_processor(price, timestamp):
-    """Procesador de ticks ORIGINAL"""
+    """Procesador de ticks MEJORADO con ML integrado"""
     global current_prediction
     try:
         current_time = time.time()
@@ -1068,11 +1064,11 @@ def tick_processor(price, timestamp):
         logging.error(f"Error procesando tick: {e}")
 
 def premium_main_loop():
-    """Loop principal ORIGINAL"""
+    """Loop principal MEJORADO con AutoLearning integrado"""
     global current_prediction, performance_stats, _last_candle_start
     global _prediction_made_this_candle, _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
+    logging.info(f"🚀 DELOWYSS AI V5.4 PREMIUM INICIADA EN PUERTO {PORT}")
     logging.info("🎯 Sistema HÍBRIDO: IA Avanzada + AutoLearning + Interfaz Original")
     
     iq_connector.connect()
@@ -1124,13 +1120,33 @@ def premium_main_loop():
                     _last_prediction_time = time.time()
                     _prediction_made_this_candle = True
 
-            # Detectar nueva vela
+            # Detectar nueva vela (entrenamiento AutoLearning)
             if current_candle_start > _last_candle_start:
                 # Validar y entrenar con la vela cerrada
                 if _last_price is not None:
                     validation = predictor.validate_prediction(_last_price)
                     if validation:
-                        performance_stats['last_validation'] = validation
+                        # Determinar label para aprendizaje
+                        price_change = validation.get("price_change", 0)
+                        label = "LATERAL"
+                        if price_change > 0.5:  # Umbral de 0.5 pips
+                            label = "ALZA"
+                        elif price_change < -0.5:
+                            label = "BAJA"
+                        
+                        # Obtener análisis de la vela cerrada para features
+                        analysis = predictor.analyzer.get_comprehensive_analysis()
+                        if analysis.get('status') == 'SUCCESS':
+                            features = build_advanced_features_from_analysis(analysis, 0)
+                            
+                            # Entrenar modelo online
+                            online_learner.add_sample(features, label)
+                            training_result = online_learner.partial_train(batch_size=32)
+                            
+                            logging.info(f"📚 AutoLearning: {label} | Cambio: {price_change}pips | {training_result}")
+                            
+                            # Actualizar estadísticas
+                            performance_stats['last_validation'] = validation
 
                 # Reiniciar para nueva vela
                 predictor.reset()
@@ -1146,8 +1162,8 @@ def premium_main_loop():
 
 # ------------------ INTERFAZ WEB COMPLETA ORIGINAL ------------------
 app = FastAPI(
-    title="Delowyss AI Premium V5.5",
-    version="5.5.0",
+    title="Delowyss AI Premium V5.4",
+    version="5.4.0",
     docs_url="/docs",
     redoc_url="/redoc"
 )
@@ -1182,7 +1198,7 @@ def api_health():
     return JSONResponse({
         "status": "healthy",
         "timestamp": now_iso(),
-        "version": "5.5.0-hybrid",
+        "version": "5.4.0-hybrid",
         "port": PORT,
         "features": [
             "full_candle_analysis", 
@@ -1207,7 +1223,7 @@ def api_system_info():
     })
 
 def generate_html_interface():
-    """Interfaz HTML COMPLETA ORIGINAL"""
+    """Interfaz HTML COMPLETA ORIGINAL MEJORADA"""
     direction = current_prediction.get("direction", "N/A")
     confidence = current_prediction.get("confidence", 0)
     current_price = current_prediction.get("current_price", 0)
@@ -1258,7 +1274,7 @@ def generate_html_interface():
     <head>
         <meta charset="UTF-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Delowyss AI Premium V5.5</title>
+        <title>Delowyss AI Premium V5.4</title>
         <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
         <style>
             * {{
@@ -1624,9 +1640,9 @@ def generate_html_interface():
         <div class="container">
             <!-- HEADER MEJORADO ORIGINAL -->
             <div class="header">
-                <div class="logo">🤖 DELOWYSS AI PREMIUM V5.5</div>
+                <div class="logo">🤖 DELOWYSS AI PREMIUM V5.4</div>
                 <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis Completo</div>
-                <div class="version">VERSION 5.5 HYBRID - RENDER OPTIMIZED</div>
+                <div class="version">VERSION 5.4 HYBRID - RENDER OPTIMIZED</div>
             </div>
             
             <!-- DASHBOARD PRINCIPAL ORIGINAL -->
@@ -1927,12 +1943,12 @@ def generate_html_interface():
     """
     return html_content
 
-# --------------- INICIALIZACIÓN ORIGINAL ---------------
+# --------------- INICIALIZACIÓN MEJORADA ---------------
 def start_system():
     try:
         thread = threading.Thread(target=premium_main_loop, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.5 INICIADA EN PUERTO {PORT}")
+        logging.info(f"⭐ DELOWYSS AI V5.4 INICIADA EN PUERTO {PORT}")
         logging.info("🎯 SISTEMA HÍBRIDO ACTIVO: IA Avanzada + AutoLearning + Interfaz Original")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")

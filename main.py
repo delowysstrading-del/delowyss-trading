@@ -917,16 +917,11 @@ class ProfessionalIQConnector:
         self.tick_listeners = []
         self.last_price = 1.10000
         self.tick_count = 0
-        self.simulation_mode = not IQ_OPTION_AVAILABLE
         
     def connect(self):
-        if self.simulation_mode:
-            logging.info("🔧 MODO SIMULACIÓN ACTIVADO - IQ Option no disponible")
-            self.connected = True
-            # Iniciar simulador de ticks
-            thread = threading.Thread(target=self._simulate_ticks, daemon=True)
-            thread.start()
-            return True
+        if not IQ_OPTION_AVAILABLE:
+            logging.error("❌ IQ Option API no disponible - Instala: pip install iqoptionapi")
+            return False
             
         try:
             logging.info("🌐 Conectando a IQ Option...")
@@ -937,58 +932,68 @@ class ProfessionalIQConnector:
                 self.api.change_balance("PRACTICE")
                 self.connected = True
                 logging.info("✅ Conexión IQ Option establecida")
+                
+                # Suscribir a ticks en tiempo real
+                self._subscribe_to_ticks()
                 return True
             else:
-                logging.warning(f"⚠️ Conexión IQ Option fallida: {reason}")
+                logging.error(f"❌ Conexión IQ Option fallida: {reason}")
                 return False
                 
         except Exception as e:
             logging.error(f"❌ Error de conexión IQ Option: {e}")
             return False
 
-    def _simulate_ticks(self):
-        """Simulador de ticks realista"""
-        base_price = 1.10000
-        volatility = 0.0001
-        
-        while True:
-            # Random walk con reversión a la media
-            change = np.random.normal(0, volatility)
-            base_price += change
-            # Suavizar movimientos
-            base_price = base_price * 0.999 + 1.10000 * 0.001
+    def _subscribe_to_ticks(self):
+        """Suscribirse a ticks en tiempo real de IQ Option"""
+        try:
+            # Suscribir al par para recibir ticks
+            self.api.subscribe_strike_list(PAR, TIMEFRAME)
             
-            self.last_price = base_price
-            self.tick_count += 1
+            # Iniciar hilo para recibir ticks
+            thread = threading.Thread(target=self._tick_listener, daemon=True)
+            thread.start()
+            logging.info(f"📡 Suscrito a ticks en tiempo real para {PAR}")
             
-            # Notificar listeners
-            timestamp = time.time()
-            for listener in self.tick_listeners:
-                try:
-                    listener(self.last_price, timestamp)
-                except Exception as e:
-                    logging.error(f"Error en listener: {e}")
-            
-            time.sleep(0.1)  # 10 ticks por segundo
+        except Exception as e:
+            logging.error(f"❌ Error suscribiendo a ticks: {e}")
+
+    def _tick_listener(self):
+        """Escucha ticks en tiempo real de IQ Option"""
+        while self.connected:
+            try:
+                # Obtener ticks actuales
+                ticks = self.api.get_realtime_candles(PAR, TIMEFRAME)
+                if ticks:
+                    for tick_id, tick_data in ticks.items():
+                        price = tick_data.get('close', 0)
+                        if price > 0:
+                            self.last_price = float(price)
+                            self.tick_count += 1
+                            
+                            # Notificar a los listeners
+                            timestamp = time.time()
+                            for listener in self.tick_listeners:
+                                try:
+                                    listener(self.last_price, timestamp)
+                                except Exception as e:
+                                    logging.error(f"Error en listener: {e}")
+                            
+                            # Log cada 10 ticks
+                            if self.tick_count % 10 == 0:
+                                logging.info(f"📊 Tick #{self.tick_count}: {self.last_price:.5f}")
+                
+                time.sleep(0.1)  # Pequeña pausa
+                
+            except Exception as e:
+                logging.error(f"❌ Error en tick listener: {e}")
+                time.sleep(1)
 
     def add_tick_listener(self, listener):
         self.tick_listeners.append(listener)
 
     def get_realtime_price(self):
-        if self.simulation_mode:
-            return float(self.last_price)
-            
-        try:
-            if hasattr(self, 'api') and self.connected:
-                candles = self.api.get_candles(PAR, TIMEFRAME, 1, time.time())
-                if candles and len(candles) > 0:
-                    price = float(candles[-1]['close'])
-                    if price > 0:
-                        return price
-            return float(self.last_price)
-        except Exception as e:
-            logging.error(f"Error obteniendo precio real: {e}")
-            return float(self.last_price)
+        return float(self.last_price)
 
 # --------------- SISTEMA PRINCIPAL MEJORADO ---------------
 iq_connector = ProfessionalIQConnector()
@@ -1071,7 +1076,11 @@ def premium_main_loop():
     logging.info(f"🚀 DELOWYSS AI V5.4 PREMIUM INICIADA EN PUERTO {PORT}")
     logging.info("🎯 Sistema HÍBRIDO: IA Avanzada + AutoLearning + Interfaz Original")
     
-    iq_connector.connect()
+    # Conectar a IQ Option
+    if not iq_connector.connect():
+        logging.error("❌ No se pudo conectar a IQ Option - El sistema no puede funcionar")
+        return
+    
     iq_connector.add_tick_listener(tick_processor)
 
     while True:
@@ -1642,7 +1651,7 @@ def generate_html_interface():
             <div class="header">
                 <div class="logo">🤖 DELOWYSS AI PREMIUM V5.4</div>
                 <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis Completo</div>
-                <div class="version">VERSION 5.4 HYBRID - RENDER OPTIMIZED</div>
+                <div class="version">VERSION 5.4 HYBRID - IQ OPTION REAL</div>
             </div>
             
             <!-- DASHBOARD PRINCIPAL ORIGINAL -->
@@ -1794,9 +1803,9 @@ def generate_html_interface():
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🚀 RENDER OPTIMIZED</div>
+                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">📡 IQ OPTION REAL</div>
                         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Funciona perfectamente en Render
+                            Ticks en tiempo real de IQ Option
                         </div>
                     </div>
                 </div>

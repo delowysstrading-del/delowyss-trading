@@ -33,7 +33,7 @@ warnings.filterwarnings("ignore")
 # ---------------- CONFIGURACIÓN PREMIUM ----------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = os.getenv("PAIR", "EURUSD")  # ✅ CAMBIADO A EURUSD NORMAL
+PAR = "EURUSD"  # ✅ EUR/USD REAL - MERCADO PRINCIPAL
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
 PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "5"))
 MIN_TICKS_FOR_PREDICTION = int(os.getenv("MIN_TICKS_FOR_PREDICTION", "20"))
@@ -947,13 +947,13 @@ class ProfessionalIQConnector:
     def _subscribe_to_ticks(self):
         """Suscribirse a ticks en tiempo real de IQ Option"""
         try:
-            # Suscribir al par EURUSD normal para recibir ticks
+            # Suscribir al par EURUSD REAL para recibir ticks
             self.api.subscribe_strike_list(PAR, TIMEFRAME)
             
             # Iniciar hilo para recibir ticks
             thread = threading.Thread(target=self._tick_listener, daemon=True)
             thread.start()
-            logging.info(f"📡 Suscrito a ticks en tiempo real para {PAR} (Mercado Principal)")
+            logging.info(f"📡 Suscrito a ticks en tiempo real para {PAR} - MERCADO FOREX REAL")
             
         except Exception as e:
             logging.error(f"❌ Error suscribiendo a ticks: {e}")
@@ -962,7 +962,7 @@ class ProfessionalIQConnector:
         """Escucha ticks en tiempo real de IQ Option"""
         while self.connected:
             try:
-                # Obtener ticks actuales de EURUSD
+                # Obtener ticks actuales de EURUSD REAL
                 ticks = self.api.get_realtime_candles(PAR, TIMEFRAME)
                 if ticks:
                     for tick_id, tick_data in ticks.items():
@@ -981,7 +981,7 @@ class ProfessionalIQConnector:
                             
                             # Log cada 10 ticks para monitoreo
                             if self.tick_count % 10 == 0:
-                                logging.info(f"📊 Tick #{self.tick_count}: {self.last_price:.5f} - EURUSD Principal")
+                                logging.info(f"📊 Tick #{self.tick_count}: {self.last_price:.5f} - EUR/USD REAL")
                 
                 time.sleep(0.1)  # Pequeña pausa
                 
@@ -1079,7 +1079,7 @@ def premium_main_loop():
     
     logging.info(f"🚀 DELOWYSS AI V5.4 PREMIUM INICIADA EN PUERTO {PORT}")
     logging.info("🎯 Sistema HÍBRIDO: IA Avanzada + AutoLearning + Interfaz Original")
-    logging.info(f"📊 Mercado: {PAR} - Análisis Tick-by-Tick Activado")
+    logging.info(f"📊 Mercado: {PAR} - ANÁLISIS TICK-BY-TICK EN MERCADO REAL")
     
     # Conectar a IQ Option
     if not iq_connector.connect():
@@ -1656,7 +1656,7 @@ def generate_html_interface():
             <div class="header">
                 <div class="logo">🤖 DELOWYSS AI PREMIUM V5.4</div>
                 <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis Completo</div>
-                <div class="version">VERSION 5.4 HYBRID - EURUSD PRINCIPAL</div>
+                <div class="version">VERSION 5.4 HYBRID - EUR/USD REAL</div>
             </div>
             
             <!-- DASHBOARD PRINCIPAL ORIGINAL -->
@@ -1808,9 +1808,9 @@ def generate_html_interface():
                         </div>
                     </div>
                     <div class="info-item">
-                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">📡 EURUSD PRINCIPAL</div>
+                        <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">📡 EUR/USD REAL</div>
                         <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
-                            Ticks en tiempo real del mercado principal
+                            Ticks en tiempo real del mercado Forex principal
                         </div>
                     </div>
                 </div>

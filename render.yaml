@@ -6,7 +6,5 @@ services:
     buildCommand: pip install -r requirements.txt
     startCommand: uvicorn main:app --host 0.0.0.0 --port $PORT
     envVars:
-      - key: IQ_EMAIL
-        value: tu_correo_iqoption@example.com
-      - key: IQ_PASSWORD
-        value: tu_password_segura
+      - key: PYTHON_VERSION
+        value: 3.11.8

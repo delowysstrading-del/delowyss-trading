@@ -1,7 +1,8 @@
+# main.py
 """
-Delowyss Trading AI — V5.4 PREMIUM COMPLETA CON AUTOLEARNING
+Delowyss Trading AI — V3.8-Full (Production)
+Assistant-only (no autotrading). Analiza vela actual tick-by-tick y predice la siguiente 3-5s antes del cierre.
 CEO: Eduardo Solis — © 2025
-DEPLOY RENDER - ORIGINALIDAD COMPLETA PRESERVADA
 """
 
 import os
@@ -13,1436 +14,1600 @@ from collections import deque
 import numpy as np
 import pandas as pd
 import json
-import joblib
+import pickle
+from typing import Dict, List, Optional, Tuple
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-# ✅ RENDER: Usar PORT proporcionado por la plataforma
-RENDER_PORT = int(os.getenv("PORT", "10000"))
-
-# Gestión elegante de dependencias opcionales
-try:
-    from iqoptionapi.stable_api import IQ_Option
-    IQ_OPTION_AVAILABLE = True
-except ImportError:
-    IQ_Option = None
-    IQ_OPTION_AVAILABLE = False
-
+from iqoptionapi.stable_api import IQ_Option
+from sklearn.neural_network import MLPClassifier
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.model_selection import train_test_split
+import joblib
 import warnings
 warnings.filterwarnings("ignore")
 
-# ---------------- CONFIGURACIÓN PREMIUM ----------------
-IQ_EMAIL = os.getenv("IQ_EMAIL")
-IQ_PASSWORD = os.getenv("IQ_PASSWORD")
-PAR = "EURUSD"  # ✅ EUR/USD REAL - MERCADO PRINCIPAL
+# ---------------- CONFIG ----------------
+IQ_EMAIL = os.getenv("IQ_EMAIL", "your_email@example.com")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD", "your_password")
+PAR = os.getenv("PAIR", "EURUSD")
 TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
-PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "5"))
-MIN_TICKS_FOR_PREDICTION = int(os.getenv("MIN_TICKS_FOR_PREDICTION", "20"))
-TICK_BUFFER_SIZE = int(os.getenv("TICK_BUFFER_SIZE", "500"))
+PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "3"))
 
-# ✅ RENDER: Usar el puerto de la plataforma
-PORT = RENDER_PORT
+MODEL_VERSION = os.getenv("MODEL_VERSION", "v38")
+TRAINING_CSV = os.getenv("TRAINING_CSV", f"training_data_{MODEL_VERSION}.csv")
+PERF_CSV = os.getenv("PERF_CSV", f"performance_{MODEL_VERSION}.csv")
+MODEL_PATH = os.getenv("MODEL_PATH", f"delowyss_mlp_{MODEL_VERSION}.joblib")
+SCALER_PATH = os.getenv("SCALER_PATH", f"delowyss_scaler_{MODEL_VERSION}.joblib")
+ENSEMBLE_PATH = os.getenv("ENSEMBLE_PATH", f"ensemble_{MODEL_VERSION}.pkl")
 
-# Model paths
-MODEL_DIR = os.getenv("MODEL_DIR", "models")
-os.makedirs(MODEL_DIR, exist_ok=True)
-ONLINE_MODEL_PATH = os.path.join(MODEL_DIR, "online_sgd.pkl")
-ONLINE_SCALER_PATH = os.path.join(MODEL_DIR, "online_scaler.pkl")
+BATCH_TRAIN_SIZE = int(os.getenv("BATCH_TRAIN_SIZE", "150"))
+PARTIAL_FIT_AFTER = int(os.getenv("PARTIAL_FIT_AFTER", "6"))
+CONFIDENCE_SAVE_THRESHOLD = float(os.getenv("CONFIDENCE_SAVE_THRESHOLD", "68.0"))
 
-# ---------------- LOGGING PROFESIONAL ----------------
+SEQUENCE_LENGTH = int(os.getenv("SEQUENCE_LENGTH", "10"))
+MAX_TICKS_MEMORY = int(os.getenv("MAX_TICKS_MEMORY", "800"))
+MAX_CANDLE_TICKS = int(os.getenv("MAX_CANDLE_TICKS", "400"))
+
+# Nuevos parámetros de aprendizaje mejorado
+LEARNING_RATE = float(os.getenv("LEARNING_RATE", "0.001"))
+MODEL_UPDATE_FREQUENCY = int(os.getenv("MODEL_UPDATE_FREQUENCY", "15"))
+ENSEMBLE_WEIGHT_UPDATE = int(os.getenv("ENSEMBLE_WEIGHT_UPDATE", "30"))
+
+# ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
     handlers=[logging.StreamHandler()]
 )
 
 def now_iso():
-    return datetime.utcnow().isoformat() + 'Z'
+    return datetime.utcnow().isoformat()
 
-# ------------------ IA AVANZADA COMPLETA (ORIGINAL MEJORADA) ------------------
-class PremiumAIAnalyzer:
+def safe_float(x, default=0.0):
+    try:
+        return float(x)
+    except:
+        return default
+
+# ------------------ Incremental Scaler MEJORADO ------------------
+class IncrementalScaler:
     def __init__(self):
-        self.ticks = deque(maxlen=TICK_BUFFER_SIZE)
+        self.n_samples_seen_ = 0
+        self.mean_ = None
+        self.var_ = None
+        self.is_fitted_ = False
+
+    def partial_fit(self, X):
+        X = np.asarray(X, dtype=np.float32)
+        if X.ndim == 1:
+            X = X.reshape(1, -1)
+
+        batch_size = X.shape[0]
+        batch_mean = np.mean(X, axis=0)
+        batch_var = np.var(X, axis=0)
+
+        if self.n_samples_seen_ == 0:
+            self.mean_ = batch_mean
+            self.var_ = batch_var
+        else:
+            total = self.n_samples_seen_ + batch_size
+            delta = batch_mean - self.mean_
+            self.mean_ += delta * batch_size / total
+            self.var_ = (
+                (self.n_samples_seen_ * self.var_) +
+                (batch_size * batch_var) +
+                (self.n_samples_seen_ * batch_size * (delta ** 2) / total)
+            ) / total
+
+        self.n_samples_seen_ += batch_size
+        self.is_fitted_ = True
+        return self
+
+    def transform(self, X):
+        if not self.is_fitted_:
+            raise ValueError("Scaler not fitted")
+        X = np.asarray(X, dtype=np.float32)
+        return (X - self.mean_) / np.sqrt(self.var_ + 1e-8)
+
+    def fit_transform(self, X):
+        return self.partial_fit(X).transform(X)
+
+# ------------------ Analyzer MEJORADO ------------------
+class ProductionTickAnalyzer:
+    def __init__(self, base_ema_alpha=0.3):
+        self.ticks = deque(maxlen=MAX_TICKS_MEMORY)
+        self.candle_ticks = deque(maxlen=MAX_CANDLE_TICKS)
+        self.sequence = deque(maxlen=SEQUENCE_LENGTH)
         self.current_candle_open = None
         self.current_candle_high = None
         self.current_candle_low = None
-        self.current_candle_close = None
+        self.smoothed_price = None
+        self.base_ema_alpha = base_ema_alpha
+        self.ema_alpha = base_ema_alpha
+        self.last_tick_time = None
+        self.last_patterns = deque(maxlen=8)
         self.tick_count = 0
-        self.price_memory = deque(maxlen=100)
-        self.velocity_metrics = deque(maxlen=50)
-        self.acceleration_metrics = deque(maxlen=30)
-        self.volume_profile = deque(maxlen=20)
-        self.price_levels = deque(maxlen=15)
+        self.volatility_history = deque(maxlen=20)
+        self.price_history = deque(maxlen=50)
+        # Nuevos atributos para aprendizaje mejorado
+        self.momentum_history = deque(maxlen=15)
+        self.volume_profile = deque(maxlen=30)
+
+    def _calculate_advanced_indicators(self, price: float) -> Dict:
+        """Calcula indicadores técnicos avanzados en tiempo real"""
+        indicators = {}
         
-        # Estados del análisis ORIGINAL
-        self.candle_start_time = None
-        self.analysis_phases = {
-            'initial': {'ticks': 0, 'analysis': {}},
-            'middle': {'ticks': 0, 'analysis': {}},
-            'final': {'ticks': 0, 'analysis': {}}
-        }
-        
-    def validate_price(self, price: float) -> bool:
-        """✅ MEJORA: Validación robusta de precios"""
-        try:
-            price_float = float(price)
-            # Rango realista para EUR/USD
-            if price_float <= 0 or price_float > 2.00000:
-                logging.warning(f"⚠️ Precio fuera de rango: {price_float}")
-                return False
-            return True
-        except (ValueError, TypeError):
-            logging.warning(f"⚠️ Precio inválido: {price}")
-            return False
-        
-    def add_tick(self, price: float, seconds_remaining: float = None):
-        """✅ MEJORA: Con validación de precio integrada"""
-        try:
-            # Validar precio antes de procesar
-            if not self.validate_price(price):
-                return None
+        if len(self.price_history) >= 10:
+            prices = np.array(list(self.price_history))
+            
+            # RSI-like indicator simple
+            changes = np.diff(prices[-10:])
+            gains = changes[changes > 0].sum() if len(changes[changes > 0]) > 0 else 0
+            losses = -changes[changes < 0].sum() if len(changes[changes < 0]) > 0 else 0
+            
+            if losses == 0:
+                rsi_like = 100
+            else:
+                rs = gains / losses
+                rsi_like = 100 - (100 / (1 + rs))
+            indicators['rsi_like'] = rsi_like
+            
+            # Momentum mejorado
+            if len(prices) >= 5:
+                short_momentum = (prices[-1] - prices[-5]) * 10000
+                long_momentum = (prices[-1] - prices[-10]) * 10000 if len(prices) >= 10 else short_momentum
+                indicators['momentum_acceleration'] = short_momentum - long_momentum
+            else:
+                indicators['momentum_acceleration'] = 0
                 
-            price = float(price)
-            current_time = time.time()
+        return indicators
+
+    def _update_ema_alpha(self, current_volatility):
+        try:
+            self.volatility_history.append(current_volatility)
+            smoothed_vol = np.mean(list(self.volatility_history))
+            if smoothed_vol < 0.4:
+                self.ema_alpha = self.base_ema_alpha * 0.5
+            elif smoothed_vol < 1.2:
+                self.ema_alpha = self.base_ema_alpha
+            elif smoothed_vol < 2.5:
+                self.ema_alpha = self.base_ema_alpha * 1.4
+            else:
+                self.ema_alpha = self.base_ema_alpha * 1.8
+            self.ema_alpha = max(0.05, min(0.7, self.ema_alpha))
+        except Exception:
+            self.ema_alpha = self.base_ema_alpha
+
+    def add_tick(self, price: float, volume: float = 1.0):
+        price = float(price)
+        current_time = time.time()
+        
+        if price <= 0:
+            logging.warning(f"Precio inválido ignorado: {price}")
+            return None
             
-            # Inicializar vela si es el primer tick
-            if self.current_candle_open is None:
-                self.current_candle_open = self.current_candle_high = self.current_candle_low = price
-                self.candle_start_time = current_time
-                logging.info("🕯️ Nueva vela iniciada - Comenzando análisis tick-by-tick")
-            
-            # Actualizar precios extremos
+        if self.ticks and len(self.ticks) > 0:
+            last_tick = self.ticks[-1]
+            last_price = last_tick['price']
+            time_gap = current_time - last_tick['timestamp']
+            if last_price > 0 and time_gap < 2.0:
+                price_change_pct = abs(price - last_price) / last_price
+                if price_change_pct > 0.02:
+                    logging.warning(f"Anomaly spike ignorado: {last_price:.5f} -> {price:.5f}")
+                    return None
+
+        if self.current_candle_open is None:
+            self.current_candle_open = self.current_candle_high = self.current_candle_low = price
+        else:
             self.current_candle_high = max(self.current_candle_high, price)
             self.current_candle_low = min(self.current_candle_low, price)
-            self.current_candle_close = price
-            
-            tick_data = {
-                'price': price,
-                'timestamp': current_time,
-                'volume': 1,
-                'microtimestamp': current_time * 1000,
-                'seconds_remaining': seconds_remaining,
-                'candle_age': current_time - self.candle_start_time if self.candle_start_time else 0
-            }
-            
-            # Almacenar tick
-            self.ticks.append(tick_data)
-            self.price_memory.append(price)
-            self.tick_count += 1
-            
-            # Calcular métricas en tiempo real ORIGINAL
-            self._calculate_comprehensive_metrics(tick_data)
-            
-            # Análisis por fases de la vela ORIGINAL
-            self._analyze_candle_phase(tick_data)
-            
-            return tick_data
-        except Exception as e:
-            logging.error(f"Error en add_tick: {e}")
+
+        interval = current_time - self.last_tick_time if self.last_tick_time else 0.1
+        self.last_tick_time = current_time
+
+        current_volatility = (self.current_candle_high - self.current_candle_low) * 10000
+        self._update_ema_alpha(current_volatility)
+
+        if self.smoothed_price is None:
+            self.smoothed_price = price
+        else:
+            self.smoothed_price = (self.ema_alpha * price + (1 - self.ema_alpha) * self.smoothed_price)
+
+        # Calcular indicadores avanzados
+        advanced_indicators = self._calculate_advanced_indicators(price)
+
+        tick_data = {
+            "timestamp": current_time,
+            "price": price,
+            "volume": volume,
+            "interval": interval,
+            "smoothed_price": self.smoothed_price,
+            **advanced_indicators
+        }
+        self.ticks.append(tick_data)
+        self.candle_ticks.append(tick_data)
+        self.sequence.append(price)
+        self.price_history.append(price)
+        self.tick_count += 1
+
+        if len(self.sequence) >= 5:
+            pattern = self._detect_micro_pattern()
+            if pattern:
+                self.last_patterns.appendleft((datetime.utcnow().isoformat(), pattern))
+                
+        if self.tick_count <= 10 or self.tick_count % 10 == 0:
+            logging.info(f"✅ Tick #{self.tick_count} procesado - Precio: {price:.5f}")
+        return tick_data
+
+    def get_price_history(self):
+        return list(self.price_history)
+
+    def _detect_micro_pattern(self):
+        try:
+            arr = np.array(self.sequence)
+            if len(arr) < 5:
+                return None
+            diffs = np.diff(arr)
+            pos_diffs = (diffs > 0).sum()
+            neg_diffs = (diffs < 0).sum()
+            total = len(diffs)
+            mean_diff = np.mean(diffs)
+            std_diff = np.std(diffs)
+            if pos_diffs >= total * 0.8 and mean_diff > 0.00003:
+                return "ramp-up"
+            elif neg_diffs >= total * 0.8 and mean_diff < -0.00003:
+                return "ramp-down"
+            elif std_diff < 0.00002 and abs(mean_diff) < 0.00001:
+                return "consolidation"
+            elif np.sum(np.abs(np.diff(np.sign(diffs))) > 0) > total * 0.5:
+                return "oscillation"
+        except Exception:
+            pass
+        return None
+
+    def get_candle_metrics(self, seconds_remaining_norm: float = None):
+        if len(self.candle_ticks) < 2:
             return None
-    
-    def _calculate_comprehensive_metrics(self, current_tick):
-        """Métricas avanzadas ORIGINALES CON MEJORAS DE ROBUSTEZ"""
-        if len(self.ticks) < 2:
-            return
             
         try:
-            current_price = current_tick['price']
-            current_time = current_tick['timestamp']
+            ticks_array = np.array([(
+                t['price'], 
+                t['volume'], 
+                t['interval'],
+                t.get('rsi_like', 50),
+                t.get('momentum_acceleration', 0)
+            ) for t in self.candle_ticks], dtype=np.float32)
             
-            # Velocidad del precio CON VALIDACIÓN
-            previous_tick = list(self.ticks)[-2]
-            time_diff = current_time - previous_tick['timestamp']
-            if time_diff > 0:  # ✅ Evitar división por cero
-                price_diff = current_price - previous_tick['price']
-                velocity = price_diff / time_diff
-                
-                self.velocity_metrics.append({
-                    'velocity': velocity,
-                    'timestamp': current_time,
-                    'price_change': price_diff
-                })
-            
-            # Aceleración CON VALIDACIÓN
-            if len(self.velocity_metrics) >= 2:
-                current_velocity = self.velocity_metrics[-1]['velocity']
-                previous_velocity = self.velocity_metrics[-2]['velocity']
-                velocity_time_diff = current_time - self.velocity_metrics[-2]['timestamp']
-                
-                if velocity_time_diff > 0:  # ✅ Evitar división por cero
-                    acceleration = (current_velocity - previous_velocity) / velocity_time_diff
-                    self.acceleration_metrics.append({
-                        'acceleration': acceleration,
-                        'timestamp': current_time
-                    })
-            
-            # Perfil de volumen por niveles
-            if len(self.ticks) >= 10:
-                recent_ticks = list(self.ticks)[-10:]
-                price_changes = [tick['price'] for tick in recent_ticks]
-                if price_changes:
-                    avg_price = np.mean(price_changes)
-                    self.volume_profile.append({
-                        'avg_price': avg_price,
-                        'tick_count': len(recent_ticks),
-                        'timestamp': current_time
-                    })
-            
-            # Identificar niveles de precio importantes
-            if len(self.price_memory) >= 15:
-                prices = list(self.price_memory)
-                resistance = max(prices[-15:])
-                support = min(prices[-15:])
-                self.price_levels.append({
-                    'resistance': resistance,
-                    'support': support,
-                    'timestamp': current_time
-                })
-                
-        except Exception as e:
-            logging.debug(f"Error en cálculo de métricas: {e}")
-    
-    def _analyze_candle_phase(self, tick_data):
-        """Análisis por fases TEMPORALES ORIGINAL"""
-        candle_age = tick_data['candle_age']
-        
-        if candle_age < 20:  # Primera fase: 0-20 segundos
-            self.analysis_phases['initial']['ticks'] += 1
-            if self.analysis_phases['initial']['ticks'] % 10 == 0:
-                self.analysis_phases['initial']['analysis'] = self._get_phase_analysis('initial')
-                
-        elif candle_age < 40:  # Segunda fase: 20-40 segundos
-            self.analysis_phases['middle']['ticks'] += 1
-            if self.analysis_phases['middle']['ticks'] % 10 == 0:
-                self.analysis_phases['middle']['analysis'] = self._get_phase_analysis('middle')
-                
-        else:  # Fase final: 40-60 segundos
-            self.analysis_phases['final']['ticks'] += 1
-            if self.analysis_phases['final']['ticks'] % 5 == 0:
-                self.analysis_phases['final']['analysis'] = self._get_phase_analysis('final')
-    
-    def _get_phase_analysis(self, phase):
-        """Análisis específico por fase ORIGINAL"""
-        try:
-            if phase == 'initial':
-                ticks = list(self.ticks)[:20] if len(self.ticks) >= 20 else list(self.ticks)
-            elif phase == 'middle':
-                ticks = list(self.ticks)[20:40] if len(self.ticks) >= 40 else list(self.ticks)[20:]
-            else:  # final
-                ticks = list(self.ticks)[40:] if len(self.ticks) >= 40 else []
-            
-            if not ticks:
-                return {}
-            
-            prices = [tick['price'] for tick in ticks]
-            price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-            
-            return {
-                'avg_price': np.mean(prices),
-                'volatility': max(prices) - min(prices) if prices else 0,
-                'trend': 'ALCISTA' if prices[-1] > prices[0] else 'BAJISTA' if prices[-1] < prices[0] else 'LATERAL',
-                'buy_pressure': len([x for x in price_changes if x > 0]) / len(price_changes) if price_changes else 0.5,
-                'tick_count': len(ticks)
-            }
-        except Exception as e:
-            logging.debug(f"Error en análisis de fase {phase}: {e}")
-            return {}
-    
-    def _calculate_advanced_metrics(self):
-        """Métricas avanzadas ORIGINALES CON MEJORAS DE SEGURIDAD"""
-        if len(self.price_memory) < 10:
-            return {}
-            
-        try:
-            prices = np.array(list(self.price_memory))
-            
-            # ✅ MEJORA: Validación de longitud para cálculos
-            valid_length = min(30, len(prices))
-            
-            # Análisis de tendencia completo CON VALIDACIÓN
-            if len(prices) >= 10:
-                short_trend = np.polyfit(range(min(10, len(prices))), prices[-min(10, len(prices)):], 1)[0]
-                medium_trend = np.polyfit(range(min(20, len(prices))), prices[-min(20, len(prices)):], 1)[0] if len(prices) >= 20 else short_trend
-                full_trend = np.polyfit(range(valid_length), prices[-valid_length:], 1)[0] if len(prices) >= 30 else medium_trend
-                trend_strength = (short_trend * 0.4 + medium_trend * 0.3 + full_trend * 0.3) * 10000
+            prices = ticks_array[:, 0]
+            volumes = ticks_array[:, 1]
+            intervals = ticks_array[:, 2]
+            rsi_values = ticks_array[:, 3]
+            momentum_acc = ticks_array[:, 4]
+
+            current_price = float(prices[-1])
+            open_price = float(self.current_candle_open)
+            high_price = float(self.current_candle_high)
+            low_price = float(self.current_candle_low)
+
+            price_changes = np.diff(prices)
+            up_ticks = np.sum(price_changes > 0)
+            down_ticks = np.sum(price_changes < 0)
+            total_ticks = max(1, up_ticks + down_ticks)
+
+            buy_pressure = up_ticks / total_ticks
+            sell_pressure = down_ticks / total_ticks
+            pressure_ratio = buy_pressure / max(0.01, sell_pressure)
+
+            if len(prices) >= 8:
+                momentum = (prices[-1] - prices[0]) * 10000
             else:
-                trend_strength = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
-            
-            # Momentum multi-temporal CON VALIDACIÓN
-            momentum_5 = (prices[-1] - prices[-5]) * 10000 if len(prices) >= 5 else 0
-            momentum_10 = (prices[-1] - prices[-10]) * 10000 if len(prices) >= 10 else momentum_5
-            momentum_20 = (prices[-1] - prices[-20]) * 10000 if len(prices) >= 20 else momentum_10
-            momentum = (momentum_5 * 0.5 + momentum_10 * 0.3 + momentum_20 * 0.2)
-            
-            # Volatilidad segmentada CON VALIDACIÓN
-            if len(prices) >= 20:
-                early_volatility = (max(prices[:10]) - min(prices[:10])) * 10000
-                late_volatility = (max(prices[-10:]) - min(prices[-10:])) * 10000
-                volatility = (early_volatility * 0.3 + late_volatility * 0.7)
+                momentum = (current_price - open_price) * 10000
+
+            volatility = (high_price - low_price) * 10000
+            price_change = (current_price - open_price) * 10000
+
+            valid_intervals = intervals[intervals > 0]
+            tick_speed = 1.0 / np.mean(valid_intervals) if len(valid_intervals) > 0 else 0.0
+
+            if len(price_changes) > 1:
+                signs = np.sign(price_changes)
+                direction_changes = np.sum(np.abs(np.diff(signs)) > 0)
+                direction_ratio = direction_changes / len(price_changes)
             else:
-                volatility = (max(prices) - min(prices)) * 10000 if len(prices) > 1 else 0
-            
-            # Presión de compra/venta MEJORADA
-            if len(self.ticks) > 10:
-                price_changes = []
-                for i in range(1, len(self.ticks)):
-                    change = self.ticks[i]['price'] - self.ticks[i-1]['price']
-                    price_changes.append(change)
-                
-                if price_changes and len(price_changes) > 0:  # ✅ Validación adicional
-                    positive = len([x for x in price_changes if x > 0])
-                    negative = len([x for x in price_changes if x < 0])
-                    total = len(price_changes)
-                    
-                    buy_pressure = positive / total if total > 0 else 0.5
-                    sell_pressure = negative / total if total > 0 else 0.5
-                    
-                    # ✅ MEJORA CRÍTICA: Evitar división por cero
-                    if sell_pressure > 0.05 and total > 0:
-                        pressure_ratio = buy_pressure / sell_pressure
-                    else:
-                        pressure_ratio = 10.0 if buy_pressure > 0 else 1.0
-                else:
-                    buy_pressure = sell_pressure = pressure_ratio = 0.5
-            else:
-                buy_pressure = sell_pressure = pressure_ratio = 0.5
-            
-            # Velocidad promedio CON VALIDACIÓN
-            avg_velocity = 0
-            if self.velocity_metrics and len(self.velocity_metrics) > 0:
-                velocities = [v['velocity'] for v in self.velocity_metrics]
-                avg_velocity = np.mean(velocities) * 10000 if velocities else 0
-            
-            # Análisis de fases combinado
-            phase_analysis = self._combine_phase_analysis()
-            
-            # Determinar fase de mercado con análisis completo
-            if volatility < 0.3 and abs(trend_strength) < 0.5:
+                direction_ratio = 0.0
+
+            # Indicadores avanzados promediados
+            avg_rsi = np.mean(rsi_values) if len(rsi_values) > 0 else 50
+            avg_momentum_acc = np.mean(momentum_acc) if len(momentum_acc) > 0 else 0
+
+            if volatility < 0.5 and direction_ratio < 0.15:
                 market_phase = "consolidation"
-            elif abs(trend_strength) > 2.0:
+            elif abs(momentum) > 2.5 and volatility > 1.2:
                 market_phase = "strong_trend"
-            elif abs(trend_strength) > 1.0:
-                market_phase = "trending"
-            elif volatility > 1.5:
-                market_phase = "high_volatility"
-            elif phase_analysis.get('momentum_shift', False):
-                market_phase = "reversal_potential"
+            elif abs(momentum) > 1.0:
+                market_phase = "weak_trend"
             else:
-                market_phase = "normal"
-            
-            return {
-                'trend_strength': trend_strength,
-                'momentum': momentum,
-                'volatility': volatility,
-                'buy_pressure': buy_pressure,
-                'sell_pressure': sell_pressure,
-                'pressure_ratio': pressure_ratio,
-                'market_phase': market_phase,
-                'data_quality': min(1.0, self.tick_count / 25.0),
-                'velocity': avg_velocity,
-                'phase_analysis': phase_analysis,
-                'candle_progress': (time.time() - self.candle_start_time) / TIMEFRAME if self.candle_start_time else 0,
-                'total_ticks': self.tick_count
+                market_phase = "neutral"
+
+            metrics = {
+                "open_price": open_price,
+                "high_price": high_price,
+                "low_price": low_price,
+                "current_price": current_price,
+                "buy_pressure": buy_pressure,
+                "sell_pressure": sell_pressure,
+                "pressure_ratio": pressure_ratio,
+                "momentum": momentum,
+                "volatility": volatility,
+                "up_ticks": int(up_ticks),
+                "down_ticks": int(down_ticks),
+                "total_ticks": len(self.candle_ticks),
+                "volume_trend": float(np.mean(volumes)),
+                "price_change": price_change,
+                "tick_speed": tick_speed,
+                "direction_ratio": direction_ratio,
+                "market_phase": market_phase,
+                "rsi_like": avg_rsi,
+                "momentum_acceleration": avg_momentum_acc,
+                "last_patterns": list(self.last_patterns)[:4],
+                "timestamp": time.time()
             }
+            if seconds_remaining_norm is not None:
+                metrics['seconds_remaining_norm'] = float(seconds_remaining_norm)
+            return metrics
         except Exception as e:
-            logging.error(f"Error en cálculo de métricas avanzadas: {e}")
-            return {}
-    
-    def _combine_phase_analysis(self):
-        """Combina análisis de todas las fases de la vela ORIGINAL"""
-        try:
-            initial = self.analysis_phases['initial']['analysis']
-            middle = self.analysis_phases['middle']['analysis']
-            final = self.analysis_phases['final']['analysis']
-            
-            combined = {
-                'initial_trend': initial.get('trend', 'N/A'),
-                'middle_trend': middle.get('trend', 'N/A'),
-                'final_trend': final.get('trend', 'N/A'),
-                'momentum_shift': False,
-                'consistency_score': 0
-            }
-            
-            trends = [initial.get('trend'), middle.get('trend'), final.get('trend')]
-            if len(set(trends)) > 1:  # Si hay diferentes tendencias
-                combined['momentum_shift'] = True
-            
-            # Calcular consistencia
-            same_trend_count = sum(1 for i in range(len(trends)-1) if trends[i] == trends[i+1])
-            combined['consistency_score'] = same_trend_count / max(1, len(trends)-1)
-            
-            return combined
-        except Exception as e:
-            logging.debug(f"Error combinando análisis de fases: {e}")
-            return {}
-    
-    def get_comprehensive_analysis(self):
-        """Análisis completo ORIGINAL MEJORADO"""
-        if self.tick_count < MIN_TICKS_FOR_PREDICTION:
-            return {
-                'status': 'INSUFFICIENT_DATA', 
-                'tick_count': self.tick_count,
-                'message': f'Recolectando ticks: {self.tick_count}/{MIN_TICKS_FOR_PREDICTION}'
-            }
-        
-        try:
-            advanced_metrics = self._calculate_advanced_metrics()
-            if not advanced_metrics:
-                return {'status': 'ERROR', 'message': 'Error en métricas'}
-            
-            return {
-                'status': 'SUCCESS',
-                'tick_count': self.tick_count,
-                'current_price': self.current_candle_close,
-                'open_price': self.current_candle_open,
-                'high_price': self.current_candle_high,
-                'low_price': self.current_candle_low,
-                'candle_range': (self.current_candle_high - self.current_candle_low) * 10000,
-                'timestamp': time.time(),
-                'candle_age': time.time() - self.candle_start_time if self.candle_start_time else 0,
-                **advanced_metrics
-            }
-            
-        except Exception as e:
-            logging.error(f"Error en análisis completo: {e}")
-            return {'status': 'ERROR', 'message': str(e)}
-    
-    def get_recent_ticks(self, n=60):
-        """Para compatibilidad con AutoLearning"""
-        return [tick['price'] for tick in list(self.ticks)[-n:]]
-    
-    def reset(self):
-        """Reinicia el análisis para nueva vela ORIGINAL"""
-        try:
-            if self.current_candle_close is not None:
-                self.last_candle_close = self.current_candle_close
-                
-            self.ticks.clear()
-            self.current_candle_open = None
-            self.current_candle_high = None
-            self.current_candle_low = None
-            self.current_candle_close = None
-            self.tick_count = 0
-            self.price_memory.clear()
-            self.velocity_metrics.clear()
-            self.acceleration_metrics.clear()
-            self.volume_profile.clear()
-            self.price_levels.clear()
-            self.candle_start_time = None
-            
-            # Reiniciar análisis de fases
-            for phase in self.analysis_phases:
-                self.analysis_phases[phase] = {'ticks': 0, 'analysis': {}}
-                
-        except Exception as e:
-            logging.error(f"Error en reset: {e}")
+            logging.error(f"Error calculando métricas: {e}")
+            return None
 
-# ------------------ ADAPTIVE MARKET LEARNER (MEJORADO CON BACKUP) ------------------
-from sklearn.linear_model import SGDClassifier
-from sklearn.preprocessing import StandardScaler
+    def reset_candle(self):
+        self.candle_ticks.clear()
+        self.current_candle_open = None
+        self.current_candle_high = None
+        self.current_candle_low = None
+        self.sequence.clear()
+        self.tick_count = 0
+        logging.info("🔄 Vela reiniciada")
 
-class AdaptiveMarketLearner:
-    """
-    Aprendizaje incremental MEJORADO con sistema de backup
-    """
-    def __init__(self, feature_size=18, classes=None, buffer_size=1000):
-        self.feature_size = feature_size
-        self.classes = np.array(['BAJA', 'LATERAL', 'ALZA']) if classes is None else np.array(classes)
-        self.buffer_size = buffer_size
-        self.replay_buffer = deque(maxlen=buffer_size)
-        self.model_path = ONLINE_MODEL_PATH
-        self.scaler_path = ONLINE_SCALER_PATH
-        self._ensure_dirs()
-        self.scaler = self._load_scaler()
-        self.model = self._load_model()
-        self.training_count = 0
-        self.last_backup_time = time.time()
-
-    def _ensure_dirs(self):
-        os.makedirs(os.path.dirname(self.model_path) or ".", exist_ok=True)
-
-    def _load_model(self):
-        """✅ MEJORA: Carga con múltiples intentos y fallback"""
-        if os.path.exists(self.model_path):
-            try:
-                model = joblib.load(self.model_path)
-                logging.info("✅ Modelo online cargado exitosamente")
-                return model
-            except Exception as e:
-                logging.warning(f"⚠️ No se pudo cargar modelo online: {e}")
-                # Intentar cargar backup si existe
-                return self._load_backup_model()
-        
-        # Crear nuevo modelo
-        model = SGDClassifier(
-            loss='log_loss', 
-            max_iter=1000,
-            tol=1e-3,
-            warm_start=True,
-            learning_rate='optimal'
-        )
-        # Inicialización con datos dummy
-        dummy_X = np.random.normal(0, 0.1, (3, self.feature_size))
-        dummy_y = np.array(['BAJA', 'LATERAL', 'ALZA'])
-        model.partial_fit(dummy_X, dummy_y, classes=self.classes)
-        logging.info("🆕 Nuevo modelo online creado")
-        return model
-
-    def _load_backup_model(self):
-        """✅ MEJORA: Sistema de recuperación de backup"""
-        backup_files = []
-        model_dir = os.path.dirname(self.model_path)
-        
-        if os.path.exists(model_dir):
-            for file in os.listdir(model_dir):
-                if file.startswith("online_sgd.pkl.backup"):
-                    backup_files.append(file)
-            
-            if backup_files:
-                latest_backup = sorted(backup_files)[-1]
-                backup_path = os.path.join(model_dir, latest_backup)
-                try:
-                    model = joblib.load(backup_path)
-                    logging.info(f"✅ Modelo recuperado desde backup: {latest_backup}")
-                    return model
-                except Exception as e:
-                    logging.error(f"❌ Error cargando backup: {e}")
-        
-        logging.info("🆕 Creando nuevo modelo desde cero")
-        return self._create_new_model()
-
-    def _create_new_model(self):
-        """Crea un nuevo modelo limpio"""
-        model = SGDClassifier(
-            loss='log_loss', 
-            max_iter=1000,
-            tol=1e-3,
-            warm_start=True,
-            learning_rate='optimal'
-        )
-        dummy_X = np.random.normal(0, 0.1, (3, self.feature_size))
-        dummy_y = np.array(['BAJA', 'LATERAL', 'ALZA'])
-        model.partial_fit(dummy_X, dummy_y, classes=self.classes)
-        return model
-
-    def _load_scaler(self):
-        """✅ MEJORA: Carga de scaler con recuperación"""
-        if os.path.exists(self.scaler_path):
-            try:
-                scaler = joblib.load(self.scaler_path)
-                logging.info("✅ Scaler online cargado exitosamente")
-                return scaler
-            except Exception as e:
-                logging.warning(f"⚠️ No se pudo cargar scaler: {e}")
-        
-        return StandardScaler()
-
-    def create_backup(self):
-        """✅ MEJORA: Sistema de backup automático"""
-        try:
-            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-            model_backup_path = f"{self.model_path}.backup_{timestamp}"
-            scaler_backup_path = f"{self.scaler_path}.backup_{timestamp}"
-            
-            joblib.dump(self.model, model_backup_path)
-            joblib.dump(self.scaler, scaler_backup_path)
-            
-            # Limitar número de backups (mantener últimos 5)
-            self._cleanup_old_backups()
-            
-            self.last_backup_time = time.time()
-            logging.info(f"💾 Backup creado: {timestamp}")
-            return True
-        except Exception as e:
-            logging.error(f"❌ Error creando backup: {e}")
-            return False
-
-    def _cleanup_old_backups(self):
-        """Limpiar backups antiguos"""
-        try:
-            model_dir = os.path.dirname(self.model_path)
-            backup_files = []
-            
-            for file in os.listdir(model_dir):
-                if file.startswith("online_sgd.pkl.backup"):
-                    backup_files.append(file)
-            
-            # Mantener solo los últimos 5 backups
-            if len(backup_files) > 5:
-                backup_files.sort()
-                for old_backup in backup_files[:-5]:
-                    os.remove(os.path.join(model_dir, old_backup))
-                    logging.debug(f"🧹 Backup eliminado: {old_backup}")
-        except Exception as e:
-            logging.debug(f"Error limpiando backups: {e}")
-
-    def persist(self):
-        """✅ MEJORA: Persistencia con backup automático"""
-        try:
-            # Crear backup antes de persistir
-            if self.training_count % 10 == 0:
-                self.create_backup()
-            
-            joblib.dump(self.model, self.model_path)
-            joblib.dump(self.scaler, self.scaler_path)
-            
-            if self.training_count % 10 == 0:
-                logging.info(f"💾 Modelo persistido (entrenamientos: {self.training_count})")
-            return True
-        except Exception as e:
-            logging.error(f"❌ Error guardando modelo: {e}")
-            return False
-
-    def add_sample(self, features: np.ndarray, label: str):
-        """✅ MEJORA: Validación de features antes de añadir"""
-        try:
-            if features.shape[0] == self.feature_size and not np.any(np.isnan(features)):
-                self.replay_buffer.append((features.astype(float), label))
-                return True
-            else:
-                logging.warning("⚠️ Muestra descartada - features inválidos")
-                return False
-        except Exception as e:
-            logging.error(f"❌ Error añadiendo muestra: {e}")
-            return False
-
-    def partial_train(self, batch_size=32):
-        """✅ MEJORA: Entrenamiento con monitoreo de calidad"""
-        if len(self.replay_buffer) < 10:
-            return {"trained": False, "reason": "not_enough_samples", "buffer_size": len(self.replay_buffer)}
-        
-        # Tomar muestras más recientes
-        samples = list(self.replay_buffer)[-batch_size:]
-        
-        try:
-            X = np.vstack([s[0] for s in samples])
-            y = np.array([s[1] for s in samples])
-            
-            # Validar datos antes de entrenar
-            if np.any(np.isnan(X)) or np.any(np.isinf(X)):
-                logging.warning("⚠️ Datos con NaN/Inf - saltando entrenamiento")
-                return {"trained": False, "reason": "invalid_data"}
-            
-            # Entrenar scaler
-            if hasattr(self.scaler, "partial_fit"):
-                self.scaler.partial_fit(X)
-            else:
-                self.scaler.fit(X)
-            Xs = self.scaler.transform(X)
-            
-            # Entrenar modelo
-            self.model.partial_fit(Xs, y, classes=self.classes)
-            self.training_count += 1
-            
-            # Persistir periódicamente
-            if self.training_count % 5 == 0:
-                self.persist()
-                
-            return {
-                "trained": True, 
-                "n_samples": len(samples),
-                "training_count": self.training_count,
-                "buffer_size": len(self.replay_buffer),
-                "data_quality": "good"
-            }
-        except Exception as e:
-            logging.error(f"❌ Error en entrenamiento: {e}")
-            return {"trained": False, "reason": str(e)}
-
-    def predict_proba(self, features: np.ndarray):
-        """✅ MEJORA: Predicción con validación de entrada"""
-        try:
-            X = np.atleast_2d(features.astype(float))
-            
-            # Validar features
-            if np.any(np.isnan(X)) or np.any(np.isinf(X)):
-                logging.warning("⚠️ Features inválidos en predict_proba")
-                return dict(zip(self.classes, np.ones(len(self.classes)) / len(self.classes)))
-                
-            Xs = self.scaler.transform(X)
-            probs = self.model.predict_proba(Xs)[0]
-            return dict(zip(self.model.classes_, probs))
-        except Exception as e:
-            logging.warning(f"⚠️ Fallback en predict_proba: {e}")
-            return dict(zip(self.classes, np.ones(len(self.classes)) / len(self.classes)))
-
-    def predict(self, features: np.ndarray):
-        """✅ MEJORA: Predicción con diagnóstico extendido"""
-        try:
-            X = np.atleast_2d(features.astype(float))
-            
-            # Validación completa de features
-            if np.any(np.isnan(X)) or np.any(np.isinf(X)):
-                logging.warning("🚨 Features inválidos - retornando predicción neutral")
-                return self._get_neutral_prediction()
-                
-            Xs = self.scaler.transform(X)
-            predicted = self.model.predict(Xs)[0]
-            proba = self.predict_proba(features)
-            confidence = max(proba.values()) * 100
-            
-            return {
-                "predicted": predicted,
-                "proba": proba,
-                "confidence": round(confidence, 2),
-                "training_count": self.training_count,
-                "status": "SUCCESS"
-            }
-        except Exception as e:
-            logging.error(f"❌ Error en predict: {e}")
-            return self._get_neutral_prediction()
-
-    def _get_neutral_prediction(self):
-        """Predicción neutral para casos de error"""
-        return {
-            "predicted": "LATERAL",
-            "proba": dict(zip(self.classes, [1/3]*3)),
-            "confidence": 33.3,
-            "training_count": self.training_count,
-            "status": "FALLBACK"
-        }
-
-    def get_model_info(self):
-        """✅ MEJORA: Información extendida del modelo"""
-        return {
-            "training_count": self.training_count,
-            "buffer_size": len(self.replay_buffer),
-            "feature_size": self.feature_size,
-            "classes": list(self.classes),
-            "last_backup": self.last_backup_time,
-            "model_path": self.model_path
-        }
-
-# ------------------ FEATURE BUILDER MEJORADO ------------------
-def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_window=30):
-    """
-    Construye features AVANZADOS combinando análisis tradicional + métricas ML
-    """
-    try:
-        # Features básicos de precio
-        if analysis.get('status') != 'SUCCESS':
-            return np.zeros(18)
-            
-        current_price = analysis.get('current_price', 0)
-        tick_count = analysis.get('tick_count', 0)
-        
-        # Features de tendencia y momentum
-        trend_strength = analysis.get('trend_strength', 0)
-        momentum = analysis.get('momentum', 0)
-        volatility = analysis.get('volatility', 0)
-        
-        # Features de presión de mercado
-        buy_pressure = analysis.get('buy_pressure', 0.5)
-        sell_pressure = analysis.get('sell_pressure', 0.5)
-        pressure_ratio = analysis.get('pressure_ratio', 1.0)
-        
-        # Features de velocidad y fase
-        velocity = analysis.get('velocity', 0)
-        candle_progress = analysis.get('candle_progress', 0)
-        
-        # Features de análisis de fases
-        phase_analysis = analysis.get('phase_analysis', {})
-        momentum_shift = 1.0 if phase_analysis.get('momentum_shift', False) else 0.0
-        consistency_score = phase_analysis.get('consistency_score', 0)
-        
-        # Features de tiempo
-        time_remaining = seconds_remaining / TIMEFRAME
-        
-        # Construir vector de features
-        features = np.array([
-            current_price,
-            trend_strength,
-            momentum,
-            volatility,
-            buy_pressure,
-            sell_pressure,
-            pressure_ratio,
-            velocity,
-            candle_progress,
-            momentum_shift,
-            consistency_score,
-            time_remaining,
-            tick_count / 100.0,  # Normalizado
-            analysis.get('data_quality', 0),
-            # Features adicionales para robustez
-            analysis.get('candle_range', 0),
-            min(1.0, tick_count / 50.0),  # Saturation feature
-            np.log1p(abs(trend_strength)),  # Log feature
-            np.sqrt(abs(momentum))  # Sqrt feature
-        ]).astype(float)
-        
-        # Asegurar tamaño consistente
-        if features.shape[0] < 18:
-            features = np.pad(features, (0, 18 - features.shape[0]))
-        elif features.shape[0] > 18:
-            features = features[:18]
-            
-        return features
-        
-    except Exception as e:
-        logging.error(f"❌ Error construyendo features avanzados: {e}")
-        return np.zeros(18)
-
-# ------------------ SISTEMA IA PROFESIONAL COMPLETO ------------------
-class ComprehensiveAIPredictor:
+# ------------------ Predictor MEJORADO con Sistema de Aprendizaje Avanzado ------------------
+class ProductionPredictor:
     def __init__(self):
-        self.analyzer = PremiumAIAnalyzer()
-        self.prediction_history = deque(maxlen=20)
+        self.analyzer = ProductionTickAnalyzer()
+        self.model = None
+        self.scaler = None
+        self.ensemble_models = {}
+        self.ensemble_weights = {}
+        self.prev_candle_metrics = None
+        self.partial_buffer = []
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
-            'recent_accuracy': 0.0,
-            'phase_analysis_count': 0
+            'recent': deque(maxlen=50),
+            'model_performance': {},
+            'feature_importance': {}
         }
         self.last_prediction = None
-        self.last_validation_result = None
-        
-    def process_tick(self, price: float, seconds_remaining: float = None):
+        self.prediction_history = deque(maxlen=30)
+        self._initialize_enhanced_system()
+        self._ensure_files()
+
+    def _feature_names(self):
+        return [
+            "buy_pressure", "sell_pressure", "pressure_ratio", "momentum",
+            "volatility", "up_ticks", "down_ticks", "total_ticks",
+            "volume_trend", "price_change", "tick_speed", "direction_ratio",
+            "seconds_remaining_norm", "rsi_like", "momentum_acceleration"
+        ]
+
+    def _ensure_files(self):
         try:
-            tick_data = self.analyzer.add_tick(price, seconds_remaining)
-            return {
-                "tick_count": self.analyzer.tick_count,
-                "status": "PROCESSED"
-            }
+            if not os.path.exists(TRAINING_CSV):
+                pd.DataFrame(columns=self._feature_names() + ["label", "timestamp", "pattern"]).to_csv(TRAINING_CSV, index=False)
+            if not os.path.exists(PERF_CSV):
+                pd.DataFrame(columns=[
+                    "timestamp", "prediction", "actual", "correct", "confidence", 
+                    "model_used", "ensemble_weight", "market_phase"
+                ]).to_csv(PERF_CSV, index=False)
         except Exception as e:
-            logging.error(f"Error en process_tick: {e}")
-            return None
-    
-    def _comprehensive_ai_analysis(self, analysis, ml_prediction=None):
-        """Análisis de IA ORIGINAL MEJORADO con ML"""
+            logging.error("Error initializing files: %s", e)
+
+    def _initialize_enhanced_system(self):
+        """Sistema de inicialización mejorado con ensemble learning"""
         try:
-            # Métricas tradicionales
-            momentum = analysis['momentum']
-            trend_strength = analysis['trend_strength']
-            pressure_ratio = analysis['pressure_ratio']
-            volatility = analysis['volatility']
-            market_phase = analysis['market_phase']
-            data_quality = analysis['data_quality']
-            phase_analysis = analysis.get('phase_analysis', {})
-            candle_progress = analysis.get('candle_progress', 0)
-            
-            buy_score = 0
-            sell_score = 0
-            reasons = []
-            
-            # Integrar predicción ML si está disponible
-            ml_boost = 0
-            if ml_prediction and ml_prediction.get('confidence', 0) > 60:
-                ml_direction = ml_prediction.get('predicted', 'LATERAL')
-                ml_confidence = ml_prediction.get('confidence', 0) / 100.0
-                ml_boost = ml_confidence * 0.3  # 30% de boost por ML confiable
-                reasons.append(f"🤖 ML confirma {ml_direction} ({ml_prediction['confidence']}%)")
-            
-            # Peso basado en progreso de la vela ORIGINAL
-            late_phase_weight = 1.0 if candle_progress > 0.8 else 0.7
-            
-            # Tendencia (35% de peso)
-            trend_weight = 0.35 * late_phase_weight
-            if abs(trend_strength) > 1.0:
-                if trend_strength > 0:
-                    buy_score += 8 * trend_weight + ml_boost
-                    reasons.append(f"📈 Tendencia alcista fuerte ({trend_strength:.1f})")
-                else:
-                    sell_score += 8 * trend_weight + ml_boost
-                    reasons.append(f"📉 Tendencia bajista fuerte ({trend_strength:.1f})")
-            
-            # Momentum (30% de peso)
-            momentum_weight = 0.30 * late_phase_weight
-            if abs(momentum) > 0.8:
-                if momentum > 0:
-                    buy_score += 7 * momentum_weight
-                    reasons.append(f"🚀 Momentum alcista fuerte ({momentum:.1f}pips)")
-                else:
-                    sell_score += 7 * momentum_weight
-                    reasons.append(f"🔻 Momentum bajista fuerte ({momentum:.1f}pips)")
-            
-            # Análisis de fases (15% de peso)
-            phase_weight = 0.15 * late_phase_weight
-            if phase_analysis.get('momentum_shift', False):
-                current_trend = phase_analysis.get('final_trend', 'N/A')
-                if current_trend == 'ALCISTA':
-                    buy_score += 4 * phase_weight
-                    reasons.append("🔄 Cambio de momentum a alcista")
-                elif current_trend == 'BAJISTA':
-                    sell_score += 4 * phase_weight
-                    reasons.append("🔄 Cambio de momentum a bajista")
-            
-            # Presión de compra/venta (20% de peso)
-            pressure_weight = 0.20 * late_phase_weight
-            if pressure_ratio > 2.0:
-                buy_score += 6 * pressure_weight
-                reasons.append(f"💰 Fuerte presión compradora ({pressure_ratio:.1f}x)")
-            elif pressure_ratio < 0.5:
-                sell_score += 6 * pressure_weight
-                reasons.append(f"💸 Fuerte presión vendedora ({pressure_ratio:.1f}x)")
-            
-            score_difference = buy_score - sell_score
-            
-            # Umbral dinámico con boost de ML
-            base_threshold = 0.4
-            if ml_prediction and ml_prediction.get('confidence', 0) > 70:
-                base_threshold = 0.3  # Más sensible con ML confiable
-            
-            confidence_threshold = base_threshold - (0.1 * (1 - data_quality))
-            
-            if abs(score_difference) > confidence_threshold:
-                if score_difference > 0:
-                    direction = "ALZA"
-                    base_confidence = 55 + (score_difference * 40)
-                else:
-                    direction = "BAJA" 
-                    base_confidence = 55 + (abs(score_difference) * 40)
+            # Cargar modelo principal si existe
+            if os.path.exists(MODEL_PATH) and os.path.exists(SCALER_PATH):
+                self.model = joblib.load(MODEL_PATH)
+                self.scaler = joblib.load(SCALER_PATH)
+                logging.info("✅ Modelo ML existente cargado")
             else:
-                direction = "LATERAL"
-                base_confidence = 40
-                reasons.append("⚡ Señales mixtas o insuficientes")
-            
-            # Ajustar confianza con ML
-            confidence = base_confidence
-            confidence *= data_quality
-            
-            # Bonus por alta calidad de datos
-            if analysis['tick_count'] > 40:
-                confidence = min(90, confidence + 15)
-                reasons.append("📊 Alta calidad de datos (muchos ticks)")
-            
-            confidence = max(35, min(90, confidence))
-            
-            return {
-                'direction': direction,
-                'confidence': int(confidence),
-                'buy_score': round(buy_score, 2),
-                'sell_score': round(sell_score, 2),
-                'score_difference': round(score_difference, 2),
-                'reasons': reasons,
-                'market_phase': market_phase,
-                'candle_progress': round(candle_progress, 2),
-                'phase_analysis': phase_analysis,
-                'ml_boost': round(ml_boost, 2)
-            }
-        except Exception as e:
-            logging.error(f"Error en análisis IA comprehensivo: {e}")
-            return {
-                'direction': 'LATERAL',
-                'confidence': 35,
-                'reasons': ['🤖 Error en análisis comprehensivo'],
-                'buy_score': 0,
-                'sell_score': 0,
-                'score_difference': 0
-            }
-    
-    def predict_next_candle(self, ml_prediction=None):
-        try:
-            analysis = self.analyzer.get_comprehensive_analysis()
-            
-            if analysis.get('status') != 'SUCCESS':
-                return {
-                    'direction': 'LATERAL',
-                    'confidence': 0,
-                    'reason': analysis.get('message', 'Analizando...'),
-                    'timestamp': now_iso()
-                }
-            
-            prediction = self._comprehensive_ai_analysis(analysis, ml_prediction)
-            
-            # Solo emitir predicción si tenemos suficiente confianza
-            if prediction['confidence'] < 45:
-                prediction['direction'] = 'LATERAL'
-                prediction['reasons'].append("🔍 Confianza insuficiente para predicción direccional")
-            
-            prediction.update({
-                'tick_count': analysis['tick_count'],
-                'current_price': analysis['current_price'],
-                'candle_range': analysis.get('candle_range', 0),
-                'timestamp': now_iso(),
-                'model_version': 'COMPREHENSIVE_AI_V5.4_HYBRID'
-            })
-            
-            self.last_prediction = prediction
-            self.prediction_history.append(prediction)
-            
-            # Log de predicción detallado
-            if prediction['direction'] != 'LATERAL':
-                ml_info = f" | ML Boost: {prediction.get('ml_boost', 0):.2f}" if ml_prediction else ""
-                logging.info(f"🎯 PREDICCIÓN HÍBRIDA: {prediction['direction']} | "
-                           f"Conf: {prediction['confidence']}%{ml_info} | "
-                           f"Ticks: {analysis['tick_count']}")
-            
-            return prediction
-        except Exception as e:
-            logging.error(f"Error en predict_next_candle: {e}")
-            return {
-                'direction': 'LATERAL',
-                'confidence': 0,
-                'reason': 'Error en predicción',
-                'timestamp': now_iso()
-            }
-    
-    def validate_prediction(self, new_candle_open_price):
-        """Validación mejorada ORIGINAL"""
-        try:
-            if not self.last_prediction:
-                return None
-                
-            last_pred = self.last_prediction
-            predicted_direction = last_pred.get('direction', 'N/A')
-            
-            previous_close = self.analyzer.last_candle_close
-            current_open = new_candle_open_price
-            
-            if previous_close is None or current_open is None:
-                return None
-                
-            price_change = (current_open - previous_close) * 10000
-            
-            # Umbral dinámico basado en el rango de la vela anterior
-            candle_range = last_pred.get('candle_range', 0.5)
-            minimal_change = max(0.15, candle_range * 0.2)
-            
-            if abs(price_change) < minimal_change:
-                actual_direction = "LATERAL"
-                is_correct = False
+                self._initialize_new_model()
+
+            # Cargar o inicializar ensemble
+            if os.path.exists(ENSEMBLE_PATH):
+                with open(ENSEMBLE_PATH, 'rb') as f:
+                    ensemble_data = pickle.load(f)
+                    self.ensemble_models = ensemble_data.get('models', {})
+                    self.ensemble_weights = ensemble_data.get('weights', {})
+                logging.info("✅ Ensemble models loaded")
             else:
-                if price_change > 0:
-                    actual_direction = "ALZA"
-                else:
-                    actual_direction = "BAJA"
-                
-                is_correct = (actual_direction == predicted_direction)
-            
-            if predicted_direction != "LATERAL":
-                self.performance_stats['total_predictions'] += 1
-                if is_correct:
-                    self.performance_stats['correct_predictions'] += 1
-            
-            total = self.performance_stats['total_predictions']
-            correct = self.performance_stats['correct_predictions']
-            accuracy = (correct / total * 100) if total > 0 else 0
-            self.performance_stats['recent_accuracy'] = accuracy
-            
-            status_icon = "✅" if is_correct else "❌"
-            if actual_direction == "LATERAL":
-                status_icon = "⚪"
-            
-            logging.info(f"🎯 VALIDACIÓN: {status_icon} {predicted_direction}→{actual_direction} | "
-                        f"Conf: {last_pred.get('confidence', 0)}% | "
-                        f"Cambio: {price_change:.1f}pips | "
-                        f"Rango vela: {candle_range:.1f}pips")
-            
-            if total > 0 and total % 5 == 0:
-                logging.info(f"📊 PRECISIÓN ACUMULADA: {accuracy:.1f}% (Total: {total})")
-            
-            self.last_validation_result = {
-                'correct': is_correct,
-                'predicted': predicted_direction,
-                'actual': actual_direction,
-                'confidence': last_pred.get('confidence', 0),
-                'price_change': round(price_change, 2),
-                'candle_range': round(candle_range, 2),
-                'accuracy': round(accuracy, 1),
-                'total_predictions': total,
-                'correct_predictions': correct,
-                'status_icon': status_icon,
-                'timestamp': now_iso()
-            }
-            
-            return self.last_validation_result
-            
-        except Exception as e:
-            logging.error(f"Error en validación: {e}")
-            return None
-    
-    def get_performance_stats(self):
-        return self.performance_stats.copy()
-    
-    def get_last_validation(self):
-        return self.last_validation_result
-    
-    def reset(self):
-        try:
-            self.analyzer.reset()
-        except Exception as e:
-            logging.error(f"Error en reset predictor: {e}")
-
-# ------------------ CONEXIÓN PROFESIONAL MEJORADA (CORREGIDA) ------------------
-class ProfessionalIQConnector:
-    def __init__(self):
-        self.connected = False
-        self.tick_listeners = []
-        self.last_price = 1.10000
-        self.tick_count = 0
-        self.api = None
-        self.asset_name = "EURUSD"
-        self.connection_attempts = 0
-        self.max_connection_attempts = 3
-        
-    def connect(self):
-        if not IQ_OPTION_AVAILABLE:
-            logging.error("❌ IQ Option API no disponible - Instala: pip install iqoptionapi")
-            return False
-            
-        try:
-            self.connection_attempts += 1
-            logging.info(f"🌐 Conectando a IQ Option (Intento {self.connection_attempts}/{self.max_connection_attempts})...")
-            self.api = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
-            check, reason = self.api.connect()
-            
-            if check:
-                result = self.api.change_balance("PRACTICE")
-                self.connected = True
-                logging.info("✅ Conexión IQ Option establecida - MODO PRÁCTICA")
-                
-                # Buscar el activo correcto y suscribirse
-                self._setup_tick_stream()
-                return True
-            else:
-                logging.error(f"❌ Conexión IQ Option fallida: {reason}")
-                if self.connection_attempts < self.max_connection_attempts:
-                    time.sleep(2)
-                    return self.connect()
-                return False
+                self._initialize_ensemble_models()
                 
         except Exception as e:
-            logging.error(f"❌ Error de conexión IQ Option: {e}")
-            if self.connection_attempts < self.max_connection_attempts:
-                time.sleep(2)
-                return self.connect()
-            return False
+            logging.error(f"❌ Error cargando sistema mejorado: {e}")
+            self._initialize_new_model()
+            self._initialize_ensemble_models()
 
-    def _setup_tick_stream(self):
-        """Configuración robusta del stream de ticks"""
+    def _initialize_new_model(self):
         try:
-            # Probar diferentes nombres de activo
-            asset_candidates = ["EURUSD", "EURUSD-OTC", "EURUSD"]
-            
-            for asset in asset_candidates:
-                if self._test_asset(asset):
-                    self.asset_name = asset
-                    logging.info(f"✅ Activo configurado: {asset}")
-                    break
-            
-            # Iniciar stream de velas
-            self.api.start_candles_stream(self.asset_name, TIMEFRAME, 10)
-            
-            # Iniciar listener de ticks
-            thread = threading.Thread(target=self._advanced_tick_listener, daemon=True)
-            thread.start()
-            
-            logging.info(f"📡 Stream de ticks iniciado para {self.asset_name}")
-            
-        except Exception as e:
-            logging.error(f"❌ Error configurando stream: {e}")
-
-    def _test_asset(self, asset_name):
-        """Probar si un activo está disponible"""
-        try:
-            self.api.start_candles_stream(asset_name, TIMEFRAME, 5)
-            time.sleep(1)
-            candles = self.api.get_realtime_candles(asset_name, TIMEFRAME)
-            available = bool(candles)
-            if available:
-                logging.info(f"✅ Activo {asset_name} disponible")
-            return available
-        except Exception:
-            logging.debug(f"❌ Activo {asset_name} no disponible")
-            return False
-
-    def _advanced_tick_listener(self):
-        """Listener avanzado para ticks en tiempo real"""
-        consecutive_failures = 0
-        max_failures = 10
-        
-        while self.connected and consecutive_failures < max_failures:
+            self.scaler = IncrementalScaler()
+            self.model = MLPClassifier(
+                hidden_layer_sizes=(64,32),
+                activation="relu",
+                solver="adam",
+                learning_rate="adaptive",
+                max_iter=1,
+                warm_start=True,
+                random_state=42
+            )
+            n = len(self._feature_names())
+            X_dummy = np.random.normal(0, 0.1, (10, n)).astype(np.float32)
+            y_dummy = np.random.randint(0,2,10)
+            self.scaler.partial_fit(X_dummy)
+            Xs = self.scaler.transform(X_dummy)
             try:
-                candles = self.api.get_realtime_candles(self.asset_name, TIMEFRAME)
-                
-                if candles:
-                    consecutive_failures = 0
-                    candle_list = list(candles.values())
-                    
-                    if candle_list:
-                        latest_candle = candle_list[-1]
-                        price = latest_candle.get('close')
+                self.model.partial_fit(Xs, y_dummy, classes=[0,1])
+            except Exception:
+                self.model.fit(Xs, y_dummy)
+            self._save_artifacts()
+            logging.info("✅ Nuevo modelo ML inicializado")
+        except Exception as e:
+            logging.error(f"❌ Error init model: {e}")
+            self.model = None
+            self.scaler = None
+
+    def _initialize_ensemble_models(self):
+        """Inicializar modelos ensemble para mejor predicción"""
+        try:
+            self.ensemble_models = {
+                'random_forest': RandomForestClassifier(
+                    n_estimators=30,
+                    max_depth=8,
+                    random_state=42
+                ),
+                'gradient_boost': GradientBoostingClassifier(
+                    n_estimators=30,
+                    max_depth=5,
+                    random_state=42
+                )
+            }
+            
+            # Pesos iniciales
+            self.ensemble_weights = {name: 1.0 for name in self.ensemble_models.keys()}
+            self.performance_stats['model_performance'] = {name: deque(maxlen=15) for name in self.ensemble_models.keys()}
+            
+            self._save_ensemble()
+            logging.info("✅ Ensemble models initialized")
+        except Exception as e:
+            logging.error(f"❌ Error initializing ensemble: {e}")
+
+    def _save_ensemble(self):
+        """Guardar estado del ensemble"""
+        try:
+            ensemble_data = {
+                'models': self.ensemble_models,
+                'weights': self.ensemble_weights,
+                'performance': self.performance_stats['model_performance']
+            }
+            with open(ENSEMBLE_PATH, 'wb') as f:
+                pickle.dump(ensemble_data, f)
+        except Exception as e:
+            logging.error(f"❌ Error saving ensemble: {e}")
+
+    def _save_artifacts(self):
+        try:
+            if self.model and self.scaler:
+                joblib.dump(self.model, MODEL_PATH)
+                joblib.dump(self.scaler, SCALER_PATH)
+                logging.info("💾 Modelo guardado")
+        except Exception as e:
+            logging.error(f"❌ Error guardando artifacts: {e}")
+
+    def extract_features(self, metrics):
+        try:
+            features = [safe_float(metrics.get(k,0.0)) for k in self._feature_names()]
+            return np.array(features, dtype=np.float32)
+        except Exception:
+            return np.zeros(len(self._feature_names()), dtype=np.float32)
+
+    def append_sample_if_confident(self, metrics, label, confidence):
+        try:
+            if confidence < CONFIDENCE_SAVE_THRESHOLD:
+                return
+            row = {k: metrics.get(k,0.0) for k in self._feature_names()}
+            row["label"] = int(label)
+            row["timestamp"] = datetime.utcnow().isoformat()
+            row["pattern"] = metrics.get("market_phase", "unknown")
+            pd.DataFrame([row]).to_csv(TRAINING_CSV, mode="a", header=False, index=False)
+            self.partial_buffer.append((row,label))
+            logging.info(f"💾 Sample guardado - label={label} conf={confidence}% buffer={len(self.partial_buffer)}")
+            if len(self.partial_buffer) >= PARTIAL_FIT_AFTER:
+                self._perform_enhanced_partial_fit()
+        except Exception as e:
+            logging.error(f"❌ Error append sample: {e}")
+
+    def _perform_enhanced_partial_fit(self):
+        """Entrenamiento parcial mejorado para múltiples modelos"""
+        if not self.partial_buffer or not self.model or not self.scaler:
+            self.partial_buffer.clear()
+            return
+        try:
+            X_new = np.array([[r[f] for f in self._feature_names()] for (r,_) in self.partial_buffer], dtype=np.float32)
+            y_new = np.array([lbl for (_,lbl) in self.partial_buffer])
+            self.scaler.partial_fit(X_new)
+            Xs = self.scaler.transform(X_new)
+            try:
+                self.model.partial_fit(Xs, y_new)
+            except Exception:
+                self.model.fit(Xs, y_new)
+            
+            # Entrenar modelos ensemble también
+            if len(X_new) >= 8:
+                for name, model in self.ensemble_models.items():
+                    try:
+                        if hasattr(model, 'partial_fit'):
+                            model.partial_fit(Xs, y_new, classes=[0,1])
+                    except Exception as e:
+                        logging.warning(f"⚠️ Error training ensemble model {name}: {e}")
+            
+            self._save_artifacts()
+            self._save_ensemble()
+            logging.info(f"🧠 Enhanced partial fit completado con {len(X_new)} samples")
+            self.partial_buffer.clear()
+        except Exception as e:
+            logging.error(f"❌ Error enhanced partial fit: {e}")
+            self.partial_buffer.clear()
+
+    def _ensemble_predict(self, features):
+        """Predicción por ensemble con pesos dinámicos"""
+        if not self.ensemble_models:
+            return None
+            
+        try:
+            Xs = self.scaler.transform(features.reshape(1, -1))
+            predictions = []
+            confidences = []
+            
+            for name, model in self.ensemble_models.items():
+                try:
+                    if hasattr(model, 'predict_proba'):
+                        proba = model.predict_proba(Xs)[0]
+                        up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
+                        confidence = int(max(up_prob, 1 - up_prob) * 100)
                         
-                        if price and price > 0:
-                            price_float = float(price)
-                            
-                            if price_float != self.last_price:
-                                self.last_price = price_float
-                                self.tick_count += 1
-                                
-                                # Log informativo periódico
-                                if self.tick_count <= 10 or self.tick_count % 25 == 0:
-                                    logging.info(f"🎯 TICK #{self.tick_count}: {self.last_price:.5f}")
-                                
-                                # Notificar listeners
-                                timestamp = time.time()
-                                for listener in self.tick_listeners[:]:
-                                    try:
-                                        listener(self.last_price, timestamp)
-                                    except Exception as e:
-                                        logging.error(f"❌ Error en listener: {e}")
+                        # Aplicar peso del modelo
+                        weight = self.ensemble_weights.get(name, 1.0)
+                        weighted_prob = (up_prob - 0.5) * weight + 0.5
+                        
+                        predictions.append(weighted_prob)
+                        confidences.append(confidence)
+                except Exception as e:
+                    logging.debug(f"Ensemble model {name} prediction failed: {e}")
+                    continue
+            
+            if predictions:
+                avg_pred = np.mean(predictions)
+                avg_confidence = int(np.mean(confidences))
+                
+                return {
+                    "prob_up": avg_pred,
+                    "confidence": avg_confidence,
+                    "direction": "ALZA" if avg_pred >= 0.5 else "BAJA",
+                    "model_type": "ENSEMBLE",
+                    "models_used": len(predictions)
+                }
+                
+        except Exception as e:
+            logging.warning(f"⚠️ Ensemble prediction error: {e}")
+            
+        return None
+
+    def _update_ensemble_weights(self, correct: bool, model_used: str):
+        """Actualizar pesos del ensemble basado en performance"""
+        try:
+            if model_used in self.ensemble_weights:
+                current_weight = self.ensemble_weights[model_used]
+                
+                if correct:
+                    new_weight = min(2.0, current_weight * 1.05)
                 else:
-                    consecutive_failures += 1
-                    if consecutive_failures % 5 == 0:
-                        logging.warning(f"⚠️ Sin datos de ticks (fallos consecutivos: {consecutive_failures})")
+                    new_weight = max(0.1, current_weight * 0.95)
+                    
+                self.ensemble_weights[model_used] = new_weight
                 
-                time.sleep(0.5)
+                # Registrar performance
+                if model_used in self.performance_stats['model_performance']:
+                    self.performance_stats['model_performance'][model_used].append(1 if correct else 0)
                 
-            except Exception as e:
-                consecutive_failures += 1
-                logging.error(f"❌ Error en listener (fallo {consecutive_failures}): {e}")
-                time.sleep(2)
+                # Recalcular pesos periódicamente
+                if self.performance_stats['total_predictions'] % ENSEMBLE_WEIGHT_UPDATE == 0:
+                    self._rebalance_ensemble_weights()
+                    
+        except Exception as e:
+            logging.error(f"❌ Error updating ensemble weights: {e}")
+
+    def _rebalance_ensemble_weights(self):
+        """Rebalancear pesos del ensemble"""
+        try:
+            total_performance = 0
+            performances = {}
+            
+            for model_name, perf_deque in self.performance_stats['model_performance'].items():
+                if len(perf_deque) > 0:
+                    performance = sum(perf_deque) / len(perf_deque)
+                    performances[model_name] = performance
+                    total_performance += performance
+            
+            if total_performance > 0:
+                for model_name, performance in performances.items():
+                    normalized_perf = performance / total_performance
+                    self.ensemble_weights[model_name] = normalized_perf * len(performances)
+                    
+            logging.info(f"🔧 Ensemble weights rebalanced: {self.ensemble_weights}")
+            
+        except Exception as e:
+            logging.error(f"❌ Error rebalancing ensemble weights: {e}")
+
+    def validate_previous_prediction(self, current_candle_metrics):
+        """Valida si la última predicción fue correcta - MEJORADA"""
+        if not self.last_prediction:
+            return None
+            
+        try:
+            if self.prev_candle_metrics is None:
+                return None
+                
+            prev_close = float(self.prev_candle_metrics["current_price"])
+            current_close = float(current_candle_metrics["current_price"])
+            
+            actual_direction = "ALZA" if current_close > prev_close else "BAJA"
+            predicted_direction = self.last_prediction.get("direction", "N/A")
+            
+            correct = (actual_direction == predicted_direction)
+            confidence = self.last_prediction.get("confidence", 0)
+            
+            price_change = (current_close - prev_close) * 10000
+
+            result = {
+                "timestamp": now_iso(),
+                "predicted": predicted_direction,
+                "actual": actual_direction,
+                "correct": correct,
+                "confidence": confidence,
+                "price_change_pips": round(price_change, 2),
+                "previous_price": round(prev_close, 5),
+                "current_price": round(current_close, 5),
+                "model_used": self.last_prediction.get("model_used", "UNKNOWN"),
+                "reasons": self.last_prediction.get("reasons", [])
+            }
+            
+            # Actualizar pesos del ensemble si se usó
+            model_used = self.last_prediction.get("model_used", "")
+            if "ENSEMBLE" in model_used or any(name in model_used for name in self.ensemble_models.keys()):
+                self._update_ensemble_weights(correct, model_used)
+            
+            status = "✅ CORRECTA" if correct else "❌ ERRÓNEA"
+            logging.info(f"🎯 VALIDACIÓN: {status} | Pred: {predicted_direction} | Real: {actual_direction} | Conf: {confidence}% | Change: {price_change:.1f}pips")
+            
+            self._update_global_performance_stats(correct, result)
+            
+            return result
+            
+        except Exception as e:
+            logging.error(f"❌ Error validando predicción: {e}")
+            return None
+
+    def _update_global_performance_stats(self, correct, validation_result):
+        """Actualiza estadísticas globales de performance"""
+        global performance_stats
         
-        if consecutive_failures >= max_failures:
-            logging.error("🚨 MÁXIMOS FALLOS CONSECUTIVOS - Deteniendo listener")
+        performance_stats['total_predictions'] += 1
+        performance_stats['correct_predictions'] += 1 if correct else 0
+        performance_stats['last_10'].append(1 if correct else 0)
+        performance_stats['last_validation'] = validation_result
+        
+        if performance_stats['last_10']:
+            recent_correct = sum(performance_stats['last_10'])
+            performance_stats['recent_accuracy'] = (recent_correct / len(performance_stats['last_10'])) * 100
+        
+        if performance_stats['total_predictions'] % 5 == 0:
+            overall_acc = (performance_stats['correct_predictions'] / performance_stats['total_predictions'] * 100)
+            logging.info(f"📊 PERFORMANCE ACUMULADA: Global: {overall_acc:.1f}% | Reciente: {performance_stats['recent_accuracy']:.1f}% | Total: {performance_stats['total_predictions']}")
 
-    def add_tick_listener(self, listener):
-        """Añadir listener para procesamiento de ticks"""
-        self.tick_listeners.append(listener)
-        logging.info(f"✅ Listener de ticks añadido (total: {len(self.tick_listeners)})")
+    def on_candle_closed(self, closed_metrics):
+        try:
+            if self.prev_candle_metrics is not None:
+                prev_close = float(self.prev_candle_metrics["current_price"])
+                this_close = float(closed_metrics["current_price"])
+                label = 1 if this_close > prev_close else 0
+                if self.last_prediction:
+                    conf = safe_float(self.last_prediction.get("confidence",0.0))
+                    self.append_sample_if_confident(self.prev_candle_metrics, label, conf)
+                    self._record_performance(self.last_prediction, label)
+                self.prev_candle_metrics = closed_metrics.copy()
+                self.last_prediction = None
+            else:
+                self.prev_candle_metrics = closed_metrics.copy()
+        except Exception as e:
+            logging.error(f"❌ Error on_candle_closed: {e}")
 
-    def get_realtime_price(self):
-        """Obtener precio en tiempo real"""
-        return float(self.last_price)
+    def _record_performance(self, pred, actual_label):
+        try:
+            correct = ((pred.get("direction")=="ALZA" and actual_label==1) or (pred.get("direction")=="BAJA" and actual_label==0))
+            rec = {
+                "timestamp": now_iso(), 
+                "prediction": pred.get("direction"), 
+                "actual": "ALZA" if actual_label==1 else "BAJA",
+                "correct": correct, 
+                "confidence": pred.get("confidence",0), 
+                "model_used": pred.get("model_used","HYBRID"),
+                "ensemble_weight": json.dumps(self.ensemble_weights),
+                "market_phase": self.prev_candle_metrics.get("market_phase", "unknown") if self.prev_candle_metrics else "unknown"
+            }
+            pd.DataFrame([rec]).to_csv(PERF_CSV, mode="a", header=False, index=False)
+            self.performance_stats['total_predictions'] += 1
+            self.performance_stats['correct_predictions'] += int(correct)
+            self.performance_stats['recent'].append(int(correct))
+            logging.info(f"📊 Performance registrada - Correcto: {correct}")
+        except Exception as e:
+            logging.error(f"❌ Error recording performance: {e}")
 
-    def get_connection_status(self):
-        """Estado completo de la conexión"""
+    def _rule_based(self, metrics):
+        """SISTEMA DE REGLAS MEJORADO - CONFIANZA EN ENTEROS"""
+        signals = []
+        confidences = []
+        reasons = []
+        
+        pr = metrics.get("pressure_ratio", 1.0)
+        mom = metrics.get("momentum", 0.0)
+        bp = metrics.get("buy_pressure", 0.5)
+        sp = metrics.get("sell_pressure", 0.5)
+        vol = metrics.get("volatility", 0.0)
+        phase = metrics.get("market_phase", "neutral")
+        total_ticks = metrics.get("total_ticks", 0)
+        rsi = metrics.get("rsi_like", 50)
+        mom_acc = metrics.get("momentum_acceleration", 0.0)
+        
+        # 1. ANÁLISIS RSI MEJORADO
+        if rsi > 70:
+            signals.append(0)
+            confidences.append(65)
+            reasons.append(f"RSI elevado {rsi:.1f}")
+        elif rsi < 30:
+            signals.append(1)
+            confidences.append(65)
+            reasons.append(f"RSI bajo {rsi:.1f}")
+            
+        # 2. ACELERACIÓN DEL MOMENTUM
+        if mom_acc > 0.8:
+            signals.append(1)
+            confidences.append(60 + int(min(mom_acc, 3) * 5))
+            reasons.append(f"Aceleración alcista {mom_acc:.1f}")
+        elif mom_acc < -0.8:
+            signals.append(0)
+            confidences.append(60 + int(min(abs(mom_acc), 3) * 5))
+            reasons.append(f"Aceleración bajista {mom_acc:.1f}")
+        
+        # 3. PRESSURE RATIO - SEÑAL FUERTE (ORIGINAL)
+        if pr > 2.2:
+            signals.append(1)
+            confidences.append(min(80, 50 + int((pr - 2.0) * 15)))
+            reasons.append(f"Presión compra fuerte {pr:.1f}x")
+        elif pr > 1.6:
+            signals.append(1)
+            confidences.append(min(65, 40 + int((pr - 1.5) * 20)))
+            reasons.append(f"Presión compra {pr:.1f}x")
+        elif pr < 0.45:
+            signals.append(0)
+            confidences.append(min(80, 50 + int((0.5 - pr) * 15)))
+            reasons.append(f"Presión venta fuerte {pr:.1f}x")
+        elif pr < 0.65:
+            signals.append(0)
+            confidences.append(min(65, 40 + int((0.7 - pr) * 20)))
+            reasons.append(f"Presión venta {pr:.1f}x")
+        
+        # 4. MOMENTUM - SEÑAL MEDIA (ORIGINAL)
+        if mom > 2.0:
+            signals.append(1)
+            confidences.append(min(75, 45 + int(min(mom, 8) * 3)))
+            reasons.append(f"Momento alcista {mom:.1f}pips")
+        elif mom < -2.0:
+            signals.append(0)
+            confidences.append(min(75, 45 + int(min(abs(mom), 8) * 3)))
+            reasons.append(f"Momento bajista {mom:.1f}pips")
+        elif abs(mom) > 0.8:
+            direction = 1 if mom > 0 else 0
+            signals.append(direction)
+            confidences.append(55)
+            reasons.append(f"Momento leve {mom:.1f}pips")
+        
+        # 5. BUY/SELL PRESSURE - SEÑAL DIRECTA (ORIGINAL)
+        if bp > 0.70:
+            signals.append(1)
+            confidences.append(70)
+            reasons.append(f"Dominio compra {bp:.0%}")
+        elif sp > 0.70:
+            signals.append(0)
+            confidences.append(70)
+            reasons.append(f"Dominio venta {sp:.0%}")
+        
+        # DECISIÓN FINAL CON CONFIANZA EN ENTEROS
+        if signals:
+            avg_confidence = int(sum(confidences) / len(confidences))
+            
+            buy_signals = sum(1 for s in signals if s == 1)
+            sell_signals = sum(1 for s in signals if s == 0)
+            
+            if buy_signals > 0 and sell_signals == 0:
+                direction = 1
+                final_confidence = min(90, avg_confidence + 10)
+                reasons.append("Señales alcistas consistentes")
+            elif sell_signals > 0 and buy_signals == 0:
+                direction = 0
+                final_confidence = min(90, avg_confidence + 10)
+                reasons.append("Señales bajistas consistentes")
+            else:
+                direction = 1 if buy_signals > sell_signals else 0
+                final_confidence = max(40, avg_confidence - 15)
+                reasons.append("Señales mixtas")
+                
+                if abs(buy_signals - sell_signals) <= 1:
+                    final_confidence = max(35, final_confidence - 10)
+                    reasons.append("Alta indecisión")
+        else:
+            price_change = metrics.get("price_change", 0)
+            if abs(price_change) > 0.5:
+                direction = 1 if price_change > 0 else 0
+                final_confidence = 45 + int(min(abs(price_change), 3) * 8)
+                reasons.append(f"Basado en movimiento: {price_change:.1f}pips")
+            else:
+                direction = 1 if metrics.get("price_change", 0) > 0 else 0
+                final_confidence = 40
+                reasons.append("Mercado lateral")
+        
+        if total_ticks < 8:
+            final_confidence = max(30, final_confidence - 15)
+            reasons.append(f"Pocos datos: {total_ticks} ticks")
+        elif total_ticks > 25:
+            final_confidence = min(95, final_confidence + 5)
+        
+        final_confidence = int(max(25, min(95, final_confidence)))
+        
         return {
-            "connected": self.connected,
-            "tick_count": self.tick_count,
-            "last_price": self.last_price,
-            "asset": self.asset_name,
-            "listeners": len(self.tick_listeners),
-            "attempts": self.connection_attempts
+            "direction": "ALZA" if direction == 1 else "BAJA",
+            "confidence": final_confidence,
+            "price": round(metrics.get("current_price", 0.0), 5),
+            "tick_count": total_ticks,
+            "reasons": reasons,
+            "model_type": "RULES"
         }
 
-# ------------------ SISTEMA DE SIMULACIÓN DE TICKS ------------------
-def start_tick_simulation():
-    """Sistema de simulación de ticks como respaldo"""
-    logging.info("🔧 INICIANDO SISTEMA DE SIMULACIÓN DE TICKS")
-    
-    def simulated_tick_generator():
-        price = 1.10000
-        tick_num = 0
+    def _fuse(self, mlp_pred, rules_pred, metrics):
+        """FUSIÓN MEJORADA - CONFIANZA EN ENTEROS"""
+        if not mlp_pred:
+            return rules_pred
+            
+        vol = metrics.get("volatility", 0.0)
+        phase = metrics.get("market_phase", "neutral")
+        total_ticks = metrics.get("total_ticks", 0)
+        rsi = metrics.get("rsi_like", 50)
         
-        while True:
+        base_mlp_weight = 0.6
+        
+        # Ajustar peso basado en condiciones de mercado
+        if phase == "consolidation":
+            mlp_weight = 0.4
+        elif phase == "strong_trend" and total_ticks > 20:
+            mlp_weight = 0.7
+        elif rsi > 70 or rsi < 30:
+            mlp_weight = 0.5  # Menos confianza en MLP en extremos RSI
+        else:
+            mlp_weight = base_mlp_weight
+            
+        mlp_confidence = mlp_pred.get("confidence", 50)
+        if mlp_confidence < 55:
+            mlp_weight *= 0.7
+            
+        rules_weight = 1.0 - mlp_weight
+        
+        rules_up = 0.8 if rules_pred["direction"] == "ALZA" else 0.2
+        combined_up = mlp_pred["prob_up"] * mlp_weight + rules_up * rules_weight
+        
+        direction = "ALZA" if combined_up >= 0.5 else "BAJA"
+        
+        mlp_conf = mlp_pred.get("confidence", 50)
+        rules_conf = rules_pred.get("confidence", 50)
+        
+        fused_confidence = int(mlp_conf * mlp_weight + rules_conf * rules_weight)
+        
+        if mlp_pred["direction"] != rules_pred["direction"]:
+            fused_confidence = max(35, int(fused_confidence * 0.7))
+            reasons = [f"Conflicto: MLP({mlp_pred.get('prob_up', 0):.2f}) vs Rules"]
+        else:
+            reasons = [f"Consenso: MLP {mlp_conf}% + Rules {rules_conf}%"]
+        
+        reasons.extend(rules_pred.get("reasons", []))
+        
+        fused_confidence = max(30, min(95, fused_confidence))
+        
+        return {
+            "direction": direction,
+            "confidence": fused_confidence,
+            "price": round(metrics.get("current_price", 0.0), 5),
+            "tick_count": metrics.get("total_ticks", 0),
+            "reasons": reasons,
+            "model_used": "HYBRID",
+            "mlp_confidence": mlp_conf,
+            "rules_confidence": rules_conf
+        }
+
+    def predict_next_candle(self, seconds_remaining_norm=None):
+        """PREDICCIÓN MEJORADA - ACTIVACIÓN EN ÚLTIMOS 3-5 SEGUNDOS"""
+        metrics = self.analyzer.get_candle_metrics(seconds_remaining_norm=seconds_remaining_norm)
+        if not metrics:
+            return {
+                "direction": "N/A", 
+                "confidence": 0,
+                "reason": "sin_datos",
+                "timestamp": now_iso()
+            }
+            
+        total_ticks = metrics.get("total_ticks", 0)
+        
+        if total_ticks < 5:
+            return {
+                "direction": "N/A",
+                "confidence": 0,
+                "reason": f"solo_{total_ticks}_ticks",
+                "timestamp": now_iso()
+            }
+        
+        features = self.extract_features(metrics).reshape(1, -1)
+        mlp_pred = None
+        ensemble_pred = None
+        
+        # PREDICCIÓN MLP PRINCIPAL
+        if self.model and self.scaler and total_ticks >= 10:
             try:
-                # Generar movimiento de precio realista
-                change = np.random.normal(0, 0.00015)
-                price += change
+                Xs = self.scaler.transform(features)
+                proba = self.model.predict_proba(Xs)[0]
+                up_prob = float(proba[1]) if len(proba) > 1 else float(proba[0])
                 
-                # Mantener en rango realista EUR/USD
-                price = max(1.08000, min(1.12000, price))
+                mlp_confidence = int(max(up_prob, 1 - up_prob) * 100)
                 
-                tick_num += 1
+                if abs(up_prob - 0.5) < 0.15:
+                    mlp_confidence = max(40, int(mlp_confidence * 0.8))
                 
-                # Procesar tick simulado
-                tick_processor(price, time.time())
-                
-                # Log periódico
-                if tick_num <= 5 or tick_num % 30 == 0:
-                    logging.info(f"🔧 TICK SIMULADO #{tick_num}: {price:.5f}")
-                
-                time.sleep(1)  # 1 tick por segundo
-                
+                mlp_pred = {
+                    "direction": "ALZA" if up_prob >= 0.5 else "BAJA",
+                    "prob_up": up_prob,
+                    "confidence": mlp_confidence,
+                    "model_type": "MLP"
+                }
             except Exception as e:
-                logging.error(f"❌ Error en simulación: {e}")
-                time.sleep(5)
-    
-    # Iniciar en hilo separado
-    sim_thread = threading.Thread(target=simulated_tick_generator, daemon=True)
-    sim_thread.start()
+                logging.warning(f"⚠️ MLP predict error: {e}")
+                mlp_pred = None
+        
+        # PREDICCIÓN ENSEMBLE MEJORADA
+        if total_ticks >= 15:
+            ensemble_pred = self._ensemble_predict(features)
 
-# --------------- SISTEMA PRINCIPAL MEJORADO ---------------
-iq_connector = ProfessionalIQConnector()
-predictor = ComprehensiveAIPredictor()
-online_learner = AdaptiveMarketLearner(feature_size=18)
+        rules_pred = self._rule_based(metrics)
+        
+        # FUSIÓN INTELIGENTE MEJORADA
+        if mlp_pred and ensemble_pred and total_ticks >= 18:
+            # Usar ensemble como predictor principal si está disponible
+            final_pred = self._fuse(ensemble_pred, rules_pred, metrics)
+            final_pred["model_used"] = "ENSEMBLE_HYBRID"
+        elif mlp_pred and total_ticks >= 12:
+            final_pred = self._fuse(mlp_pred, rules_pred, metrics)
+        else:
+            final_pred = rules_pred
+            if total_ticks < 12 and mlp_pred:
+                final_pred["reasons"].append("Fusión no disponible - pocos datos")
+        
+        # Agregar metadata adicional
+        final_pred.update({
+            "total_ticks": total_ticks,
+            "market_phase": metrics.get("market_phase", "unknown"),
+            "timestamp": now_iso()
+        })
+        
+        self.last_prediction = final_pred.copy()
+        self.prediction_history.append(final_pred)
+        
+        return final_pred
 
-# VARIABLES GLOBALES
-current_prediction = {
-    "direction": "N/A",
-    "confidence": 0,
-    "tick_count": 0,
-    "current_price": 0.0,
-    "reasons": ["🤖 Sistema inicializando..."],
-    "timestamp": now_iso(),
-    "status": "INITIALIZING",
-    "candle_progress": 0,
-    "market_phase": "N/A",
-    "buy_score": 0,
-    "sell_score": 0,
-    "ai_model_predicted": "N/A",
-    "ml_confidence": 0,
-    "training_count": 0
-}
+# -------------- IQ CONNECTION SIMPLIFICADA --------------
+class IQOptionConnector:
+    def __init__(self):
+        self.iq = None
+        self.connected = False
+        self.last_tick_time = None
+        self.tick_count = 0
+        self.last_price = None
+        self.actual_pair = None
+        
+    def connect(self):
+        """Conectar a IQ Option"""
+        try:
+            if not IQ_EMAIL or not IQ_PASSWORD:
+                logging.warning("❌ Credenciales IQ no configuradas")
+                return None
+                
+            logging.info("🔗 Conectando a IQ Option...")
+            self.iq = IQ_Option(IQ_EMAIL, IQ_PASSWORD)
+            check, reason = self.iq.connect()
+            
+            if check:
+                self.iq.change_balance("PRACTICE")
+                self.connected = True
+                logging.info("✅ Conectado exitosamente a IQ Option")
+                
+                self._find_working_pair()
+                
+                return self.iq
+            else:
+                logging.warning(f"⚠️ Conexión fallida: {reason}")
+                return None
+                
+        except Exception as e:
+            logging.error(f"❌ Error conexión: {e}")
+            return None
 
+    def _find_working_pair(self):
+        """Encontrar un par que funcione"""
+        test_pairs = [
+            "EURUSD",
+            "EURUSD-OTC", 
+            "EURUSD",
+        ]
+        
+        for pair in test_pairs:
+            try:
+                logging.info(f"🔍 Probando par: {pair}")
+                candles = self.iq.get_candles(pair, TIMEFRAME, 1, time.time())
+                if candles and len(candles) > 0:
+                    price = float(candles[-1]['close'])
+                    if price > 0:
+                        self.actual_pair = pair
+                        logging.info(f"✅ Par funcional encontrado: {pair} - Precio: {price:.5f}")
+                        return
+            except Exception as e:
+                logging.debug(f"Par {pair} falló: {e}")
+        
+        self.actual_pair = "EURUSD"
+        logging.warning(f"⚠️ Usando par por defecto: {self.actual_pair}")
+
+    def get_realtime_ticks(self):
+        """Obtener ticks en tiempo real - SIMULACIÓN SI NO HAY CONEXIÓN"""
+        try:
+            if not self.connected or not self.iq:
+                # Simular precio si no hay conexión
+                if self.last_price:
+                    simulated_change = np.random.normal(0, 0.0001)
+                    simulated_price = self.last_price + simulated_change
+                else:
+                    simulated_price = 1.08000 + np.random.normal(0, 0.0005)
+                
+                self._record_tick(simulated_price)
+                return simulated_price
+
+            working_pair = self.actual_pair if self.actual_pair else "EURUSD"
+            
+            try:
+                candles = self.iq.get_candles(working_pair, TIMEFRAME, 1, time.time())
+                if candles and len(candles) > 0:
+                    price = float(candles[-1]['close'])
+                    if price > 0:
+                        self._record_tick(price)
+                        return price
+            except Exception as e:
+                logging.debug(f"get_candles falló: {e}")
+
+            try:
+                realtime = self.iq.get_realtime_candles(working_pair, TIMEFRAME)
+                if realtime:
+                    candle_list = list(realtime.values())
+                    if candle_list:
+                        latest_candle = candle_list[-1]
+                        price = float(latest_candle.get('close', 0))
+                        if price > 0:
+                            self._record_tick(price)
+                            return price
+            except Exception as e:
+                logging.debug(f"get_realtime_candles falló: {e}")
+
+            if self.last_price:
+                return self.last_price
+
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo ticks: {e}")
+            
+        return None
+
+    def _record_tick(self, price):
+        """Registrar tick recibido"""
+        self.tick_count += 1
+        self.last_tick_time = time.time()
+        self.last_price = price
+        
+        if self.tick_count <= 10 or self.tick_count % 5 == 0:
+            pair_info = f" ({self.actual_pair})" if self.actual_pair else ""
+            logging.info(f"💰 Tick #{self.tick_count}{pair_info}: {price:.5f}")
+
+    def check_connection(self):
+        """Verificar conexión"""
+        try:
+            if self.iq and hasattr(self.iq, 'check_connect'):
+                return self.iq.check_connect()
+            return False
+        except:
+            return False
+
+# --------------- Enhanced Adaptive Trainer Loop ---------------
+def enhanced_adaptive_trainer_loop(predictor: ProductionPredictor):
+    """Loop de entrenamiento mejorado"""
+    while True:
+        try:
+            time.sleep(30)
+            if not os.path.exists(TRAINING_CSV):
+                continue
+                
+            df = pd.read_csv(TRAINING_CSV)
+            current_size = len(df)
+            
+            if current_size >= BATCH_TRAIN_SIZE:
+                logging.info(f"🔁 Entrenamiento mejorado con {current_size} samples...")
+                
+                X = df[predictor._feature_names()].values
+                y = df["label"].values.astype(int)
+                
+                X_train, X_val, y_train, y_val = train_test_split(
+                    X, y, test_size=0.2, random_state=42, stratify=y
+                )
+                
+                scaler = IncrementalScaler()
+                X_train_scaled = scaler.fit_transform(X_train)
+                X_val_scaled = scaler.transform(X_val)
+                
+                model = MLPClassifier(
+                    hidden_layer_sizes=(64, 32),
+                    activation="relu",
+                    solver="adam",
+                    alpha=0.001,
+                    learning_rate="adaptive",
+                    max_iter=500,
+                    early_stopping=True,
+                    validation_fraction=0.15,
+                    n_iter_no_change=15,
+                    random_state=42
+                )
+                
+                model.fit(X_train_scaled, y_train)
+                val_accuracy = model.score(X_val_scaled, y_val)
+                
+                if val_accuracy >= 0.55:
+                    predictor.model = model
+                    predictor.scaler = scaler
+                    predictor._save_artifacts()
+                    logging.info(f"✅ Modelo actualizado (val_acc: {val_accuracy:.3f})")
+                    
+                    # También reentrenar modelos ensemble
+                    if current_size >= 200:
+                        for name, ensemble_model in predictor.ensemble_models.items():
+                            try:
+                                ensemble_model.fit(X_train_scaled, y_train)
+                                logging.info(f"✅ Ensemble model {name} retrained")
+                            except Exception as e:
+                                logging.warning(f"⚠️ Error retraining ensemble {name}: {e}")
+                        
+                        predictor._save_ensemble()
+                        
+        except Exception as e:
+            logging.error(f"❌ Error entrenamiento mejorado: {e}")
+            time.sleep(60)
+
+# --------------- Global State ---------------
+iq_connector = IQOptionConnector()
+predictor = ProductionPredictor()
+
+# Estadísticas globales de performance
 performance_stats = {
     'total_predictions': 0,
     'correct_predictions': 0,
     'recent_accuracy': 0.0,
+    'last_10': deque(maxlen=10),
     'last_validation': None
 }
 
-# Estado interno
-_last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
-_prediction_made_this_candle = False
-_last_prediction_time = 0
-_last_price = None
+current_prediction = {
+    "direction":"N/A",
+    "confidence":0,
+    "price":0.0,
+    "tick_count":0,
+    "reasons":[],
+    "timestamp":now_iso(),
+    "model_used":"INIT"
+}
 
-def tick_processor(price, timestamp):
-    """Procesador de ticks MEJORADO con diagnóstico"""
+# --------------- Main loop CON VALIDACIÓN ---------------
+def professional_tick_analyzer():
     global current_prediction
-    try:
-        current_time = time.time()
-        seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
-        
-        # Log del primer tick
-        if predictor.analyzer.tick_count == 0:
-            logging.info(f"🎯 PRIMER TICK PROCESADO: {price:.5f}")
-        
-        # Log informativo periódico
-        if predictor.analyzer.tick_count % 15 == 0:
-            logging.info(f"📊 Tick #{predictor.analyzer.tick_count + 1}: {price:.5f} | Tiempo restante: {seconds_remaining:.1f}s")
-        
-        # Procesar tick en el predictor
-        tick_data = predictor.process_tick(price, seconds_remaining)
-        
-        if tick_data:
-            # Actualizar información en tiempo real
-            current_prediction.update({
-                "current_price": float(price),
-                "tick_count": predictor.analyzer.tick_count,
-                "timestamp": now_iso(),
-                "status": "ACTIVE",
-                "candle_progress": (current_time % TIMEFRAME) / TIMEFRAME
-            })
-            
-    except Exception as e:
-        logging.error(f"❌ Error procesando tick: {e}")
+    
+    logging.info("🚀 Delowyss AI V3.8-MEJORADO iniciado - SISTEMA DE APRENDIZAJE AVANZADO")
+    last_prediction_time = 0
+    last_candle_start = time.time()//TIMEFRAME*TIMEFRAME
 
-def premium_main_loop():
-    """Loop principal MEJORADO con gestión robusta"""
-    global current_prediction, performance_stats, _last_candle_start
-    global _prediction_made_this_candle, _last_prediction_time, _last_price
-    
-    logging.info(f"🚀 DELOWYSS AI V5.4 PREMIUM INICIADA EN PUERTO {PORT}")
-    logging.info("🎯 SISTEMA HÍBRIDO AVANZADO: IA + AutoLearning + Análisis Completo")
-    
-    # Conectar a IQ Option
-    iq_connected = iq_connector.connect()
-    
-    if not iq_connected:
-        logging.warning("⚠️ No se pudo conectar a IQ Option - Activando modo simulación")
-        start_tick_simulation()
-    else:
-        iq_connector.add_tick_listener(tick_processor)
-        logging.info("✅ Sistema principal configurado - Esperando ticks...")
-    
-    # Bucle principal mejorado
+    iq_connector.connect()
+
     while True:
         try:
-            current_time = time.time()
-            current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
-            seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+            # Obtener tick en tiempo real
+            price = iq_connector.get_realtime_ticks()
             
-            # Obtener precio actual
-            price = iq_connector.get_realtime_price()
-            if price and price > 0:
-                _last_price = price
-
-            # Actualizar progreso de vela
-            candle_progress = (current_time - current_candle_start) / TIMEFRAME
-            current_prediction['candle_progress'] = candle_progress
-
-            # Log de estado cada 20 segundos
-            if int(current_time) % 20 == 0:
-                tick_info = iq_connector.get_connection_status()
-                logging.info(f"📈 ESTADO: Ticks={predictor.analyzer.tick_count}, Precio={price:.5f}, Vela={candle_progress:.1%}")
-
-            # Lógica de predicción en últimos segundos
-            if (seconds_remaining <= PREDICTION_WINDOW and
-                seconds_remaining > 2 and
-                predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
-                (time.time() - _last_prediction_time) >= 2 and
-                not _prediction_made_this_candle):
-
-                logging.info(f"🎯 VENTANA DE PREDICCIÓN ACTIVA: {seconds_remaining:.1f}s | Ticks: {predictor.analyzer.tick_count}")
+            if price is not None and price > 0:
+                # Procesar tick
+                predictor.analyzer.add_tick(price)
                 
-                # Generar predicción híbrida
-                analysis = predictor.analyzer.get_comprehensive_analysis()
-                if analysis.get('status') == 'SUCCESS':
-                    features = build_advanced_features_from_analysis(analysis, seconds_remaining)
-                    ml_prediction = online_learner.predict(features)
-                    hybrid_prediction = predictor.predict_next_candle(ml_prediction)
-                    
-                    current_prediction.update(hybrid_prediction)
-                    current_prediction.update({
-                        "ai_model_predicted": ml_prediction['predicted'],
-                        "ml_confidence": ml_prediction['confidence'],
-                        "training_count": ml_prediction['training_count']
-                    })
-
-                    _last_prediction_time = time.time()
-                    _prediction_made_this_candle = True
-
-            # Detectar nueva vela para reinicio y aprendizaje
-            if current_candle_start > _last_candle_start:
-                if _last_price is not None:
-                    validation = predictor.validate_prediction(_last_price)
-                    if validation:
-                        # Lógica de AutoLearning con la vela cerrada
-                        price_change = validation.get("price_change", 0)
-                        label = "LATERAL"
-                        if price_change > 0.5:
-                            label = "ALZA"
-                        elif price_change < -0.5:
-                            label = "BAJA"
+                # Actualizar estado básico
+                current_prediction.update({
+                    "price": price,
+                    "tick_count": predictor.analyzer.tick_count,
+                    "timestamp": now_iso(),
+                    "status": "CONECTADO"
+                })
+                
+            # LÓGICA DE VELAS MEJORADA
+            now = time.time()
+            current_candle_start = now//TIMEFRAME*TIMEFRAME
+            seconds_remaining = TIMEFRAME - (now % TIMEFRAME)
+            
+            # PREDICCIÓN ACTIVA SOLO EN ÚLTIMOS 3-5 SEGUNDOS
+            if seconds_remaining <= PREDICTION_WINDOW and seconds_remaining > 1:
+                if predictor.analyzer.tick_count >= 8:
+                    if (time.time() - last_prediction_time) > 2:
+                        pred = predictor.predict_next_candle(seconds_remaining_norm=seconds_remaining/TIMEFRAME)
+                        current_prediction.update(pred)
+                        last_prediction_time = time.time()
                         
-                        analysis = predictor.analyzer.get_comprehensive_analysis()
-                        if analysis.get('status') == 'SUCCESS':
-                            features = build_advanced_features_from_analysis(analysis, 0)
-                            online_learner.add_sample(features, label)
-                            training_result = online_learner.partial_train(batch_size=32)
-                            
-                            logging.info(f"📚 AutoLearning: {label} | Cambio: {price_change:.1f}pips | {training_result}")
-                            
-                            performance_stats['last_validation'] = validation
-
-                # Reiniciar análisis para nueva vela
-                predictor.reset()
-                _last_candle_start = current_candle_start
-                _prediction_made_this_candle = False
-                logging.info("🕯️ NUEVA VELA - Sistema de análisis reiniciado")
-
-            time.sleep(0.1)
+                        logging.info("🎯 PREDICCIÓN VELA SIGUIENTE: %s | Confianza: %s%% | Ticks: %s | Modelo: %s", 
+                                   pred.get("direction"), 
+                                   pred.get("confidence"),
+                                   pred.get("tick_count", 0),
+                                   pred.get("model_used", "UNKNOWN"))
+            
+            # CAMBIO DE VELA CON VALIDACIÓN
+            if current_candle_start > last_candle_start:
+                closed_metrics = predictor.analyzer.get_candle_metrics()
+                if closed_metrics:
+                    # ✅ VALIDACIÓN AGREGADA
+                    validation_result = predictor.validate_previous_prediction(closed_metrics)
+                    if validation_result:
+                        performance_stats['last_validation'] = validation_result
+                    
+                    predictor.on_candle_closed(closed_metrics)
+                
+                predictor.analyzer.reset_candle()
+                last_candle_start = current_candle_start
+                logging.info("🕯️ Nueva vela iniciada - Analizando ticks...")
+                
+            time.sleep(0.5)
             
         except Exception as e:
-            logging.error(f"💥 Error en loop principal: {e}")
-            time.sleep(1)
+            logging.error(f"💥 Error en loop: {e}")
+            time.sleep(2)
 
-# ------------------ INTERFAZ WEB COMPLETA ORIGINAL ------------------
-app = FastAPI(
-    title="Delowyss AI Premium V5.4",
-    version="5.4.0",
-    docs_url="/docs",
-    redoc_url="/redoc"
-)
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+# --------------- FastAPI COMPLETO CON VALIDACIÓN ---------------
+app = FastAPI()
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 @app.get("/", response_class=HTMLResponse)
-def read_root():
-    return HTMLResponse(content=generate_html_interface(), status_code=200)
+def home():
+    try:
+        training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
+    except:
+        training_samples = 0
+        
+    try:  
+        perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+    except:
+        perf_rows = 0
+        
+    perf_acc = 0.0
+    try:
+        if perf_rows>0:
+            perf_df = pd.read_csv(PERF_CSV)
+            if "correct" in perf_df:
+                perf_acc = perf_df["correct"].mean()*100
+    except Exception:
+        perf_acc = 0.0
+        
+    try:
+        metrics = predictor.analyzer.get_candle_metrics()
+        phase = metrics.get("market_phase") if metrics else "n/a"
+        patterns = [p for (_,p) in predictor.analyzer.last_patterns] if predictor.analyzer.last_patterns else []
+    except:
+        phase = "n/a"
+        patterns = []
+        
+    direction = current_prediction.get("direction","N/A")
+    color = "#00ff88" if direction=="ALZA" else ("#ff4444" if direction=="BAJA" else "#ffbb33")
+    
+    actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
+    
+    # Mostrar información del ensemble
+    ensemble_info = ""
+    if hasattr(predictor, 'ensemble_weights') and predictor.ensemble_weights:
+        ensemble_info = f" | Ensemble: {', '.join([f'{k}:{v:.2f}' for k, v in predictor.ensemble_weights.items()])}"
+    
+    html = f"""
+    <!doctype html>
+    <html>
+    <head>
+        <meta charset='utf-8'>
+        <meta name='viewport' content='width=device-width'>
+        <title>Delowyss AI V3.8-Mejorado</title>
+        <style>
+            body {{
+                font-family: 'Arial', sans-serif;
+                background: #0f172a;
+                color: #fff;
+                padding: 18px;
+                margin: 0;
+            }}
+            .card {{
+                max-width: 1200px;
+                margin: 0 auto;
+                background: rgba(255,255,255,0.03);
+                padding: 20px;
+                border-radius: 12px;
+            }}
+            .prediction-card {{
+                border-left: 6px solid {color};
+                padding: 20px;
+                margin: 15px 0;
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+                text-align: center;
+            }}
+            .validation-card {{
+                border-left: 4px solid #ffbb33;
+                padding: 15px;
+                margin: 15px 0;
+                background: rgba(255,255,255,0.05);
+                border-radius: 8px;
+            }}
+            .metrics-grid {{
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+                gap: 12px;
+                margin: 20px 0;
+            }}
+            .metric-cell {{
+                background: rgba(255,255,255,0.03);
+                padding: 12px;
+                border-radius: 8px;
+                text-align: center;
+            }}
+            .accuracy-high {{ color: #00ff88; }}
+            .accuracy-medium {{ color: #ffbb33; }}
+            .accuracy-low {{ color: #ff4444; }}
+            
+            .countdown {{
+                font-size: 3em;
+                font-weight: bold;
+                text-align: center;
+                margin: 20px 0;
+                font-family: 'Courier New', monospace;
+            }}
+            .countdown.critical {{
+                color: #ff4444;
+                animation: pulse 1s infinite;
+            }}
+            @keyframes pulse {{
+                0% {{ opacity: 1; }}
+                50% {{ opacity: 0.5; }}
+                100% {{ opacity: 1; }}
+            }}
+            
+            .direction-arrow {{
+                font-size: 4em;
+                margin: 10px 0;
+            }}
+            .arrow-up {{ color: #00ff88; }}
+            .arrow-down {{ color: #ff4444; }}
+            
+            .status-connected {{ color: #00ff88; }}
+            .status-disconnected {{ color: #ff4444; }}
+            
+            .ensemble-info {{
+                background: rgba(255,255,255,0.05);
+                padding: 10px;
+                border-radius: 5px;
+                margin: 10px 0;
+                font-size: 0.9em;
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="card">
+            <h1>🤖 Delowyss Trading AI — V3.8-MEJORADO</h1>
+            <p>Par: <strong>{actual_pair}</strong> • UTC: <span id="current-time">{datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S')}</span>
+            • Estado: <span id="connection-status" class="{'status-connected' if iq_connector.connected else 'status-disconnected'}">{'CONECTADO' if iq_connector.connected else 'DISCONNECTED'}</span>
+            </p>
+            
+            <div class="ensemble-info">
+                <strong>Sistema de Aprendizaje Avanzado Activado</strong>{ensemble_info}
+            </div>
+            
+            <div class="countdown" id="countdown">--</div>
+            
+            <div class="direction-arrow" id="direction-arrow">
+                {"⬆️" if direction == "ALZA" else "⬇️" if direction == "BAJA" else "⏸️"}
+            </div>
+            
+            <div class="prediction-card">
+                <h2 style="color:{color}; margin:0">{direction} — {current_prediction.get('confidence',0)}% de confianza</h2>
+                <p>Modelo: {current_prediction.get('model_used','HYBRID')} • Precio: {current_prediction.get('price',0)}</p>
+                <p>Fase: <strong>{phase}</strong> • Patrones: {', '.join(patterns[:3]) if patterns else 'ninguno'}</p>
+                <p>Marcas evaluadas: <strong>{current_prediction.get('tick_count',0)}</strong></p>
+            </div>
+
+            <div class="validation-card">
+                <h3>📊 Validación en Tiempo Real</h3>
+                <div id="validation-result" style="margin: 10px 0; padding: 10px; background: rgba(255,255,255,0.05); border-radius: 5px;">
+                    Esperando primera validación...
+                </div>
+                <div id="performance-stats" style="font-size: 0.9em; color: #ccc;">
+                    Cargando estadísticas...
+                </div>
+            </div>
+            
+            <div class="metrics-grid">
+                <div class="metric-cell">
+                    <strong>Ejemplos de entrenamiento</strong>
+                    <div>{training_samples}</div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Filas de rendimiento</strong>
+                    <div>{perf_rows}</div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Precisión histórica</strong>
+                    <div class="{'accuracy-high' if perf_acc > 60 else 'accuracy-medium' if perf_acc > 50 else 'accuracy-low'}">
+                        {perf_acc:.1f}%
+                    </div>
+                </div>
+                <div class="metric-cell">
+                    <strong>Timbres actuales</strong>
+                    <div>{current_prediction.get('tick_count',0)}</div>
+                </div>
+            </div>
+            
+            <div class="metric-cell">
+                <h3>Razones de predicción</h3>
+                <ul id="reasons-list">
+                    {"".join([f"<li>✅ {r}</li>" for r in current_prediction.get('reasons',[])]) if current_prediction.get('reasons') else "<li>🔄 Analizando datos de mercado...</li>"}
+                </ul>
+            </div>
+        </div>
+
+        <script>
+            function updateCountdown() {{
+                const now = new Date();
+                const seconds = now.getSeconds();
+                const remaining = 60 - seconds;
+                
+                const countdownEl = document.getElementById('countdown');
+                countdownEl.textContent = remaining + 's';
+                
+                if (remaining <= 5) {{
+                    countdownEl.classList.add('critical');
+                }} else {{
+                    countdownEl.classList.remove('critical');
+                }}
+                
+                document.getElementById('current-time').textContent = 
+                    now.toISOString().replace('T', ' ').substr(0, 19);
+            }}
+            
+            function updateData() {{
+                fetch('/api/prediction')
+                    .then(response => response.json())
+                    .then(data => {{
+                        const direction = data.direction || 'N/A';
+                        const confidence = data.confidence || 0;
+                        const price = data.price || 0;
+                        const tickCount = data.tick_count || 0;
+                        const reasons = data.reasons || [];
+                        const modelUsed = data.model_used || 'HYBRID';
+                        
+                        document.querySelector('.prediction-card h2').textContent = 
+                            `${{direction}} — ${{confidence}}% de confianza`;
+                        document.querySelector('.prediction-card p:nth-child(2)').innerHTML = 
+                            `Modelo: ${{modelUsed}} • Precio: ${{price.toFixed(5)}}`;
+                        document.querySelector('.prediction-card p:nth-child(4)').innerHTML = 
+                            `Marcas evaluadas: <strong>${{tickCount}}</strong>`;
+                            
+                        const arrowEl = document.getElementById('direction-arrow');
+                        arrowEl.innerHTML = direction === 'ALZA' ? '⬆️' : (direction === 'BAJA' ? '⬇️' : '⏸️');
+                        
+                        const color = direction === 'ALZA' ? '#00ff88' : (direction === 'BAJA' ? '#ff4444' : '#ffbb33');
+                        document.querySelector('.prediction-card').style.borderLeftColor = color;
+                        document.querySelector('.prediction-card h2').style.color = color;
+                        
+                        const reasonsList = document.getElementById('reasons-list');
+                        reasonsList.innerHTML = reasons.map(r => `<li>✅ ${{r}}</li>`).join('') || 
+                                                '<li>🔄 Analizando datos de mercado...</li>';
+                    }})
+                    .catch(error => console.error('Error:', error));
+            }}
+
+            function updateValidation() {{
+                fetch('/api/validation')
+                    .then(response => response.json())
+                    .then(data => {{
+                        const validation = data.last_validation;
+                        const perf = data.performance;
+                        
+                        if (validation && validation.timestamp) {{
+                            const correct = validation.correct;
+                            const color = correct ? '#00ff88' : '#ff4444';
+                            const icon = correct ? '✅' : '❌';
+                            
+                            document.getElementById('validation-result').innerHTML = `
+                                <div style="color:${{color}}; font-weight:bold;">
+                                    ${{icon}} Predicción: <strong>${{validation.predicted}}</strong> 
+                                    | Real: <strong>${{validation.actual}}</strong>
+                                </div>
+                                <div style="font-size:0.9em; margin-top:5px;">
+                                    Cambio: ${{validation.price_change_pips}}pips | 
+                                    Confianza: ${{validation.confidence}}% |
+                                    Modelo: ${{validation.model_used}}
+                                </div>
+                            `;
+                        }}
+                        
+                        if (perf) {{
+                            const overallColor = perf.overall_accuracy > 60 ? '#00ff88' : 
+                                               perf.overall_accuracy > 50 ? '#ffbb33' : '#ff4444';
+                                               
+                            const recentColor = perf.recent_accuracy > 60 ? '#00ff88' : 
+                                              perf.recent_accuracy > 50 ? '#ffbb33' : '#ff4444';
+                        
+                            document.getElementById('performance-stats').innerHTML = `
+                                <strong>Precisión Global:</strong> <span style="color:${{overallColor}}">${{perf.overall_accuracy}}%</span> 
+                                | <strong>Reciente:</strong> <span style="color:${{recentColor}}">${{perf.recent_accuracy}}%</span>
+                                | <strong>Total:</strong> ${{perf.total_predictions}} predicciones
+                            `;
+                        }}
+                    }})
+                    .catch(error => console.error('Error:', error));
+            }}
+            
+            setInterval(updateCountdown, 1000);
+            setInterval(updateData, 2000);
+            setInterval(updateValidation, 3000);
+            updateCountdown();
+            updateData();
+            updateValidation();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html)
 
 @app.get("/api/prediction")
 def api_prediction():
@@ -1450,335 +1615,136 @@ def api_prediction():
 
 @app.get("/api/validation")
 def api_validation():
-    last_val = predictor.get_last_validation()
-    return JSONResponse({
-        "last_validation": last_val,
-        "performance": performance_stats,
-        "timestamp": now_iso()
-    })
-
-@app.get("/api/health")
-def api_health():
-    return JSONResponse({
-        "status": "healthy",
-        "timestamp": now_iso(),
-        "version": "5.4.0-hybrid",
-        "port": PORT,
-        "features": [
-            "full_candle_analysis", 
-            "phase_analysis", 
-            "tick_by_tick", 
-            "online_learning",
-            "hybrid_ai_ml",
-            "responsive_interface"
-        ]
-    })
-
-@app.get("/api/system-info")
-def api_system_info():
-    connection_status = iq_connector.get_connection_status()
-    return JSONResponse({
-        "status": "running",
-        "pair": PAR,
-        "timeframe": TIMEFRAME,
-        "prediction_window": PREDICTION_WINDOW,
-        "current_ticks": predictor.analyzer.tick_count,
-        "ml_training_count": online_learner.training_count,
-        "connection": connection_status,
-        "timestamp": now_iso()
-    })
-
-@app.get("/api/debug")
-def api_debug():
-    """Endpoint completo de diagnóstico"""
-    connection_status = iq_connector.get_connection_status()
-    analysis = predictor.analyzer.get_comprehensive_analysis()
-    
-    return JSONResponse({
-        "system": {
-            "status": "running",
-            "timestamp": now_iso(),
-            "timeframe": TIMEFRAME,
-            "port": PORT
-        },
-        "connection": connection_status,
-        "analysis": {
-            "status": analysis.get('status'),
-            "tick_count": analysis.get('tick_count', 0),
-            "current_price": analysis.get('current_price', 0),
-            "data_quality": analysis.get('data_quality', 0)
-        },
-        "ml": {
-            "training_count": online_learner.training_count,
-            "buffer_size": len(online_learner.replay_buffer)
-        },
-        "performance": performance_stats
-    })
-
-def generate_html_interface():
-    """Interfaz HTML COMPLETA ORIGINAL MEJORADA"""
-    direction = current_prediction.get("direction", "N/A")
-    confidence = current_prediction.get("confidence", 0)
-    current_price = current_prediction.get("current_price", 0)
-    tick_count = current_prediction.get("tick_count", 0)
-    candle_progress = current_prediction.get("candle_progress", 0)
-    
-    # Color según dirección
-    direction_color = {
-        "ALZA": "green",
-        "BAJA": "red", 
-        "LATERAL": "orange",
-        "N/A": "gray"
-    }.get(direction, "gray")
-    
-    html_content = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Delowyss AI Premium V5.4</title>
-        <style>
-            body {{
-                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
-                margin: 0;
-                padding: 20px;
-                background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-                min-height: 100vh;
-                color: #333;
-            }}
-            .container {{
-                max-width: 1200px;
-                margin: 0 auto;
-                background: white;
-                border-radius: 15px;
-                box-shadow: 0 20px 40px rgba(0,0,0,0.1);
-                overflow: hidden;
-            }}
-            .header {{
-                background: linear-gradient(135deg, #2c3e50 0%, #3498db 100%);
-                color: white;
-                padding: 30px;
-                text-align: center;
-            }}
-            .header h1 {{
-                margin: 0;
-                font-size: 2.5em;
-                font-weight: 300;
-            }}
-            .header p {{
-                margin: 10px 0 0 0;
-                opacity: 0.9;
-            }}
-            .prediction-card {{
-                padding: 30px;
-                border-bottom: 1px solid #eee;
-            }}
-            .direction {{
-                font-size: 3em;
-                font-weight: bold;
-                color: {direction_color};
-                text-align: center;
-                margin: 20px 0;
-            }}
-            .confidence {{
-                text-align: center;
-                font-size: 1.2em;
-                color: #666;
-            }}
-            .metrics {{
-                display: grid;
-                grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
-                gap: 20px;
-                padding: 30px;
-            }}
-            .metric-card {{
-                background: #f8f9fa;
-                padding: 20px;
-                border-radius: 10px;
-                text-align: center;
-                border-left: 4px solid #3498db;
-            }}
-            .metric-value {{
-                font-size: 1.8em;
-                font-weight: bold;
-                color: #2c3e50;
-            }}
-            .metric-label {{
-                font-size: 0.9em;
-                color: #7f8c8d;
-                margin-top: 5px;
-            }}
-            .progress-bar {{
-                width: 100%;
-                height: 20px;
-                background: #ecf0f1;
-                border-radius: 10px;
-                overflow: hidden;
-                margin: 10px 0;
-            }}
-            .progress-fill {{
-                height: 100%;
-                background: linear-gradient(90deg, #3498db, #2ecc71);
-                width: {candle_progress * 100}%;
-                transition: width 0.3s ease;
-            }}
-            .reasons {{
-                background: #f8f9fa;
-                padding: 20px;
-                margin: 20px;
-                border-radius: 10px;
-                border-left: 4px solid #e74c3c;
-            }}
-            .reasons h3 {{
-                margin-top: 0;
-                color: #2c3e50;
-            }}
-            .reason-list {{
-                list-style: none;
-                padding: 0;
-            }}
-            .reason-list li {{
-                padding: 8px 0;
-                border-bottom: 1px solid #ecf0f1;
-            }}
-            .reason-list li:last-child {{
-                border-bottom: none;
-            }}
-            .footer {{
-                text-align: center;
-                padding: 20px;
-                background: #2c3e50;
-                color: white;
-            }}
-            @keyframes pulse {{
-                0% {{ transform: scale(1); }}
-                50% {{ transform: scale(1.05); }}
-                100% {{ transform: scale(1); }}
-            }}
-            .pulse {{
-                animation: pulse 2s infinite;
-            }}
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <h1>🎯 Delowyss AI Premium V5.4</h1>
-                <p>Sistema de Trading Inteligente con IA Avanzada</p>
-            </div>
-            
-            <div class="prediction-card">
-                <div class="direction pulse">{direction}</div>
-                <div class="confidence">Confianza: {confidence}%</div>
-                
-                <div class="progress-bar">
-                    <div class="progress-fill"></div>
-                </div>
-                <div style="text-align: center; color: #666;">
-                    Progreso de vela: {(candle_progress * 100):.1f}%
-                </div>
-            </div>
-            
-            <div class="metrics">
-                <div class="metric-card">
-                    <div class="metric-value">{current_price:.5f}</div>
-                    <div class="metric-label">Precio Actual</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value">{tick_count}</div>
-                    <div class="metric-label">Ticks Procesados</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value">{performance_stats.get('recent_accuracy', 0):.1f}%</div>
-                    <div class="metric-label">Precisión</div>
-                </div>
-                <div class="metric-card">
-                    <div class="metric-value">{online_learner.training_count}</div>
-                    <div class="metric-label">Entrenamientos ML</div>
-                </div>
-            </div>
-            
-            <div class="reasons">
-                <h3>🔍 Análisis de la Señal</h3>
-                <ul class="reason-list" id="reasons-list">
-                    <li>📊 Sistema inicializado y analizando mercado...</li>
-                </ul>
-            </div>
-            
-            <div class="footer">
-                <p>© 2025 Delowyss Trading AI - CEO: Eduardo Solis | V5.4 Premium Completa</p>
-            </div>
-        </div>
-
-        <script>
-            function updateData() {{
-                fetch('/api/prediction')
-                    .then(response => response.json())
-                    .then(data => {{
-                        // Actualizar dirección y confianza
-                        document.querySelector('.direction').textContent = data.direction;
-                        document.querySelector('.direction').style.color = 
-                            data.direction === 'ALZA' ? 'green' : 
-                            data.direction === 'BAJA' ? 'red' : 'orange';
-                        document.querySelector('.confidence').textContent = 
-                            'Confianza: ' + data.confidence + '%';
-                        
-                        // Actualizar precios y métricas
-                        document.querySelector('.metric-value').textContent = 
-                            data.current_price.toFixed(5);
-                        document.querySelectorAll('.metric-value')[1].textContent = 
-                            data.tick_count;
-                        
-                        // Actualizar progreso de vela
-                        document.querySelector('.progress-fill').style.width = 
-                            (data.candle_progress * 100) + '%';
-                        document.querySelectorAll('.metric-value')[3].textContent = 
-                            data.training_count;
-                        
-                        // Actualizar razones
-                        const reasonsList = document.getElementById('reasons-list');
-                        if (data.reasons && data.reasons.length > 0) {{
-                            reasonsList.innerHTML = '';
-                            data.reasons.forEach(reason => {{
-                                const li = document.createElement('li');
-                                li.textContent = reason;
-                                reasonsList.appendChild(li);
-                            }});
-                        }}
-                    }})
-                    .catch(error => console.error('Error:', error));
-            }}
-            
-            // Actualizar cada 2 segundos
-            setInterval(updateData, 2000);
-            updateData(); // Ejecutar inmediatamente
-        </script>
-    </body>
-    </html>
-    """
-    return html_content
-
-# ------------------ INICIALIZACIÓN MEJORADA ------------------
-def start_system():
+    """Endpoint para validaciones"""
     try:
-        thread = threading.Thread(target=premium_main_loop, daemon=True)
-        thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.4 INICIADA EN PUERTO {PORT}")
-        logging.info("🎯 SISTEMA HÍBRIDO ACTIVO: IA Avanzada + AutoLearning + Interfaz Original")
+        global performance_stats
+        
+        last_validation = performance_stats.get('last_validation', {})
+        total = performance_stats.get('total_predictions', 0)
+        correct = performance_stats.get('correct_predictions', 0)
+        recent_acc = performance_stats.get('recent_accuracy', 0.0)
+        
+        overall_accuracy = (correct / total * 100) if total > 0 else 0.0
+        
+        return JSONResponse({
+            "last_validation": last_validation,
+            "performance": {
+                "total_predictions": total,
+                "correct_predictions": correct,
+                "overall_accuracy": round(overall_accuracy, 1),
+                "recent_accuracy": round(recent_acc, 1),
+                "last_10_results": list(performance_stats.get('last_10', []))
+            },
+            "timestamp": now_iso()
+        })
     except Exception as e:
-        logging.error(f"❌ Error iniciando sistema: {e}")
+        logging.error(f"Error en /api/validation: {e}")
+        return JSONResponse({"error": "Error obteniendo validación"})
 
-# ✅ INICIAR SISTEMA AUTOMÁTICAMENTE EN RENDER
-start_system()
+@app.get("/api/prediction_history")
+def api_prediction_history():
+    """Historial de predicciones"""
+    try:
+        if os.path.exists(PERF_CSV):
+            df = pd.read_csv(PERF_CSV)
+            if not df.empty:
+                if 'timestamp' in df.columns:
+                    df = df.sort_values('timestamp', ascending=False)
+                recent = df.head(20).to_dict('records')
+                
+                if 'correct' in df.columns:
+                    hist_accuracy = df['correct'].mean() * 100
+                else:
+                    hist_accuracy = 0.0
+                    
+                return JSONResponse({
+                    "recent_predictions": recent,
+                    "historical_accuracy": round(hist_accuracy, 1),
+                    "total_historical": len(df)
+                })
+    except Exception as e:
+        logging.error(f"Error reading prediction history: {e}")
+    
+    return JSONResponse({"recent_predictions": [], "historical_accuracy": 0.0})
 
-# ------------------ EJECUCIÓN PRINCIPAL ------------------
+@app.get("/api/status")
+def api_status():
+    connected = iq_connector.connected if iq_connector else False
+    training_samples = len(pd.read_csv(TRAINING_CSV)) if os.path.exists(TRAINING_CSV) else 0
+    perf_rows = len(pd.read_csv(PERF_CSV)) if os.path.exists(PERF_CSV) else 0
+    actual_pair = iq_connector.actual_pair if iq_connector and iq_connector.actual_pair else PAR
+    
+    # Información del ensemble
+    ensemble_info = {}
+    if hasattr(predictor, 'ensemble_weights'):
+        ensemble_info = predictor.ensemble_weights
+    
+    return JSONResponse({
+        "status": "online",
+        "connected": connected,
+        "pair": actual_pair,
+        "model_loaded": predictor.model is not None,
+        "training_samples": training_samples,
+        "perf_rows": perf_rows,
+        "total_ticks_processed": predictor.analyzer.tick_count,
+        "ensemble_weights": ensemble_info,
+        "timestamp": now_iso()
+    })
+
+@app.get("/api/performance")
+def api_performance():
+    try:
+        if os.path.exists(PERF_CSV):
+            perf_df = pd.read_csv(PERF_CSV)
+            total = len(perf_df)
+            if total > 0 and "correct" in perf_df:
+                accuracy = perf_df["correct"].mean() * 100
+                recent_perf = perf_df.tail(min(20, total))
+                recent_accuracy = recent_perf["correct"].mean() * 100 if len(recent_perf) > 0 else 0
+                
+                return JSONResponse({
+                    "total_predictions": total,
+                    "overall_accuracy": round(accuracy, 2),
+                    "recent_accuracy": round(recent_accuracy, 2),
+                    "confidence_avg": round(perf_df["confidence"].mean(), 2) if "confidence" in perf_df else 0
+                })
+    except Exception as e:
+        logging.error("Error /api/performance: %s", e)
+    
+    return JSONResponse({"error": "No performance data available"})
+
+@app.get("/api/patterns")
+def api_patterns():
+    try:
+        metrics = predictor.analyzer.get_candle_metrics()
+        if metrics:
+            return JSONResponse({
+                "market_phase": metrics.get("market_phase", "unknown"),
+                "current_patterns": [p for (_, p) in predictor.analyzer.last_patterns],
+                "volatility": metrics.get("volatility", 0),
+                "momentum": metrics.get("momentum", 0),
+                "price_history": predictor.analyzer.get_price_history(),
+                "total_ticks": predictor.analyzer.tick_count
+            })
+    except Exception as e:
+        logging.error("Error /api/patterns: %s", e)
+    
+    return JSONResponse({"error": "No pattern data available"})
+
+# --------------- Inicialización para Render ---------------
+def start_background_tasks():
+    """Iniciar todas las tareas en background"""
+    analyzer_thread = threading.Thread(target=professional_tick_analyzer, daemon=True)
+    analyzer_thread.start()
+    logging.info("📊 Background analyzer started")
+    
+    trainer_thread = threading.Thread(target=enhanced_adaptive_trainer_loop, args=(predictor,), daemon=True)
+    trainer_thread.start()
+    logging.info("🧠 Background enhanced trainer started")
+
+start_background_tasks()
+
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(
-        app, 
-        host="0.0.0.0", 
-        port=PORT,
-        log_level="info",
-        access_log=True
-    )
+    port = int(os.getenv("PORT", "10000"))
+    uvicorn.run(app, host="0.0.0.0", port=port, log_level="info")

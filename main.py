@@ -1359,31 +1359,840 @@ def api_debug():
     })
 
 def generate_html_interface():
-    """Interfaz HTML COMPLETA ORIGINAL MEJORADA"""
-    # [El contenido completo de generate_html_interface se mantiene igual]
-    # ... (todo el HTML original se preserva exactamente igual)
+    """Interfaz HTML 100% RESPONSIVE con datos en tiempo real"""
     
-    # Por razones de espacio, mantengo la estructura HTML original
-    # que ya tenías en tu código, solo actualizando las variables
+    # Datos actuales
     direction = current_prediction.get("direction", "N/A")
     confidence = current_prediction.get("confidence", 0)
     current_price = current_prediction.get("current_price", 0)
     tick_count = current_prediction.get("tick_count", 0)
+    candle_progress = current_prediction.get("candle_progress", 0)
+    market_phase = current_prediction.get("market_phase", "N/A")
+    ml_predicted = current_prediction.get("ai_model_predicted", "N/A")
+    ml_confidence = current_prediction.get("ml_confidence", 0)
+    training_count = current_prediction.get("training_count", 0)
     
-    # [Todo el HTML original preservado...]
+    # Colores dinámicos
+    if direction == "ALZA":
+        primary_color = "#00ff88"
+        gradient = "linear-gradient(135deg, #00ff88 0%, #00cc6a 100%)"
+        status_emoji = "📈"
+    elif direction == "BAJA":
+        primary_color = "#ff4444"
+        gradient = "linear-gradient(135deg, #ff4444 0%, #cc3636 100%)"
+        status_emoji = "📉"
+    else:
+        primary_color = "#ffbb33"
+        gradient = "linear-gradient(135deg, #ffbb33 0%, #cc9929 100%)"
+        status_emoji = "⚡"
+    
+    # Calcular tiempo hasta siguiente vela
+    current_time = time.time()
+    seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+    progress_percentage = min(100, max(0, (1 - seconds_remaining/TIMEFRAME) * 100))
+    
+    # Generar razones
+    reasons_html = ""
+    reasons_list = current_prediction.get('reasons', ['Analizando mercado en tiempo real...'])
+    for reason in reasons_list:
+        reasons_html += f'<li class="reason-item">{reason}</li>'
+    
     html_content = f"""
-    <!DOCTYPE html>
-    <html lang="es">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Delowyss AI Premium V5.4</title>
-        <!-- ESTILOS ORIGINALES COMPLETOS PRESERVADOS -->
-    </head>
-    <body>
-        <!-- INTERFAZ ORIGINAL COMPLETA -->
-    </body>
-    </html>
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delowyss AI Premium V5.4</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        /* RESET Y BASE RESPONSIVE */
+        * {{
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }}
+        
+        :root {{
+            --primary-color: {primary_color};
+            --gradient: {gradient};
+            --bg-primary: #0f172a;
+            --bg-secondary: #1e293b;
+            --text-primary: #f8fafc;
+            --text-secondary: #94a3b8;
+            --card-bg: rgba(255, 255, 255, 0.05);
+            --border-color: rgba(255, 255, 255, 0.1);
+        }}
+        
+        body {{
+            font-family: 'Inter', sans-serif;
+            background: linear-gradient(135deg, var(--bg-primary) 0%, var(--bg-secondary) 100%);
+            color: var(--text-primary);
+            min-height: 100vh;
+            padding: 16px;
+            line-height: 1.6;
+        }}
+        
+        .container {{
+            max-width: 1200px;
+            margin: 0 auto;
+        }}
+        
+        /* HEADER RESPONSIVE */
+        .header {{
+            text-align: center;
+            margin-bottom: 24px;
+            padding: 24px 16px;
+            background: var(--card-bg);
+            border-radius: 20px;
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+        }}
+        
+        .logo {{
+            font-size: clamp(1.8rem, 5vw, 2.8rem);
+            font-weight: 700;
+            margin-bottom: 8px;
+            background: var(--gradient);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+            line-height: 1.2;
+        }}
+        
+        .subtitle {{
+            color: var(--text-secondary);
+            font-size: clamp(0.85rem, 3vw, 1.1rem);
+            margin-bottom: 12px;
+        }}
+        
+        .version {{
+            background: rgba({primary_color.replace('#', '')}, 0.1);
+            color: var(--primary-color);
+            padding: 6px 12px;
+            border-radius: 15px;
+            font-size: 0.75rem;
+            font-weight: 600;
+            display: inline-block;
+        }}
+        
+        /* GRID RESPONSIVE AVANZADO */
+        .dashboard {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(min(100%, 350px), 1fr));
+            gap: 16px;
+            margin-bottom: 20px;
+        }}
+        
+        /* CARDS MODERNAS */
+        .card {{
+            background: var(--card-bg);
+            border-radius: 20px;
+            padding: 24px;
+            border: 1px solid var(--border-color);
+            backdrop-filter: blur(10px);
+            transition: all 0.3s ease;
+            position: relative;
+            overflow: hidden;
+        }}
+        
+        .card:hover {{
+            transform: translateY(-4px);
+            box-shadow: 0 15px 40px rgba(0, 0, 0, 0.4);
+        }}
+        
+        .prediction-card {{
+            grid-column: 1 / -1;
+            text-align: center;
+            border-left: 5px solid var(--primary-color);
+        }}
+        
+        .prediction-card::before {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient);
+        }}
+        
+        /* DIRECCIÓN PRINCIPAL */
+        .direction {{
+            font-size: clamp(2rem, 8vw, 4rem);
+            font-weight: 700;
+            color: var(--primary-color);
+            margin: 20px 0;
+            text-shadow: 0 0 30px rgba({primary_color.replace('#', '')}, 0.4);
+            animation: pulse 2s infinite;
+        }}
+        
+        @keyframes pulse {{
+            0%, 100% {{ opacity: 1; }}
+            50% {{ opacity: 0.8; }}
+        }}
+        
+        .confidence {{
+            font-size: clamp(1rem, 4vw, 1.3rem);
+            margin-bottom: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 10px;
+            flex-wrap: wrap;
+        }}
+        
+        .confidence-badge {{
+            background: var(--primary-color);
+            color: #0f172a;
+            padding: 6px 15px;
+            border-radius: 20px;
+            font-weight: 600;
+            font-size: 0.8em;
+        }}
+        
+        /* PROGRESS BAR MEJORADA */
+        .candle-progress-container {{
+            margin: 25px 0;
+        }}
+        
+        .progress-label {{
+            display: flex;
+            justify-content: space-between;
+            margin-bottom: 8px;
+            font-size: 0.9rem;
+            color: var(--text-secondary);
+        }}
+        
+        .candle-progress {{
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            overflow: hidden;
+            height: 10px;
+            position: relative;
+        }}
+        
+        .progress-bar {{
+            height: 100%;
+            background: var(--gradient);
+            width: {progress_percentage}%;
+            transition: width 0.5s ease;
+            border-radius: 10px;
+            position: relative;
+            overflow: hidden;
+        }}
+        
+        .progress-bar::after {{
+            content: '';
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.3), transparent);
+            animation: shimmer 2s infinite;
+        }}
+        
+        @keyframes shimmer {{
+            0% {{ left: -100%; }}
+            100% {{ left: 100%; }}
+        }}
+        
+        /* COUNTDOWN DINÁMICO */
+        .countdown {{
+            background: rgba(0, 0, 0, 0.3);
+            padding: 20px;
+            border-radius: 15px;
+            margin: 25px 0;
+            border: 1px solid var(--border-color);
+        }}
+        
+        .countdown-number {{
+            font-size: clamp(1.8rem, 6vw, 3rem);
+            font-weight: 700;
+            color: var(--primary-color);
+            font-family: 'Courier New', monospace;
+            margin: 10px 0;
+        }}
+        
+        /* METRICS GRID SUPER RESPONSIVE */
+        .metrics-grid {{
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+            gap: 10px;
+            margin: 20px 0;
+        }}
+        
+        .metric {{
+            background: rgba(255, 255, 255, 0.03);
+            padding: 16px 10px;
+            border-radius: 12px;
+            text-align: center;
+            border: 1px solid rgba(255, 255, 255, 0.05);
+            transition: all 0.3s ease;
+        }}
+        
+        .metric:hover {{
+            background: rgba(255, 255, 255, 0.06);
+            transform: scale(1.05);
+        }}
+        
+        .metric-value {{
+            font-size: clamp(1.1rem, 4vw, 1.5rem);
+            font-weight: 700;
+            color: var(--primary-color);
+            margin-bottom: 5px;
+        }}
+        
+        .metric-label {{
+            color: var(--text-secondary);
+            font-size: 0.7rem;
+            font-weight: 500;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }}
+        
+        /* REASONS LIST MEJORADA */
+        .reasons-list {{
+            list-style: none;
+            margin-top: 15px;
+        }}
+        
+        .reason-item {{
+            background: rgba(255, 255, 255, 0.03);
+            margin: 8px 0;
+            padding: 14px 16px;
+            border-radius: 12px;
+            border-left: 4px solid var(--primary-color);
+            transition: all 0.3s ease;
+            font-size: 0.9rem;
+        }}
+        
+        .reason-item:hover {{
+            background: rgba(255, 255, 255, 0.06);
+            transform: translateX(8px);
+        }}
+        
+        /* ML INFO STYLES */
+        .ml-info {{
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            padding: 16px;
+            border-radius: 12px;
+            margin: 20px 0;
+            border: 1px solid rgba(255, 255, 255, 0.2);
+        }}
+        
+        .ml-badge {{
+            background: rgba(255, 255, 255, 0.2);
+            color: white;
+            padding: 4px 10px;
+            border-radius: 8px;
+            font-size: 0.75rem;
+            font-weight: 600;
+        }}
+        
+        /* SCORE BARS RESPONSIVE */
+        .score-display {{
+            background: rgba(255, 255, 255, 0.03);
+            padding: 20px;
+            border-radius: 15px;
+            margin: 20px 0;
+        }}
+        
+        .score-bars {{
+            display: flex;
+            gap: 10px;
+            align-items: center;
+            margin: 15px 0;
+        }}
+        
+        .score-bar-container {{
+            flex: 1;
+            background: rgba(255, 255, 255, 0.1);
+            border-radius: 10px;
+            height: 12px;
+            overflow: hidden;
+        }}
+        
+        .score-bar {{
+            height: 100%;
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }}
+        
+        .buy-bar {{
+            background: linear-gradient(90deg, #00ff88, #00cc6a);
+            width: {current_prediction.get('buy_score', 0)}%;
+        }}
+        
+        .sell-bar {{
+            background: linear-gradient(90deg, #ff4444, #cc3636);
+            width: {current_prediction.get('sell_score', 0)}%;
+        }}
+        
+        /* LOADING STATES */
+        .loading {{
+            text-align: center;
+            padding: 40px 20px;
+            color: var(--text-secondary);
+        }}
+        
+        .loading::after {{
+            content: '...';
+            animation: dots 1.5s infinite;
+        }}
+        
+        @keyframes dots {{
+            0%, 20% {{ content: '.'; }}
+            40% {{ content: '..'; }}
+            60%, 100% {{ content: '...'; }}
+        }}
+        
+        /* RESPONSIVE EXTREMO PARA MÓVILES */
+        @media (max-width: 480px) {{
+            body {{
+                padding: 12px;
+            }}
+            
+            .card {{
+                padding: 20px 16px;
+                border-radius: 16px;
+            }}
+            
+            .header {{
+                padding: 20px 12px;
+                margin-bottom: 16px;
+            }}
+            
+            .metrics-grid {{
+                grid-template-columns: repeat(2, 1fr);
+                gap: 8px;
+            }}
+            
+            .metric {{
+                padding: 14px 8px;
+            }}
+            
+            .reason-item {{
+                padding: 12px;
+                font-size: 0.85rem;
+            }}
+            
+            .countdown {{
+                padding: 16px;
+                margin: 20px 0;
+            }}
+        }}
+        
+        /* TABLETS */
+        @media (min-width: 768px) and (max-width: 1024px) {{
+            .dashboard {{
+                grid-template-columns: repeat(2, 1fr);
+            }}
+            
+            .prediction-card {{
+                grid-column: 1 / -1;
+            }}
+        }}
+        
+        /* DARK MODE SUPPORT */
+        @media (prefers-color-scheme: dark) {{
+            :root {{
+                --bg-primary: #0a0f1c;
+                --bg-secondary: #141a2c;
+            }}
+        }}
+    </style>
+</head>
+<body>
+    <div class="container">
+        <!-- HEADER MEJORADO -->
+        <div class="header">
+            <div class="logo">🤖 DELOWYSS AI PREMIUM V5.4</div>
+            <div class="subtitle">Sistema HÍBRIDO: IA Avanzada + AutoLearning + Análisis en Tiempo Real</div>
+            <div class="version">V5.4 HYBRID - EUR/USD REAL</div>
+        </div>
+        
+        <!-- DASHBOARD PRINCIPAL -->
+        <div class="dashboard">
+            <!-- PREDICCIÓN PRINCIPAL -->
+            <div class="card prediction-card">
+                <h2>🎯 PREDICCIÓN ACTUAL HÍBRIDA</h2>
+                <div class="direction" id="direction">{direction} {status_emoji}</div>
+                <div class="confidence">
+                    CONFIANZA: <span id="confidence">{confidence}</span>%
+                    <span class="confidence-badge" id="confidence-level">
+                        { "ALTA" if confidence > 70 else "MEDIA" if confidence > 50 else "BAJA" }
+                    </span>
+                </div>
+                
+                <!-- INFORMACIÓN ML -->
+                <div class="ml-info">
+                    <div style="display: flex; justify-content: space-between; align-items: center; flex-wrap: wrap; gap: 10px;">
+                        <div>
+                            <strong>🤖 AutoLearning:</strong> <span id="ml-predicted">{ml_predicted}</span>
+                            <span class="ml-badge"><span id="ml-confidence">{ml_confidence}</span>% conf</span>
+                        </div>
+                        <div style="color: #e2e8f0; font-size: 0.9rem;">
+                            Entrenamientos: <span id="training-count">{training_count}</span>
+                        </div>
+                    </div>
+                </div>
+                
+                <!-- BARRA DE PROGRESO MEJORADA -->
+                <div class="candle-progress-container">
+                    <div class="progress-label">
+                        <span>Progreso de vela: <span id="progress-percent">{progress_percentage:.1f}</span>%</span>
+                        <span>Fase: <span id="market-phase">{market_phase}</span></span>
+                    </div>
+                    <div class="candle-progress">
+                        <div class="progress-bar"></div>
+                    </div>
+                </div>
+                
+                <!-- COUNTDOWN MEJORADO -->
+                <div class="countdown">
+                    <div style="color: #94a3b8; margin-bottom: 10px; font-size: 0.9rem;">
+                        SIGUIENTE PREDICCIÓN EN:
+                    </div>
+                    <div class="countdown-number" id="countdown">{int(seconds_remaining)}s</div>
+                    <div style="color: #94a3b8; font-size: 0.8rem; margin-top: 5px;">
+                        Analizando <span id="tick-count">{tick_count}</span> ticks en tiempo real
+                    </div>
+                </div>
+                
+                <!-- MÉTRICAS RÁPIDAS -->
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-value" id="tick-count-big">{tick_count}</div>
+                        <div class="metric-label">TICKS ANALIZADOS</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="current-price">{current_price:.5f}</div>
+                        <div class="metric-label">PRECIO ACTUAL</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="accuracy">0.0%</div>
+                        <div class="metric-label">PRECISIÓN</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="candle-progress">{int(candle_progress * 100)}%</div>
+                        <div class="metric-label">PROGRESO VELA</div>
+                    </div>
+                </div>
+            </div>
+            
+            <!-- ANÁLISIS DE IA -->
+            <div class="card">
+                <h3>🧠 ANÁLISIS DE IA AVANZADO</h3>
+                
+                <!-- BARRAS DE SCORE MEJORADAS -->
+                <div class="score-display">
+                    <div style="display: flex; justify-content: space-between; margin-bottom: 15px;">
+                        <span style="color: #00ff88; font-weight: 600;">
+                            COMPRA: <span id="buy-score">{current_prediction.get('buy_score', 0)}%</span>
+                        </span>
+                        <span style="color: #ff4444; font-weight: 600;">
+                            VENTA: <span id="sell-score">{current_prediction.get('sell_score', 0)}%</span>
+                        </span>
+                    </div>
+                    <div class="score-bars">
+                        <div class="score-bar-container">
+                            <div class="score-bar buy-bar"></div>
+                        </div>
+                        <div class="score-bar-container">
+                            <div class="score-bar sell-bar"></div>
+                        </div>
+                    </div>
+                    <div style="text-align: center; color: #94a3b8; font-size: 0.8rem; margin-top: 8px;">
+                        Diferencia: <span id="score-diff">{current_prediction.get('score_difference', 0):.2f}</span>
+                    </div>
+                </div>
+                
+                <h4 style="margin: 20px 0 10px 0; color: #e2e8f0;">📊 FACTORES DE DECISIÓN:</h4>
+                <ul class="reasons-list" id="reasons-list">
+                    {reasons_html}
+                </ul>
+            </div>
+            
+            <!-- RENDIMIENTO DEL SISTEMA -->
+            <div class="card">
+                <h3>📈 RENDIMIENTO DEL SISTEMA</h3>
+                <div class="metrics-grid">
+                    <div class="metric">
+                        <div class="metric-value" style="color: #00ff88;" id="accuracy-big">0.0%</div>
+                        <div class="metric-label">PRECISIÓN</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" id="total-pred">0</div>
+                        <div class="metric-label">TOTAL PREDICCIONES</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" style="color: #00ff88;" id="correct-pred">0</div>
+                        <div class="metric-label">CORRECTAS</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-value" style="color: #ffbb33;" id="training-count-big">{training_count}</div>
+                        <div class="metric-label">ENTRENAMIENTOS ML</div>
+                    </div>
+                </div>
+                
+                <div class="performance">
+                    <h4 style="margin-bottom: 15px;">✅ ÚLTIMA VALIDACIÓN</h4>
+                    <div class="validation-result" id="validation-result">
+                        <div class="loading">⏳ Esperando validación...</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- INFORMACIÓN DEL SISTEMA -->
+        <div class="card">
+            <h3>⚙️ SISTEMA HÍBRIDO AVANZADO</h3>
+            <div class="info-grid" style="display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 15px; margin-top: 20px;">
+                <div class="info-item">
+                    <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">🤖 IA AVANZADA</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+                        Análisis tick-by-tick completo + métricas avanzadas
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div style="font-weight: 600; color: #667eea; font-size: 1.1rem;">🧠 AUTOLEARNING</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+                        ML online que mejora continuamente
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div style="font-weight: 600; color: #ff4444; font-size: 1.1rem;">🎯 PREDICCIÓN HÍBRIDA</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+                        IA tradicional + Machine Learning integrado
+                    </div>
+                </div>
+                <div class="info-item">
+                    <div style="font-weight: 600; color: #00ff88; font-size: 1.1rem;">📡 EUR/USD REAL</div>
+                    <div style="font-size: 0.85rem; color: #94a3b8; margin-top: 8px;">
+                        Ticks en tiempo real del mercado Forex
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // SISTEMA DE ACTUALIZACIÓN EN TIEMPO REAL MEJORADO
+        let connectionErrors = 0;
+        const maxConnectionErrors = 5;
+        
+        function updateAllData() {{
+            updatePredictionData();
+            updateValidationData();
+            updateSystemInfo();
+        }}
+        
+        function updatePredictionData() {{
+            fetch('/api/prediction')
+                .then(response => {{
+                    if (!response.ok) throw new Error('Error en respuesta');
+                    return response.json();
+                }})
+                .then(data => {{
+                    connectionErrors = 0; // Resetear errores
+                    updatePredictionUI(data);
+                }})
+                .catch(error => {{
+                    connectionErrors++;
+                    console.warn('Error fetching prediction:', error);
+                    if (connectionErrors >= maxConnectionErrors) {{
+                        showConnectionError();
+                    }}
+                }});
+        }}
+        
+        function updateValidationData() {{
+            fetch('/api/validation')
+                .then(response => response.json())
+                .then(data => {{
+                    updateValidationUI(data);
+                }})
+                .catch(error => {{
+                    console.warn('Error fetching validation:', error);
+                }});
+        }}
+        
+        function updateSystemInfo() {{
+            fetch('/api/system-info')
+                .then(response => response.json())
+                .then(data => {{
+                    updateSystemUI(data);
+                }})
+                .catch(error => {{
+                    console.warn('Error fetching system info:', error);
+                }});
+        }}
+        
+        function updatePredictionUI(data) {{
+            // Actualizar dirección y confianza
+            const directionEl = document.getElementById('direction');
+            if (directionEl) {{
+                let emoji = '⚡';
+                if (data.direction === 'ALZA') emoji = '📈';
+                if (data.direction === 'BAJA') emoji = '📉';
+                directionEl.textContent = data.direction + ' ' + emoji;
+            }}
+            
+            // Actualizar confianza
+            updateElementText('confidence', data.confidence || 0);
+            updateElementText('confidence-level', 
+                data.confidence > 70 ? 'ALTA' : data.confidence > 50 ? 'MEDIA' : 'BAJA'
+            );
+            
+            // Actualizar métricas básicas
+            updateElementText('tick-count', data.tick_count || 0);
+            updateElementText('tick-count-big', data.tick_count || 0);
+            updateElementText('current-price', (data.current_price || 0).toFixed(5));
+            updateElementText('candle-progress', Math.round((data.candle_progress || 0) * 100) + '%');
+            
+            // Actualizar ML
+            updateElementText('ml-predicted', data.ai_model_predicted || 'N/A');
+            updateElementText('ml-confidence', data.ml_confidence || 0);
+            updateElementText('training-count', data.training_count || 0);
+            updateElementText('training-count-big', data.training_count || 0);
+            
+            // Actualizar scores
+            updateElementText('buy-score', (data.buy_score || 0).toFixed(1) + '%');
+            updateElementText('sell-score', (data.sell_score || 0).toFixed(1) + '%');
+            updateElementText('score-diff', (data.score_difference || 0).toFixed(2));
+            
+            // Actualizar barras de score
+            updateScoreBars(data.buy_score || 0, data.sell_score || 0);
+            
+            // Actualizar razones
+            const reasons = data.reasons || ['Analizando mercado en tiempo real...'];
+            const reasonsList = document.getElementById('reasons-list');
+            if (reasonsList) {{
+                reasonsList.innerHTML = reasons.map(reason => 
+                    `<li class="reason-item">${{reason}}</li>`
+                ).join('');
+            }}
+            
+            // Actualizar fase de mercado
+            updateElementText('market-phase', data.market_phase || 'N/A');
+        }}
+        
+        function updateValidationUI(data) {{
+            if (data.performance) {{
+                const perf = data.performance;
+                updateElementText('accuracy', (perf.recent_accuracy || 0).toFixed(1) + '%');
+                updateElementText('accuracy-big', (perf.recent_accuracy || 0).toFixed(1) + '%');
+                updateElementText('total-pred', perf.total_predictions || 0);
+                updateElementText('correct-pred', perf.correct_predictions || 0);
+            }}
+            
+            if (data.last_validation) {{
+                const val = data.last_validation;
+                const color = val.correct ? '#00ff88' : '#ff4444';
+                const icon = val.correct ? '✅' : '❌';
+                const bgColor = val.correct ? 'rgba(0, 255, 136, 0.1)' : 'rgba(255, 68, 68, 0.1)';
+                
+                const validationEl = document.getElementById('validation-result');
+                if (validationEl) {{
+                    validationEl.innerHTML = `
+                        <div style="color: ${{color}}; font-weight: 600; font-size: 1.1rem; margin-bottom: 8px;">
+                            ${{icon}} ${{val.predicted}} → ${{val.actual}}
+                        </div>
+                        <div style="color: #94a3b8; font-size: 0.9rem;">
+                            Confianza: ${{val.confidence}}% | Cambio: ${{val.price_change}}pips
+                        </div>
+                        <div style="color: #64748b; font-size: 0.8rem; margin-top: 5px;">
+                            Precisión: ${{val.accuracy}}% | Total: ${{val.total_predictions}}
+                        </div>
+                    `;
+                    validationEl.style.borderLeftColor = color;
+                    validationEl.style.background = bgColor;
+                }}
+            }}
+        }}
+        
+        function updateSystemUI(data) {{
+            // Actualizar información del sistema si es necesario
+            console.log('System info updated:', data);
+        }}
+        
+        function updateScoreBars(buyScore, sellScore) {{
+            const buyBar = document.querySelector('.buy-bar');
+            const sellBar = document.querySelector('.sell-bar');
+            if (buyBar) buyBar.style.width = (buyScore || 0) + '%';
+            if (sellBar) sellBar.style.width = (sellScore || 0) + '%';
+        }}
+        
+        function updateElementText(id, value) {{
+            const element = document.getElementById(id);
+            if (element) {{
+                element.textContent = value;
+            }}
+        }}
+        
+        function showConnectionError() {{
+            const directionEl = document.getElementById('direction');
+            if (directionEl) {{
+                directionEl.textContent = '🔌 ERROR CONEXIÓN';
+                directionEl.style.color = '#ff4444';
+            }}
+        }}
+        
+        // Actualizar countdown en tiempo real
+        function updateCountdown() {{
+            const now = new Date();
+            const seconds = now.getSeconds();
+            const remaining = 60 - seconds;
+            const countdownEl = document.getElementById('countdown');
+            const progressEl = document.getElementById('progress-percent');
+            
+            if (countdownEl) {{
+                countdownEl.textContent = remaining + 's';
+            }}
+            if (progressEl) {{
+                progressEl.textContent = ((1 - remaining/60) * 100).toFixed(1);
+            }}
+        }}
+        
+        // INICIALIZACIÓN MEJORADA
+        function init() {{
+            // Actualizar inmediatamente
+            updateAllData();
+            updateCountdown();
+            
+            // Configurar intervalos
+            setInterval(updateCountdown, 1000);
+            setInterval(updateAllData, 2000); // Actualizar cada 2 segundos
+            
+            // Prevenir caché del navegador
+            setInterval(() => {{
+                window.location.reload();
+            }}, 300000); // Recargar cada 5 minutos
+            
+            console.log('🚀 Delowyss AI Interface inicializada');
+        }}
+        
+        // Iniciar cuando el DOM esté listo
+        if (document.readyState === 'loading') {{
+            document.addEventListener('DOMContentLoaded', init);
+        }} else {{
+            init();
+        }}
+        
+        // Manejar errores no capturados
+        window.addEventListener('error', (e) => {{
+            console.error('Error global:', e);
+        }});
+        
+        // Manejar conexión perdida
+        window.addEventListener('offline', () => {{
+            showConnectionError();
+        }});
+    </script>
+</body>
+</html>
     """
     return html_content
 
@@ -1407,5 +2216,5 @@ if __name__ == "__main__":
         host="0.0.0.0", 
         port=PORT,
         log_level="info",
-        access_log=True
+        access_log=False
     )

@@ -1,26 +1,12 @@
 services:
   - type: web
-    name: delowyss-ai
+    name: delowyss-trading
     env: python
-    region: oregon
-    buildCommand: pip install -r requirements_render_compatible.txt
-    startCommand: uvicorn main_render_ready:app --host 0.0.0.0 --port $PORT
-    autoDeploy: true
     plan: free
+    buildCommand: pip install -r requirements.txt
+    startCommand: bash start.sh
     envVars:
-      - key: PYTHON_VERSION
-        value: 3.13.4
-      - key: TIMEFRAME
-        value: "60"
-      - key: PREDICTION_WINDOW
-        value: "5"
-      - key: MIN_TICKS_FOR_PREDICTION
-        value: "20"
-      - key: TICK_BUFFER_SIZE
-        value: "500"
-      - key: MODEL_DIR
-        value: "models"
       - key: IQ_EMAIL
-        value: "tu_email_iqoption"
+        value: tu_correo_iqoption@example.com
       - key: IQ_PASSWORD
-        value: "tu_password_iqoption"
+        value: tu_password_segura

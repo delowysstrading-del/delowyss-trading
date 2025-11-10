@@ -1,6 +1,6 @@
-# main.py - V5.6 ULTRA EFICIENTE OPTIMIZADO - PREDICCIÓN 55s-60s
+# main.py - V5.7 ULTRA EFICIENTE CORREGIDO - PREDICCIÓN 55s-60s
 """
-Delowyss Trading AI — V5.6 ULTRA EFICIENTE OPTIMIZADO
+Delowyss Trading AI — V5.7 ULTRA EFICIENTE CORREGIDO
 CEO: Eduardo Solis — © 2025
 """
 
@@ -19,7 +19,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
 
-# ------------------ CONFIGURACIÓN OPTIMIZADA ------------------
+# ------------------ CONFIGURACIÓN ------------------
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
 PAR = "EURUSD"
@@ -35,7 +35,7 @@ os.makedirs(MODEL_DIR, exist_ok=True)
 ONLINE_MODEL_PATH = os.path.join(MODEL_DIR, "online_sgd_ultra.pkl")
 ONLINE_SCALER_PATH = os.path.join(MODEL_DIR, "online_scaler_ultra.pkl")
 
-# ---------------- LOGGING OPTIMIZADO ----------------
+# ---------------- LOGGING ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -46,7 +46,7 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ IA ULTRA EFICIENTE OPTIMIZADA ------------------
+# ------------------ IA ULTRA EFICIENTE CORREGIDA ------------------
 class UltraEfficientAnalyzer:
     def __init__(self):
         self.ticks = deque(maxlen=TICK_BUFFER_SIZE)
@@ -56,6 +56,7 @@ class UltraEfficientAnalyzer:
         self.current_candle_close = None
         self.tick_count = 0
         self.price_memory = deque(maxlen=80)
+        self.last_candle_close = None
         
         self.velocity_metrics = deque(maxlen=30)
         self.acceleration_metrics = deque(maxlen=20)
@@ -69,8 +70,6 @@ class UltraEfficientAnalyzer:
             'final': {'ticks': 0, 'analysis': {}, 'weight': 0.5}
         }
         self.phase_accuracy = {'initial': 0.6, 'middle': 0.7, 'final': 0.9}
-        self._cached_analysis = None
-        self._last_analysis_time = 0
         
     def add_tick(self, price: float, seconds_remaining: float = None):
         try:
@@ -105,9 +104,6 @@ class UltraEfficientAnalyzer:
                 self._calculate_ultra_metrics(tick_data)
                 self._analyze_optimized_phases(tick_data)
             
-            # Invalidar cache
-            self._cached_analysis = None
-            
             return tick_data
         except Exception as e:
             logging.error(f"❌ Error en add_tick: {e}")
@@ -134,8 +130,8 @@ class UltraEfficientAnalyzer:
                     'price_change': price_diff
                 })
             
-            # Calcular aceleración cada 5 ticks
-            if len(self.velocity_metrics) >= 2 and len(self.velocity_metrics) % 5 == 0:
+            # Calcular aceleración
+            if len(self.velocity_metrics) >= 2:
                 current_velocity = self.velocity_metrics[-1]['velocity']
                 previous_velocity = self.velocity_metrics[-2]['velocity']
                 velocity_time_diff = current_time - self.velocity_metrics[-2]['timestamp']
@@ -147,8 +143,8 @@ class UltraEfficientAnalyzer:
                         'timestamp': current_time
                     })
             
-            # Actualizar niveles de precio cada 10 ticks
-            if len(self.price_memory) >= 12 and len(self.price_memory) % 10 == 0:
+            # Actualizar niveles de precio
+            if len(self.price_memory) >= 12:
                 prices = list(self.price_memory)
                 resistance = max(prices[-12:])
                 support = min(prices[-12:])
@@ -164,27 +160,42 @@ class UltraEfficientAnalyzer:
     def _analyze_optimized_phases(self, tick_data):
         candle_age = tick_data['candle_age']
         
-        # Optimizado: análisis por fases con menos frecuencia
-        if candle_age < 20 and self.tick_count % 8 == 0:
+        if candle_age < 20:
             self.analysis_phases['initial']['ticks'] += 1
-            self.analysis_phases['initial']['analysis'] = self._get_phase_analysis_optimized('initial')
+            if self.analysis_phases['initial']['ticks'] % 8 == 0:
+                self.analysis_phases['initial']['analysis'] = self._get_phase_analysis_optimized('initial')
                 
-        elif 20 <= candle_age < 40 and self.tick_count % 6 == 0:
+        elif candle_age < 40:
             self.analysis_phases['middle']['ticks'] += 1
-            self.analysis_phases['middle']['analysis'] = self._get_phase_analysis_optimized('middle')
+            if self.analysis_phases['middle']['ticks'] % 6 == 0:
+                self.analysis_phases['middle']['analysis'] = self._get_phase_analysis_optimized('middle')
                 
-        elif candle_age >= 40 and self.tick_count % 3 == 0:
+        else:
             self.analysis_phases['final']['ticks'] += 1
-            self.analysis_phases['final']['analysis'] = self._get_phase_analysis_optimized('final')
+            if self.analysis_phases['final']['ticks'] % 3 == 0:
+                self.analysis_phases['final']['analysis'] = self._get_phase_analysis_optimized('final')
     
     def _get_phase_analysis_optimized(self, phase):
         try:
+            # CORRECCIÓN CRÍTICA: Usar índices enteros en lugar de slices
+            ticks_list = list(self.ticks)
+            if not ticks_list:
+                return {}
+                
             if phase == 'initial':
-                ticks = list(self.ticks)[:20] if len(self.ticks) >= 20 else list(self.ticks)
+                ticks = ticks_list[:min(20, len(ticks_list))]
             elif phase == 'middle':
-                ticks = list(self.ticks)[20:40] if len(self.ticks) >= 40 else list(self.ticks)[20:]
+                if len(ticks_list) >= 40:
+                    ticks = ticks_list[20:40]
+                elif len(ticks_list) > 20:
+                    ticks = ticks_list[20:]
+                else:
+                    ticks = []
             else:
-                ticks = list(self.ticks)[40:] if len(self.ticks) >= 40 else []
+                if len(ticks_list) >= 40:
+                    ticks = ticks_list[40:]
+                else:
+                    ticks = []
             
             if not ticks:
                 return {}
@@ -192,19 +203,19 @@ class UltraEfficientAnalyzer:
             prices = [tick['price'] for tick in ticks]
             
             # Cálculos optimizados
-            volatility = (max(prices) - min(prices)) * 10000
-            avg_price = np.mean(prices)
+            volatility = (max(prices) - min(prices)) * 10000 if prices else 0
+            avg_price = np.mean(prices) if prices else 0
             
-            # Trend calculation optimized
+            # Trend calculation
             if len(prices) >= 5:
-                recent_trend = np.polyfit(range(5), prices[-5:], 1)[0] * 10000
+                recent_trend = np.polyfit(range(len(prices[-5:])), prices[-5:], 1)[0] * 10000
             else:
                 recent_trend = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
             
-            # Pressure calculation optimized
+            # Pressure calculation
             if len(prices) >= 2:
                 price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-                positive_changes = sum(1 for x in price_changes if x > 0)
+                positive_changes = len([x for x in price_changes if x > 0])
                 total_changes = len(price_changes)
                 buy_pressure = positive_changes / total_changes if total_changes > 0 else 0.5
             else:
@@ -228,35 +239,35 @@ class UltraEfficientAnalyzer:
             return {}
             
         try:
-            current_time = time.time()
-            
-            # Usar cache para optimizar
-            if (self._cached_analysis and 
-                current_time - self._last_analysis_time < 2.0):
-                return self._cached_analysis
-            
             prices = np.array(list(self.price_memory))
             
-            # Trend metrics optimized
+            # CORRECCIÓN CRÍTICA: Usar índices enteros correctamente
             trend_metrics = []
             for window in [5, 10, 15]:
                 if len(prices) >= window:
-                    trend = np.polyfit(range(window), prices[-window:], 1)[0] * 10000
+                    # Usar índices enteros explícitos
+                    window_prices = prices[-window:]
+                    x_values = np.arange(len(window_prices))
+                    trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
                     trend_metrics.append(trend)
             
             trend_strength = np.mean(trend_metrics) if trend_metrics else 0
             
-            # Momentum optimized
-            momentum = (prices[-1] - prices[-5]) * 10000 if len(prices) >= 5 else 0
-            
-            # Volatility optimized
-            if len(prices) >= 10:
-                volatility = (max(prices[-10:]) - min(prices[-10:])) * 10000
+            # Momentum calculation corregido
+            if len(prices) >= 5:
+                momentum = (prices[-1] - prices[-5]) * 10000
             else:
-                volatility = (max(prices) - min(prices)) * 10000
+                momentum = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
             
-            # Pressure calculation optimized
-            if len(self.ticks) > 8:
+            # Volatility calculation corregido
+            if len(prices) >= 10:
+                recent_prices = prices[-10:]
+                volatility = (np.max(recent_prices) - np.min(recent_prices)) * 10000
+            else:
+                volatility = (np.max(prices) - np.min(prices)) * 10000
+            
+            # Pressure calculation corregido
+            if len(self.ticks) >= 8:
                 recent_ticks = list(self.ticks)[-8:]
                 price_changes = []
                 for i in range(1, len(recent_ticks)):
@@ -264,7 +275,7 @@ class UltraEfficientAnalyzer:
                     price_changes.append(change)
                 
                 if price_changes:
-                    positive = sum(1 for x in price_changes if x > 0)
+                    positive = len([x for x in price_changes if x > 0])
                     total = len(price_changes)
                     buy_pressure = positive / total
                 else:
@@ -272,10 +283,10 @@ class UltraEfficientAnalyzer:
             else:
                 buy_pressure = 0.5
             
-            # Velocity optimized
+            # Velocity calculation
             avg_velocity = 0
             if self.velocity_metrics:
-                velocities = [v['velocity'] for v in self.velocity_metrics[-10:]]
+                velocities = [v['velocity'] for v in list(self.velocity_metrics)[-10:]]
                 avg_velocity = np.mean(velocities) * 10000 if velocities else 0
             
             phase_analysis = self._combine_phase_analysis_optimized()
@@ -302,10 +313,6 @@ class UltraEfficientAnalyzer:
                 'confidence_score': self._calculate_confidence_score()
             }
             
-            # Cache results
-            self._cached_analysis = result
-            self._last_analysis_time = current_time
-            
             return result
             
         except Exception as e:
@@ -324,10 +331,9 @@ class UltraEfficientAnalyzer:
                 'final': self.analysis_phases['final']['weight']
             }
             
-            # Combinación optimizada
             trends = []
             for phase, data in [('initial', initial), ('middle', middle), ('final', final)]:
-                if data.get('trend'):
+                if data and data.get('trend'):
                     trends.append((data['trend'], weights[phase]))
             
             if trends:
@@ -355,7 +361,6 @@ class UltraEfficientAnalyzer:
             return {}
     
     def _determine_market_phase_optimized(self, trend_strength, volatility, phase_analysis):
-        # Lógica optimizada de determinación de fase
         if volatility < 0.2 and abs(trend_strength) < 0.3:
             return "consolidation"
         elif abs(trend_strength) > 2.5:
@@ -370,7 +375,6 @@ class UltraEfficientAnalyzer:
             return "normal"
     
     def _calculate_confidence_score(self):
-        # Cálculo de confianza optimizado
         score = min(30, (self.tick_count / 25) * 30)
         
         if len(self.velocity_metrics) >= 10:
@@ -438,7 +442,6 @@ class UltraEfficientAnalyzer:
             self.volume_profile.clear()
             self.price_levels.clear()
             self.candle_start_time = None
-            self._cached_analysis = None
             
             for phase in self.analysis_phases:
                 self.analysis_phases[phase] = {'ticks': 0, 'analysis': {}, 'weight': self.analysis_phases[phase]['weight']}
@@ -446,7 +449,7 @@ class UltraEfficientAnalyzer:
         except Exception as e:
             logging.error(f"❌ Error en reset: {e}")
 
-# ------------------ ADAPTIVE MARKET LEARNER OPTIMIZADO ------------------
+# ------------------ ADAPTIVE MARKET LEARNER ------------------
 from sklearn.linear_model import SGDClassifier
 from sklearn.preprocessing import StandardScaler
 
@@ -463,7 +466,6 @@ class AdaptiveMarketLearner:
         self.model = self._load_model()
         self.training_count = 0
         self.last_training_result = {"trained": False, "reason": "not_initialized"}
-        self._prediction_cache = {}
 
     def _ensure_dirs(self):
         os.makedirs(os.path.dirname(self.model_path) or ".", exist_ok=True)
@@ -484,7 +486,6 @@ class AdaptiveMarketLearner:
             warm_start=True,
             learning_rate='optimal'
         )
-        # Inicialización optimizada
         dummy_X = np.random.normal(0, 0.1, (3, self.feature_size))
         dummy_y = np.array(['BAJA', 'LATERAL', 'ALZA'])
         model.partial_fit(dummy_X, dummy_y, classes=self.classes)
@@ -515,8 +516,6 @@ class AdaptiveMarketLearner:
             if features is not None and features.size > 0:
                 if features.ndim == 1 and features.shape[0] == self.feature_size:
                     self.replay_buffer.append((features.astype(float), label))
-                    # Limpiar cache al añadir nueva muestra
-                    self._prediction_cache.clear()
                     return True
             return False
         except Exception as e:
@@ -530,7 +529,6 @@ class AdaptiveMarketLearner:
             return result
         
         try:
-            # Entrenamiento optimizado
             samples = list(self.replay_buffer)[-batch_size:]
             X = np.vstack([s[0] for s in samples])
             y = np.array([s[1] for s in samples])
@@ -561,31 +559,6 @@ class AdaptiveMarketLearner:
             self.last_training_result = result
             return result
 
-    def predict_proba(self, features: np.ndarray):
-        try:
-            # Usar cache para predicciones similares
-            features_hash = hash(features.tobytes())
-            if features_hash in self._prediction_cache:
-                return self._prediction_cache[features_hash]
-                
-            X = np.atleast_2d(features.astype(float))
-            
-            if (hasattr(self.scaler, "mean_") and self.scaler.mean_ is not None and 
-                len(self.replay_buffer) >= 5):
-                Xs = self.scaler.transform(X)
-                probs = self.model.predict_proba(Xs)[0]
-                result = dict(zip(self.model.classes_, probs))
-            else:
-                result = dict(zip(self.classes, np.ones(len(self.classes)) / len(self.classes)))
-            
-            # Almacenar en cache
-            self._prediction_cache[features_hash] = result
-            return result
-                
-        except Exception as e:
-            logging.debug(f"🔧 Fallback en predict_proba: {e}")
-            return dict(zip(self.classes, np.ones(len(self.classes)) / len(self.classes)))
-
     def predict(self, features: np.ndarray):
         try:
             X = np.atleast_2d(features.astype(float))
@@ -595,12 +568,18 @@ class AdaptiveMarketLearner:
                 
                 Xs = self.scaler.transform(X)
                 predicted = self.model.predict(Xs)[0]
-                proba = self.predict_proba(features)
-                confidence = max(proba.values()) * 100
+                
+                # Calcular probabilidades manualmente para evitar errores
+                decision_scores = self.model.decision_function(Xs)[0]
+                exp_scores = np.exp(decision_scores - np.max(decision_scores))
+                probs = exp_scores / np.sum(exp_scores)
+                prob_dict = dict(zip(self.model.classes_, probs))
+                
+                confidence = max(prob_dict.values()) * 100
                 
                 return {
                     "predicted": predicted,
-                    "proba": proba,
+                    "proba": prob_dict,
                     "confidence": round(confidence, 2),
                     "training_count": self.training_count,
                     "status": "ML_ACTIVE"
@@ -624,15 +603,12 @@ class AdaptiveMarketLearner:
                 "status": "ML_ERROR"
             }
 
-# ------------------ SISTEMA DE VALIDACIÓN OPTIMIZADO ------------------
+# ------------------ SISTEMA DE VALIDACIÓN ------------------
 class RealTimeValidator:
     def __init__(self):
         self.tracking_active = False
         self.prediction_data = None
         self.validation_history = deque(maxlen=50)
-        self.current_tracking_score = 0
-        self.last_validation_update = 0
-        self._validation_cache = None
         
     def start_tracking(self, prediction, current_price):
         self.tracking_active = True
@@ -641,10 +617,8 @@ class RealTimeValidator:
             'initial_price': current_price,
             'predicted_direction': prediction['direction'],
             'prediction_confidence': prediction['confidence'],
-            'expected_movement_min': 0.3,
             'validation_points': []
         }
-        self._validation_cache = None
         logging.info(f"🔍 INICIANDO TRACKING: {prediction['direction']} | Conf: {prediction['confidence']}%")
     
     def update_validation(self, current_price, current_tick_count):
@@ -652,10 +626,8 @@ class RealTimeValidator:
             return None
             
         current_time = time.time()
-        # Optimizado: validar cada 5 ticks o 3 segundos
-        if (current_time - self.last_validation_update < 3 and 
-            current_tick_count % 5 != 0):
-            return self._validation_cache
+        if current_time - self.prediction_data['start_time'] < 3 and current_tick_count % 5 != 0:
+            return None
             
         price_change = (current_price - self.prediction_data['initial_price']) * 10000
         expected_direction = self.prediction_data['predicted_direction']
@@ -680,11 +652,8 @@ class RealTimeValidator:
         }
         
         self.prediction_data['validation_points'].append(validation_point)
-        self.last_validation_update = current_time
-        self._validation_cache = validation_point
         
-        # Log optimizado: solo cada 10 puntos de validación
-        if len(self.prediction_data['validation_points']) % 10 == 0:
+        if len(self.prediction_data['validation_points']) % 5 == 0:
             status_icon = "✅" if is_tracking else "❌" if is_tracking is False else "⚪"
             logging.info(f"🔍 TRACKING: {status_icon} | Mov: {price_change:.1f}pips | Score: {tracking_score:.1f}%")
         
@@ -730,19 +699,17 @@ class RealTimeValidator:
         if self.tracking_active:
             summary = self.get_realtime_summary()
             self.tracking_active = False
-            self._validation_cache = None
             if summary:
                 self.validation_history.append(summary)
             return summary
         return None
 
-# ------------------ FEATURE BUILDER OPTIMIZADO ------------------
-def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_window=30):
+# ------------------ FEATURE BUILDER CORREGIDO ------------------
+def build_advanced_features_from_analysis(analysis, seconds_remaining):
     try:
         if analysis.get('status') != 'SUCCESS':
             return np.zeros(18)
             
-        # Extracción optimizada de características
         current_price = analysis.get('current_price', 0)
         trend_strength = analysis.get('trend_strength', 0)
         momentum = analysis.get('momentum', 0)
@@ -760,8 +727,8 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
             momentum,
             volatility,
             buy_pressure,
-            1 - buy_pressure,  # sell_pressure
-            buy_pressure / (1 - buy_pressure) if buy_pressure < 1 else 10.0,  # pressure_ratio
+            1 - buy_pressure,
+            buy_pressure / (1 - buy_pressure) if buy_pressure < 1 else 10.0,
             velocity,
             candle_progress,
             1.0 if phase_analysis.get('momentum_shift', False) else 0.0,
@@ -772,12 +739,14 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
             analysis.get('candle_range', 0),
             min(1.0, analysis.get('tick_count', 0) / 50.0),
             np.log1p(abs(trend_strength)),
-            np.sqrt(abs(momentum))
+            np.sqrt(abs(momentum)) if momentum != 0 else 0
         ]).astype(float)
         
         # Asegurar tamaño correcto
-        if features.shape[0] != 18:
-            features = np.pad(features, (0, 18 - features.shape[0])) if features.shape[0] < 18 else features[:18]
+        if features.shape[0] < 18:
+            features = np.pad(features, (0, 18 - features.shape[0]))
+        elif features.shape[0] > 18:
+            features = features[:18]
             
         return features
         
@@ -785,7 +754,7 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining, tick_wind
         logging.error(f"❌ Error construyendo features: {e}")
         return np.zeros(18)
 
-# ------------------ SISTEMA IA PROFESIONAL OPTIMIZADO ------------------
+# ------------------ SISTEMA IA PROFESIONAL CORREGIDO ------------------
 class ComprehensiveAIPredictor:
     def __init__(self):
         self.analyzer = UltraEfficientAnalyzer()
@@ -797,20 +766,13 @@ class ComprehensiveAIPredictor:
             'recent_accuracy': 0.0
         }
         self.last_prediction = None
-        self.last_validation_result = None
-        self._analysis_cache = None
-        self._last_analysis_time = 0
         
     def process_tick(self, price: float, seconds_remaining: float = None):
         try:
             tick_data = self.analyzer.add_tick(price, seconds_remaining)
             
-            # Validación en tiempo real optimizada
-            if (self.realtime_validator.tracking_active and 
-                self.analyzer.tick_count % 5 == 0):  # Reducida frecuencia
-                self.realtime_validator.update_validation(
-                    price, self.analyzer.tick_count
-                )
+            if self.realtime_validator.tracking_active:
+                self.realtime_validator.update_validation(price, self.analyzer.tick_count)
                 
             return {
                 "tick_count": self.analyzer.tick_count,
@@ -822,7 +784,6 @@ class ComprehensiveAIPredictor:
     
     def _comprehensive_ai_analysis(self, analysis, ml_prediction=None):
         try:
-            # Extracción optimizada
             momentum = analysis['momentum']
             trend_strength = analysis['trend_strength']
             pressure_ratio = analysis['pressure_ratio']
@@ -830,10 +791,10 @@ class ComprehensiveAIPredictor:
             data_quality = analysis['data_quality']
             candle_progress = analysis.get('candle_progress', 0)
             
-            buy_score = sell_score = 0
+            buy_score = 0
+            sell_score = 0
             reasons = []
             
-            # ML boost optimizado
             ml_boost = 0
             if ml_prediction and ml_prediction.get('confidence', 0) > 60:
                 ml_direction = ml_prediction.get('predicted', 'LATERAL')
@@ -842,7 +803,6 @@ class ComprehensiveAIPredictor:
             
             late_phase_weight = 1.0 if candle_progress > 0.8 else 0.7
 
-            # Scoring optimizado
             if abs(trend_strength) > 1.0:
                 weight = 0.35 * late_phase_weight
                 if trend_strength > 0:
@@ -870,7 +830,6 @@ class ComprehensiveAIPredictor:
             
             score_difference = buy_score - sell_score
             
-            # Determinación de dirección optimizada
             base_threshold = 0.4 - (0.1 * (1 - data_quality))
             
             if abs(score_difference) > base_threshold:
@@ -888,7 +847,6 @@ class ComprehensiveAIPredictor:
             confidence = min(90, base_confidence * data_quality)
             confidence = max(35, confidence)
             
-            # Boost por calidad de datos
             if analysis['tick_count'] > 40:
                 confidence = min(90, confidence + 15)
                 reasons.append("📊 Alta calidad de datos")
@@ -911,21 +869,12 @@ class ComprehensiveAIPredictor:
                 'confidence': 35,
                 'reasons': ['🤖 Error en análisis'],
                 'buy_score': 0,
-                'sell_score': 0,
-                'score_difference': 0
+                'sell_score': 0
             }
     
     def predict_next_candle(self, ml_prediction=None):
         try:
-            # Análisis con cache
-            current_time = time.time()
-            if (self._analysis_cache and 
-                current_time - self._last_analysis_time < 1.0):
-                analysis = self._analysis_cache
-            else:
-                analysis = self.analyzer.get_ultra_analysis()
-                self._analysis_cache = analysis
-                self._last_analysis_time = current_time
+            analysis = self.analyzer.get_ultra_analysis()
             
             if analysis.get('status') != 'SUCCESS':
                 return {
@@ -935,7 +884,6 @@ class ComprehensiveAIPredictor:
                     'timestamp': now_iso()
                 }
             
-            # Boost de tiempo real optimizado
             realtime_boost = 0
             if self.realtime_validator.tracking_active:
                 tracking_summary = self.realtime_validator.get_realtime_summary()
@@ -947,9 +895,7 @@ class ComprehensiveAIPredictor:
             
             prediction = self._comprehensive_ai_analysis(analysis, ml_prediction)
             
-            # Aplicar boost
             if realtime_boost != 0:
-                original_confidence = prediction['confidence']
                 prediction['confidence'] = int(max(35, min(90, prediction['confidence'] + (realtime_boost * 100))))
                 prediction['realtime_boost'] = realtime_boost
             
@@ -962,21 +908,17 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'ULTRA_EFFICIENT_V5.6'
+                'model_version': 'ULTRA_EFFICIENT_V5.7'
             })
             
             self.last_prediction = prediction
             self.prediction_history.append(prediction)
             
-            # Iniciar tracking para predicciones con confianza
             if prediction['direction'] != 'LATERAL' and prediction['confidence'] > 50:
                 self.realtime_validator.start_tracking(prediction, analysis['current_price'])
             
-            # Log optimizado
             if prediction['direction'] != 'LATERAL':
-                logging.info(f"🎯 PREDICCIÓN: {prediction['direction']} | "
-                           f"Conf: {prediction['confidence']}% | "
-                           f"Ticks: {analysis['tick_count']}")
+                logging.info(f"🎯 PREDICCIÓN: {prediction['direction']} | Conf: {prediction['confidence']}% | Ticks: {analysis['tick_count']}")
             
             return prediction
         except Exception as e:
@@ -1016,7 +958,6 @@ class ComprehensiveAIPredictor:
                 actual_direction = "ALZA" if price_change > 0 else "BAJA"
                 is_correct = (actual_direction == predicted_direction)
             
-            # Actualizar estadísticas
             if predicted_direction != "LATERAL":
                 self.performance_stats['total_predictions'] += 1
                 if is_correct:
@@ -1031,11 +972,9 @@ class ComprehensiveAIPredictor:
             if actual_direction == "LATERAL":
                 status_icon = "⚪"
             
-            logging.info(f"🎯 VALIDACIÓN: {status_icon} {predicted_direction}→{actual_direction} | "
-                        f"Conf: {last_pred.get('confidence', 0)}% | "
-                        f"Cambio: {price_change:.1f}pips")
+            logging.info(f"🎯 VALIDACIÓN: {status_icon} {predicted_direction}→{actual_direction} | Conf: {last_pred.get('confidence', 0)}% | Cambio: {price_change:.1f}pips")
             
-            self.last_validation_result = {
+            validation_result = {
                 'correct': is_correct,
                 'predicted': predicted_direction,
                 'actual': actual_direction,
@@ -1048,7 +987,7 @@ class ComprehensiveAIPredictor:
                 'timestamp': now_iso()
             }
             
-            return self.last_validation_result
+            return validation_result
             
         except Exception as e:
             logging.error(f"❌ Error en validación: {e}")
@@ -1060,11 +999,10 @@ class ComprehensiveAIPredictor:
     def reset(self):
         try:
             self.analyzer.reset()
-            self._analysis_cache = None
         except Exception as e:
             logging.error(f"❌ Error en reset predictor: {e}")
 
-# ------------------ CONEXIÓN PROFESIONAL (SIMULADA) ------------------
+# ------------------ CONEXIÓN PROFESIONAL ------------------
 class ProfessionalIQConnector:
     def __init__(self):
         self.connected = True
@@ -1082,7 +1020,7 @@ class ProfessionalIQConnector:
         return self.current_price
 
 # ------------------ FASTAPI APP ------------------
-app = FastAPI(title="Delowyss Trading AI V5.6", version="5.6.0")
+app = FastAPI(title="Delowyss Trading AI V5.7", version="5.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1092,12 +1030,12 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --------------- SISTEMA PRINCIPAL OPTIMIZADO ---------------
+# --------------- SISTEMA PRINCIPAL CORREGIDO ---------------
 iq_connector = ProfessionalIQConnector()
 predictor = ComprehensiveAIPredictor()
 online_learner = AdaptiveMarketLearner(feature_size=18)
 
-# VARIABLES GLOBALES OPTIMIZADAS
+# VARIABLES GLOBALES
 current_prediction = {
     "direction": "N/A",
     "confidence": 0,
@@ -1108,7 +1046,7 @@ current_prediction = {
     "status": "INITIALIZING"
 }
 
-# Estado interno optimizado
+# Estado interno
 _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
 _prediction_made_this_candle = False
 _last_prediction_time = 0
@@ -1120,12 +1058,10 @@ def tick_processor(price, timestamp):
         current_time = time.time()
         seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
         
-        # Log optimizado para primer tick
         if predictor.analyzer.tick_count == 0:
             delay = current_time - _last_candle_start
             logging.info(f"🎯 PRIMER TICK: {price:.5f} | Retardo: {delay:.1f}s")
         
-        # Log reducido para ticks iniciales
         if predictor.analyzer.tick_count < 15 and predictor.analyzer.tick_count % 5 == 0:
             logging.info(f"📊 Tick #{predictor.analyzer.tick_count + 1}: {price:.5f}")
 
@@ -1142,15 +1078,14 @@ def tick_processor(price, timestamp):
     except Exception as e:
         logging.error(f"❌ Error procesando tick: {e}")
 
-def premium_main_loop_optimizado():
-    """🚀 LOOP PRINCIPAL OPTIMIZADO - PREDICCIÓN 55s-60s"""
+def premium_main_loop_corregido():
+    """🚀 LOOP PRINCIPAL CORREGIDO - PREDICCIÓN 55s-60s"""
     global current_prediction, _last_candle_start, _prediction_made_this_candle
     global _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.6 ULTRA EFICIENTE OPTIMIZADO")
+    logging.info(f"🚀 DELOWYSS AI V5.7 ULTRA EFICIENTE CORREGIDO")
     logging.info("🎯 ANÁLISIS 0s-55s + PREDICCIÓN 55s-60s ACTIVADO")
     
-    # BUCLE PRINCIPAL OPTIMIZADO
     while True:
         try:
             current_time = time.time()
@@ -1166,7 +1101,7 @@ def premium_main_loop_optimizado():
             candle_progress = (current_time - current_candle_start) / TIMEFRAME
             current_prediction['candle_progress'] = candle_progress
 
-            # ✅ PREDICCIÓN EN VENTANA 55s-60s OPTIMIZADA
+            # ✅ PREDICCIÓN EN VENTANA 55s-60s CORREGIDA
             prediction_window_active = (seconds_remaining <= PREDICTION_WINDOW and 
                                       seconds_remaining > 0.5)
             
@@ -1175,8 +1110,7 @@ def premium_main_loop_optimizado():
                 (time.time() - _last_prediction_time) >= 2 and
                 not _prediction_made_this_candle):
 
-                logging.info(f"🎯 VENTANA PREDICCIÓN: {seconds_remaining:.1f}s | "
-                           f"Ticks: {predictor.analyzer.tick_count}")
+                logging.info(f"🎯 VENTANA PREDICCIÓN: {seconds_remaining:.1f}s | Ticks: {predictor.analyzer.tick_count}")
                 
                 # ANÁLISIS CON DATOS COMPLETOS (55s)
                 analysis = predictor.analyzer.get_ultra_analysis()
@@ -1197,10 +1131,9 @@ def premium_main_loop_optimizado():
                     _last_prediction_time = time.time()
                     _prediction_made_this_candle = True
                     
-                    logging.info(f"🚀 PREDICCIÓN COMPLETADA: "
-                               f"{final_prediction['direction']} {final_prediction['confidence']}%")
+                    logging.info(f"🚀 PREDICCIÓN COMPLETADA: {final_prediction['direction']} {final_prediction['confidence']}%")
 
-            # DETECCIÓN NUEVA VELA OPTIMIZADA
+            # DETECCIÓN NUEVA VELA
             if current_candle_start > _last_candle_start:
                 if _last_price is not None:
                     validation = predictor.validate_prediction(_last_price)
@@ -1208,7 +1141,7 @@ def premium_main_loop_optimizado():
                         price_change = validation.get("price_change", 0)
                         actual_direction = validation.get("actual", "LATERAL")
                         
-                        # Auto-learning optimizado
+                        # Auto-learning
                         analysis = predictor.analyzer.get_ultra_analysis()
                         if analysis.get('status') == 'SUCCESS':
                             features = build_advanced_features_from_analysis(analysis, 0)
@@ -1218,15 +1151,14 @@ def premium_main_loop_optimizado():
                                 training_result = online_learner.partial_train(batch_size=16)
                                 
                                 if training_result.get('trained', False):
-                                    logging.info(f"📚 AutoLearning: {actual_direction} | "
-                                               f"Cambio: {price_change:.1f}pips")
+                                    logging.info(f"📚 AutoLearning: {actual_direction} | Cambio: {price_change:.1f}pips")
 
                 predictor.reset()
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
                 logging.info("🕯️ NUEVA VELA - Sistema reiniciado")
 
-            time.sleep(0.1)  # CPU-friendly
+            time.sleep(0.1)
             
         except Exception as e:
             logging.error(f"💥 Error en loop principal: {e}")
@@ -1235,7 +1167,7 @@ def premium_main_loop_optimizado():
 # ------------------ ENDPOINTS FASTAPI ------------------
 @app.get("/")
 async def root():
-    return {"message": "Delowyss Trading AI V5.6 - Sistema Ultra Eficiente", "status": "active"}
+    return {"message": "Delowyss Trading AI V5.7 - Sistema Corregido", "status": "active"}
 
 @app.get("/api/prediction")
 async def get_prediction():
@@ -1247,7 +1179,7 @@ async def get_performance():
     return {
         "performance": stats,
         "ml_training": online_learner.last_training_result,
-        "system_status": "OPTIMIZED"
+        "system_status": "CORREGIDO"
     }
 
 @app.get("/api/analysis")
@@ -1258,12 +1190,12 @@ async def get_analysis():
         "timestamp": now_iso()
     }
 
-# ------------------ INICIALIZACIÓN OPTIMIZADA ------------------
+# ------------------ INICIALIZACIÓN ------------------
 def start_system():
     try:
-        thread = threading.Thread(target=premium_main_loop_optimizado, daemon=True)
+        thread = threading.Thread(target=premium_main_loop_corregido, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.6 INICIADA - SISTEMA OPTIMIZADO")
+        logging.info(f"⭐ DELOWYSS AI V5.7 INICIADA - ERRORES CORREGIDOS")
         logging.info("🎯 FLUJO: Análisis 0s-55s → Predicción 55s-60s → Validación")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
@@ -1277,7 +1209,7 @@ if __name__ == "__main__":
         host="0.0.0.0", 
         port=PORT,
         log_level="info",
-        access_log=False  # Optimizado: menos logs
+        access_log=False
     )
 else:
     start_system()

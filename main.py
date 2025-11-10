@@ -1,6 +1,6 @@
-# main.py - V5.7 ULTRA EFICIENTE CORREGIDO - PREDICCIÓN 55s-60s
+# main.py - V5.7 ULTRA EFICIENTE CON IQ OPTION REAL
 """
-Delowyss Trading AI — V5.7 ULTRA EFICIENTE CORREGIDO
+Delowyss Trading AI — V5.7 ULTRA EFICIENTE CON IQ OPTION REAL
 CEO: Eduardo Solis — © 2025
 """
 
@@ -23,10 +23,10 @@ from fastapi.responses import HTMLResponse, JSONResponse
 IQ_EMAIL = os.getenv("IQ_EMAIL")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD")
 PAR = "EURUSD"
-TIMEFRAME = int(os.getenv("TIMEFRAME", "60"))
-PREDICTION_WINDOW = int(os.getenv("PREDICTION_WINDOW", "5"))
-MIN_TICKS_FOR_PREDICTION = int(os.getenv("MIN_TICKS_FOR_PREDICTION", "8"))
-TICK_BUFFER_SIZE = int(os.getenv("TICK_BUFFER_SIZE", "150"))
+TIMEFRAME = 60  # 1 minuto en segundos
+PREDICTION_WINDOW = 5
+MIN_TICKS_FOR_PREDICTION = 8
+TICK_BUFFER_SIZE = 150
 PORT = int(os.getenv("PORT", "10000"))
 
 # Model paths
@@ -45,6 +45,152 @@ logging.basicConfig(
 
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
+
+# ------------------ CONEXIÓN IQ OPTION REAL ------------------
+try:
+    from iqoptionapi.stable_api import IQ_Option
+    IQ_OPTION_AVAILABLE = True
+except ImportError:
+    logging.error("❌ iqoptionapi no disponible. Instala con: pip install iqoptionapi")
+    IQ_OPTION_AVAILABLE = False
+
+class RealIQOptionConnector:
+    def __init__(self, email, password, pair="EURUSD"):
+        self.email = email
+        self.password = password
+        self.pair = pair
+        self.api = None
+        self.connected = False
+        self.current_price = None
+        self.connection_attempts = 0
+        self.max_attempts = 3
+        
+    def connect(self):
+        """Conectar a IQ Option"""
+        if not IQ_OPTION_AVAILABLE:
+            logging.error("❌ iqoptionapi no disponible")
+            return False
+            
+        try:
+            logging.info(f"🔗 Conectando a IQ Option: {self.email}")
+            self.api = IQ_Option(self.email, self.password)
+            
+            # Conectar con reintentos
+            while self.connection_attempts < self.max_attempts:
+                check, reason = self.api.connect()
+                if check:
+                    self.connected = True
+                    logging.info("✅ Conexión exitosa a IQ Option")
+                    
+                    # Cambiar a cuenta REAL (asegúrate de querer esto)
+                    self.api.change_balance("REAL")
+                    logging.info("💰 Modo: Cuenta REAL")
+                    
+                    # Obtener precio inicial
+                    self._get_initial_price()
+                    return True
+                else:
+                    self.connection_attempts += 1
+                    logging.warning(f"⚠️ Intento {self.connection_attempts} fallado: {reason}")
+                    time.sleep(2)
+                    
+            logging.error("❌ No se pudo conectar después de varios intentos")
+            return False
+            
+        except Exception as e:
+            logging.error(f"❌ Error en conexión: {e}")
+            return False
+    
+    def _get_initial_price(self):
+        """Obtener precio inicial"""
+        try:
+            # Obtener datos en tiempo real para EURUSD
+            self.api.start_candles_stream(self.pair, TIMEFRAME, 1)
+            time.sleep(1)
+            
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    candle = candles[candle_id]
+                    if 'close' in candle:
+                        self.current_price = candle['close']
+                        logging.info(f"💰 Precio inicial {self.pair}: {self.current_price}")
+                        break
+            return self.current_price
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo precio inicial: {e}")
+            return None
+    
+    def get_realtime_price(self):
+        """Obtener precio en tiempo real de EUR/USD"""
+        if not self.connected or not self.api:
+            logging.error("🔌 No conectado a IQ Option")
+            return None
+            
+        try:
+            # Obtener el último tick
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    candle = candles[candle_id]
+                    if 'close' in candle:
+                        new_price = candle['close']
+                        if new_price and new_price > 0:
+                            self.current_price = new_price
+                            return self.current_price
+            
+            # Fallback: usar precio anterior si no hay nuevo
+            return self.current_price
+            
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo precio: {e}")
+            # Intentar reconectar
+            if self.connection_attempts < self.max_attempts:
+                logging.info("🔄 Intentando reconectar...")
+                self.connect()
+            return self.current_price
+    
+    def get_candle_data(self):
+        """Obtener datos completos de la vela actual"""
+        if not self.connected:
+            return None
+            
+        try:
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    return candles[candle_id]
+            return None
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo datos de vela: {e}")
+            return None
+    
+    def get_remaining_time(self):
+        """Obtener tiempo restante para la vela actual"""
+        if not self.connected:
+            return TIMEFRAME
+            
+        try:
+            # Obtener el tiempo del servidor
+            server_time = self.api.get_server_timestamp()
+            if server_time:
+                current_second = server_time % TIMEFRAME
+                return TIMEFRAME - current_second
+            return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+        except Exception as e:
+            logging.debug(f"🔧 Error obteniendo tiempo restante: {e}")
+            return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+    
+    def disconnect(self):
+        """Desconectar de IQ Option"""
+        try:
+            if self.api:
+                self.api.stop_candles_stream(self.pair, TIMEFRAME)
+                self.api.disconnect()
+                self.connected = False
+                logging.info("🔌 Desconectado de IQ Option")
+        except Exception as e:
+            logging.error(f"❌ Error desconectando: {e}")
 
 # ------------------ IA ULTRA EFICIENTE CORREGIDA ------------------
 class UltraEfficientAnalyzer:
@@ -177,7 +323,6 @@ class UltraEfficientAnalyzer:
     
     def _get_phase_analysis_optimized(self, phase):
         try:
-            # CORRECCIÓN CRÍTICA: Usar índices enteros en lugar de slices
             ticks_list = list(self.ticks)
             if not ticks_list:
                 return {}
@@ -243,11 +388,10 @@ class UltraEfficientAnalyzer:
         try:
             prices = np.array(list(self.price_memory))
             
-            # CORRECCIÓN CRÍTICA: Usar índices enteros correctamente - ERROR ARREGLADO
+            # CORRECCIÓN CRÍTICA: Usar índices enteros correctamente
             trend_metrics = []
             for window in [5, 10, 15]:
                 if len(prices) >= window:
-                    # Usar índices enteros explícitos - CORREGIDO
                     window_prices = prices[-window:]
                     x_values = np.arange(len(window_prices))
                     trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
@@ -915,7 +1059,7 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'ULTRA_EFFICIENT_V5.7_CORREGIDO'
+                'model_version': 'ULTRA_EFFICIENT_V5.7_IQ_REAL'
             })
             
             self.last_prediction = prediction
@@ -1009,25 +1153,8 @@ class ComprehensiveAIPredictor:
         except Exception as e:
             logging.error(f"❌ Error en reset predictor: {e}")
 
-# ------------------ CONEXIÓN PROFESIONAL ------------------
-class ProfessionalIQConnector:
-    def __init__(self):
-        self.connected = True
-        self.current_price = 1.15636
-        self.price_trend = 0.00001
-        self.volatility = 0.00005
-        logging.info("✅ ProfessionalIQConnector inicializado")
-    
-    def get_realtime_price(self):
-        # Simulación de precio realista
-        import random
-        price_change = random.uniform(-self.volatility, self.volatility) + self.price_trend
-        self.current_price += price_change
-        self.current_price = round(self.current_price, 5)
-        return self.current_price
-
 # ------------------ FASTAPI APP ------------------
-app = FastAPI(title="Delowyss Trading AI V5.7", version="5.7.0")
+app = FastAPI(title="Delowyss Trading AI V5.7 IQ REAL", version="5.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -1037,8 +1164,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --------------- SISTEMA PRINCIPAL CORREGIDO ---------------
-iq_connector = ProfessionalIQConnector()
+# --------------- SISTEMA PRINCIPAL CON IQ REAL ---------------
+iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
 predictor = ComprehensiveAIPredictor()
 online_learner = AdaptiveMarketLearner(feature_size=18)
 
@@ -1059,15 +1186,12 @@ _prediction_made_this_candle = False
 _last_prediction_time = 0
 _last_price = None
 
-def tick_processor(price, timestamp):
+def tick_processor(price, timestamp, seconds_remaining):
     global current_prediction
     try:
-        current_time = time.time()
-        seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
-        
         if predictor.analyzer.tick_count == 0:
-            delay = current_time - _last_candle_start
-            logging.info(f"🎯 PRIMER TICK: {price:.5f} | Retardo: {delay:.1f}s")
+            delay = timestamp - _last_candle_start
+            logging.info(f"🎯 PRIMER TICK REAL: {price:.5f} | Retardo: {delay:.1f}s")
         
         if predictor.analyzer.tick_count < 15 and predictor.analyzer.tick_count % 5 == 0:
             logging.info(f"📊 Tick #{predictor.analyzer.tick_count + 1}: {price:.5f}")
@@ -1085,30 +1209,37 @@ def tick_processor(price, timestamp):
     except Exception as e:
         logging.error(f"❌ Error procesando tick: {e}")
 
-def premium_main_loop_corregido():
-    """🚀 LOOP PRINCIPAL CORREGIDO - PREDICCIÓN 55s-60s"""
+def premium_main_loop_iq_real():
+    """🚀 LOOP PRINCIPAL CON IQ OPTION REAL"""
     global current_prediction, _last_candle_start, _prediction_made_this_candle
     global _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.7 ULTRA EFICIENTE CORREGIDO")
-    logging.info("🎯 ANÁLISIS 0s-55s + PREDICCIÓN 55s-60s ACTIVADO")
+    logging.info(f"🚀 DELOWYSS AI V5.7 CON IQ OPTION REAL")
+    logging.info("🎯 CONECTANDO A IQ OPTION...")
+    
+    # Conectar a IQ Option
+    if not iq_connector.connect():
+        logging.error("❌ No se pudo conectar a IQ Option. Verifica credenciales.")
+        return
+    
+    logging.info(f"✅ CONECTADO A IQ OPTION | Par: {PAR} | Timeframe: {TIMEFRAME}s")
     
     while True:
         try:
             current_time = time.time()
             current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
-            seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+            seconds_remaining = iq_connector.get_remaining_time()
             
-            # Obtener precio
+            # Obtener precio REAL de IQ Option
             price = iq_connector.get_realtime_price()
             if price and price > 0:
                 _last_price = price
-                tick_processor(price, current_time)
+                tick_processor(price, current_time, seconds_remaining)
 
             candle_progress = (current_time - current_candle_start) / TIMEFRAME
             current_prediction['candle_progress'] = candle_progress
 
-            # ✅ PREDICCIÓN EN VENTANA 55s-60s CORREGIDA
+            # ✅ PREDICCIÓN EN VENTANA 55s-60s
             prediction_window_active = (seconds_remaining <= PREDICTION_WINDOW and 
                                       seconds_remaining > 0.5)
             
@@ -1174,7 +1305,12 @@ def premium_main_loop_corregido():
 # ------------------ ENDPOINTS FASTAPI ------------------
 @app.get("/")
 async def root():
-    return {"message": "Delowyss Trading AI V5.7 - Sistema Corregido", "status": "active"}
+    return {
+        "message": "Delowyss Trading AI V5.7 - IQ Option REAL", 
+        "status": "active",
+        "pair": PAR,
+        "timeframe": TIMEFRAME
+    }
 
 @app.get("/api/prediction")
 async def get_prediction():
@@ -1186,7 +1322,8 @@ async def get_performance():
     return {
         "performance": stats,
         "ml_training": online_learner.last_training_result,
-        "system_status": "CORREGIDO"
+        "iq_connection": iq_connector.connected,
+        "system_status": "IQ_REAL_ACTIVE"
     }
 
 @app.get("/api/analysis")
@@ -1197,13 +1334,22 @@ async def get_analysis():
         "timestamp": now_iso()
     }
 
+@app.get("/api/iq-status")
+async def get_iq_status():
+    return {
+        "connected": iq_connector.connected,
+        "pair": PAR,
+        "current_price": iq_connector.current_price,
+        "connection_attempts": iq_connector.connection_attempts
+    }
+
 # ------------------ INICIALIZACIÓN ------------------
 def start_system():
     try:
-        thread = threading.Thread(target=premium_main_loop_corregido, daemon=True)
+        thread = threading.Thread(target=premium_main_loop_iq_real, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.7 INICIADA - ERRORES CORREGIDOS")
-        logging.info("🎯 FLUJO: Análisis 0s-55s → Predicción 55s-60s → Validación")
+        logging.info(f"⭐ DELOWYSS AI V5.7 INICIADA - IQ OPTION REAL")
+        logging.info("🎯 FLUJO: Conexión IQ → Análisis 0s-55s → Predicción 55s-60s → Validación")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 

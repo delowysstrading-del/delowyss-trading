@@ -1,6 +1,6 @@
-# main.py - V5.7 COMPLETO Y FUNCIONAL
+# main.py - V5.7 CONEXIÓN REAL IQ OPTION
 """
-Delowyss Trading AI — V5.7 ULTRA EFICIENTE COMPLETO
+Delowyss Trading AI — V5.7 CONEXIÓN REAL IQ OPTION
 CEO: Eduardo Solis — © 2025
 """
 
@@ -15,13 +15,15 @@ import pandas as pd
 import json
 import joblib
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.staticfiles import StaticFiles
+from fastapi.templating import Jinja2Templates
 
 # ------------------ CONFIGURACIÓN ------------------
-IQ_EMAIL = os.getenv("IQ_EMAIL")
-IQ_PASSWORD = os.getenv("IQ_PASSWORD")
+IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
 PAR = "EURUSD"
 TIMEFRAME = 60
 PREDICTION_WINDOW = 5
@@ -46,28 +48,165 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ CONEXIÓN SIMULADA ------------------
-class ProfessionalIQConnector:
-    def __init__(self):
-        self.connected = True
-        self.current_price = 1.08500
-        self.price_trend = 0.00001
-        self.volatility = 0.00005
-        logging.info("✅ ProfessionalIQConnector inicializado")
+# ------------------ CONEXIÓN REAL IQ OPTION ------------------
+try:
+    from iqoptionapi.stable_api import IQ_Option
+    IQ_OPTION_AVAILABLE = True
+    logging.info("✅ iqoptionapi disponible")
+except ImportError as e:
+    logging.error(f"❌ iqoptionapi no disponible: {e}")
+    IQ_OPTION_AVAILABLE = False
+    # Crear una clase dummy para evitar errores
+    class IQ_Option:
+        def __init__(self, email, password):
+            pass
+        def connect(self):
+            return False, "Biblioteca no disponible"
+        def change_balance(self, balance_type):
+            pass
+
+class RealIQOptionConnector:
+    def __init__(self, email, password, pair="EURUSD"):
+        self.email = email
+        self.password = password
+        self.pair = pair
+        self.api = None
+        self.connected = False
+        self.current_price = None
+        self.connection_attempts = 0
+        self.max_attempts = 5
+        
+    def connect(self):
+        """Conectar a IQ Option"""
+        if not IQ_OPTION_AVAILABLE:
+            logging.error("❌ iqoptionapi no disponible. Instala con: pip install iqoptionapi")
+            return False
+            
+        try:
+            logging.info(f"🔗 Conectando a IQ Option: {self.email}")
+            self.api = IQ_Option(self.email, self.password)
+            
+            # Conectar con reintentos
+            while self.connection_attempts < self.max_attempts:
+                check, reason = self.api.connect()
+                if check:
+                    self.connected = True
+                    logging.info("✅ Conexión exitosa a IQ Option")
+                    
+                    # Cambiar a cuenta REAL
+                    try:
+                        self.api.change_balance("REAL")
+                        logging.info("💰 Modo: Cuenta REAL")
+                    except:
+                        logging.info("💰 Modo: Cuenta PRACTICE")
+                    
+                    # Iniciar stream de velas
+                    self.api.start_candles_stream(self.pair, TIMEFRAME, 1)
+                    logging.info(f"📊 Stream iniciado para {self.pair}")
+                    
+                    # Obtener precio inicial
+                    time.sleep(2)
+                    self._get_initial_price()
+                    return True
+                else:
+                    self.connection_attempts += 1
+                    logging.warning(f"⚠️ Intento {self.connection_attempts} fallado: {reason}")
+                    time.sleep(3)
+                    
+            logging.error("❌ No se pudo conectar después de varios intentos")
+            return False
+            
+        except Exception as e:
+            logging.error(f"❌ Error en conexión: {e}")
+            return False
+    
+    def _get_initial_price(self):
+        """Obtener precio inicial"""
+        try:
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    candle = candles[candle_id]
+                    if 'close' in candle:
+                        self.current_price = candle['close']
+                        logging.info(f"💰 Precio inicial {self.pair}: {self.current_price}")
+                        break
+            return self.current_price
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo precio inicial: {e}")
+            return None
     
     def get_realtime_price(self):
-        import random
-        price_change = random.uniform(-self.volatility, self.volatility) + self.price_trend
-        self.current_price += price_change
-        self.current_price = round(self.current_price, 5)
-        
-        if random.random() > 0.7:
-            self.price_trend = random.uniform(-0.00002, 0.00002)
+        """Obtener precio en tiempo real de EUR/USD"""
+        if not self.connected or not self.api:
+            logging.error("🔌 No conectado a IQ Option")
+            return None
             
-        return self.current_price
-
+        try:
+            # Obtener el último tick del stream
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    candle = candles[candle_id]
+                    if 'close' in candle:
+                        new_price = candle['close']
+                        if new_price and new_price > 0:
+                            self.current_price = new_price
+                            return self.current_price
+            
+            # Fallback: usar precio anterior si no hay nuevo
+            return self.current_price
+            
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo precio: {e}")
+            # Intentar reconectar
+            if self.connection_attempts < self.max_attempts:
+                logging.info("🔄 Intentando reconectar...")
+                self.connect()
+            return self.current_price
+    
+    def get_candle_data(self):
+        """Obtener datos completos de la vela actual"""
+        if not self.connected:
+            return None
+            
+        try:
+            candles = self.api.get_realtime_candles(self.pair, TIMEFRAME)
+            if candles:
+                for candle_id in candles:
+                    return candles[candle_id]
+            return None
+        except Exception as e:
+            logging.error(f"❌ Error obteniendo datos de vela: {e}")
+            return None
+    
     def get_remaining_time(self):
-        return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+        """Obtener tiempo restante para la vela actual"""
+        if not self.connected:
+            return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+            
+        try:
+            # Obtener el tiempo del servidor
+            server_time = self.api.get_server_timestamp()
+            if server_time:
+                current_second = server_time % TIMEFRAME
+                remaining = TIMEFRAME - current_second
+                return max(0, min(TIMEFRAME, remaining))
+            return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+        except Exception as e:
+            logging.debug(f"🔧 Error obteniendo tiempo restante: {e}")
+            return TIMEFRAME - (int(time.time()) % TIMEFRAME)
+    
+    def disconnect(self):
+        """Desconectar de IQ Option"""
+        try:
+            if self.api:
+                self.api.stop_candles_stream(self.pair, TIMEFRAME)
+                self.api.disconnect()
+                self.connected = False
+                logging.info("🔌 Desconectado de IQ Option")
+        except Exception as e:
+            logging.error(f"❌ Error desconectando: {e}")
 
 # ------------------ IA ULTRA EFICIENTE ------------------
 class UltraEfficientAnalyzer:
@@ -921,7 +1060,7 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'ULTRA_EFFICIENT_V5.7'
+                'model_version': 'ULTRA_EFFICIENT_V5.7_IQ_REAL'
             })
             
             self.last_prediction = prediction
@@ -1015,10 +1154,10 @@ class ComprehensiveAIPredictor:
         except Exception as e:
             logging.error(f"❌ Error en reset predictor: {e}")
 
-# ------------------ FASTAPI APP ------------------
+# ------------------ FASTAPI APP CON INTERFAZ WEB ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V5.7",
-    description="Sistema de IA para trading algorítmico - EUR/USD",
+    title="Delowyss Trading AI V5.7 - IQ Option REAL",
+    description="Sistema de IA para trading algorítmico con conexión REAL a IQ Option",
     version="5.7.0"
 )
 
@@ -1030,8 +1169,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# --------------- SISTEMA PRINCIPAL ---------------
-iq_connector = ProfessionalIQConnector()
+# --------------- SISTEMA PRINCIPAL CON IQ REAL ---------------
+iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
 predictor = ComprehensiveAIPredictor()
 online_learner = AdaptiveMarketLearner(feature_size=18)
 
@@ -1052,15 +1191,12 @@ _prediction_made_this_candle = False
 _last_prediction_time = 0
 _last_price = None
 
-def tick_processor(price, timestamp):
+def tick_processor(price, timestamp, seconds_remaining):
     global current_prediction
     try:
-        current_time = time.time()
-        seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
-        
         if predictor.analyzer.tick_count == 0:
-            delay = current_time - _last_candle_start
-            logging.info(f"🎯 PRIMER TICK: {price:.5f} | Retardo: {delay:.1f}s")
+            delay = timestamp - _last_candle_start
+            logging.info(f"🎯 PRIMER TICK REAL: {price:.5f} | Retardo: {delay:.1f}s")
         
         if predictor.analyzer.tick_count < 15 and predictor.analyzer.tick_count % 5 == 0:
             logging.info(f"📊 Tick #{predictor.analyzer.tick_count + 1}: {price:.5f}")
@@ -1078,25 +1214,35 @@ def tick_processor(price, timestamp):
     except Exception as e:
         logging.error(f"❌ Error procesando tick: {e}")
 
-def premium_main_loop_corregido():
-    """🚀 LOOP PRINCIPAL CORREGIDO - PREDICCIÓN 55s-60s"""
+def premium_main_loop_iq_real():
+    """🚀 LOOP PRINCIPAL CON IQ OPTION REAL"""
     global current_prediction, _last_candle_start, _prediction_made_this_candle
     global _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.7 ULTRA EFICIENTE COMPLETO")
-    logging.info("🎯 ANÁLISIS 0s-55s + PREDICCIÓN 55s-60s ACTIVADO")
+    logging.info(f"🚀 DELOWYSS AI V5.7 CON IQ OPTION REAL")
+    logging.info("🎯 CONECTANDO A IQ OPTION...")
+    
+    # Conectar a IQ Option
+    if not iq_connector.connect():
+        logging.error("❌ No se pudo conectar a IQ Option. Verifica credenciales.")
+        # Crear un loop de espera sin datos reales
+        while True:
+            time.sleep(1)
+        return
+    
+    logging.info(f"✅ CONECTADO A IQ OPTION | Par: {PAR} | Timeframe: {TIMEFRAME}s")
     
     while True:
         try:
             current_time = time.time()
             current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
-            seconds_remaining = TIMEFRAME - (current_time % TIMEFRAME)
+            seconds_remaining = iq_connector.get_remaining_time()
             
-            # Obtener precio
+            # Obtener precio REAL de IQ Option
             price = iq_connector.get_realtime_price()
             if price and price > 0:
                 _last_price = price
-                tick_processor(price, current_time)
+                tick_processor(price, current_time, seconds_remaining)
 
             candle_progress = (current_time - current_candle_start) / TIMEFRAME
             current_prediction['candle_progress'] = candle_progress
@@ -1164,16 +1310,279 @@ def premium_main_loop_corregido():
             logging.error(f"💥 Error en loop principal: {e}")
             time.sleep(1)
 
-# ------------------ ENDPOINTS SIMPLIFICADOS ------------------
-@app.get("/")
+# ------------------ INTERFAZ WEB MEJORADA ------------------
+HTML_INTERFACE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delowyss Trading AI V5.7 - IQ Option REAL</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: linear-gradient(135deg, #0c0c0c 0%, #1a1a2e 50%, #16213e 100%);
+            color: #ffffff;
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        .header {
+            text-align: center;
+            margin-bottom: 30px;
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .header h1 {
+            font-size: 2.5em;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            margin-bottom: 10px;
+        }
+        .dashboard {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        @media (max-width: 768px) {
+            .dashboard { grid-template-columns: 1fr; }
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 25px;
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            color: #00ff88;
+            margin-bottom: 15px;
+            font-size: 1.4em;
+            border-bottom: 2px solid #00ff88;
+            padding-bottom: 8px;
+        }
+        .prediction-card {
+            grid-column: 1 / -1;
+            text-align: center;
+        }
+        .prediction-direction {
+            font-size: 3em;
+            font-weight: bold;
+            margin: 20px 0;
+        }
+        .direction-up { color: #00ff88; }
+        .direction-down { color: #ff4444; }
+        .direction-lateral { color: #ffaa00; }
+        .confidence-meter {
+            width: 100%;
+            height: 20px;
+            background: rgba(255,255,255,0.1);
+            border-radius: 10px;
+            margin: 15px 0;
+            overflow: hidden;
+        }
+        .confidence-fill {
+            height: 100%;
+            border-radius: 10px;
+            background: linear-gradient(90deg, #ff4444, #ffaa00, #00ff88);
+        }
+        .stats-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+            gap: 15px;
+            margin-top: 15px;
+        }
+        .stat-item {
+            text-align: center;
+            padding: 15px;
+            background: rgba(255,255,255,0.03);
+            border-radius: 10px;
+        }
+        .stat-value {
+            font-size: 1.8em;
+            font-weight: bold;
+            color: #00ccff;
+        }
+        .api-links {
+            display: flex;
+            gap: 10px;
+            flex-wrap: wrap;
+            margin-top: 20px;
+        }
+        .api-link {
+            padding: 10px 20px;
+            background: linear-gradient(45deg, #00ff88, #00ccff);
+            color: #000;
+            text-decoration: none;
+            border-radius: 25px;
+            font-weight: bold;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #00ccff;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🤖 Delowyss Trading AI V5.7</h1>
+            <p>CONEXIÓN REAL IQ OPTION - EUR/USD</p>
+        </div>
+
+        <div class="dashboard">
+            <div class="card prediction-card">
+                <h2>🎯 PREDICCIÓN ACTUAL</h2>
+                <div id="prediction-container">
+                    <div class="loading">🔄 Cargando predicción...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>📊 ESTADO DEL SISTEMA</h2>
+                <div id="status-container">
+                    <div class="loading">📡 Conectando a IQ Option...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🔍 ANÁLISIS TÉCNICO</h2>
+                <div id="analysis-container">
+                    <div class="loading">⚡ Analizando datos...</div>
+                </div>
+            </div>
+
+            <div class="card">
+                <h2>🚀 RENDIMIENTO</h2>
+                <div id="performance-container">
+                    <div class="loading">📈 Calculando métricas...</div>
+                </div>
+            </div>
+        </div>
+
+        <div class="api-links">
+            <a href="/api/prediction" class="api-link" target="_blank">📡 API Predicción</a>
+            <a href="/api/performance" class="api-link" target="_blank">📊 API Rendimiento</a>
+            <a href="/api/analysis" class="api-link" target="_blank">🔍 API Análisis</a>
+            <a href="/api/status" class="api-link" target="_blank">🔗 Estado IQ Option</a>
+        </div>
+    </div>
+
+    <script>
+        async function updateInterface() {
+            try {
+                const prediction = await fetch('/api/prediction').then(r => r.json());
+                const performance = await fetch('/api/performance').then(r => r.json());
+                const analysis = await fetch('/api/analysis').then(r => r.json());
+                const status = await fetch('/api/status').then(r => r.json());
+                
+                updatePrediction(prediction);
+                updateStatus(status);
+                updateAnalysis(analysis);
+                updatePerformance(performance);
+                
+            } catch (error) {
+                console.error('Error:', error);
+            }
+        }
+        
+        function updatePrediction(prediction) {
+            const directionClass = {
+                'ALZA': 'direction-up',
+                'BAJA': 'direction-down', 
+                'LATERAL': 'direction-lateral'
+            }[prediction.direction] || 'direction-lateral';
+            
+            document.getElementById('prediction-container').innerHTML = `
+                <div class="prediction-direction ${directionClass}">
+                    ${prediction.direction}
+                </div>
+                <div class="confidence-meter">
+                    <div class="confidence-fill" style="width: ${prediction.confidence}%"></div>
+                </div>
+                <div>Confianza: <strong>${prediction.confidence}%</strong></div>
+                <div>Precio: <strong>${prediction.current_price}</strong></div>
+                <div>Ticks: ${prediction.tick_count}</div>
+            `;
+        }
+        
+        function updateStatus(status) {
+            document.getElementById('status-container').innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value">${status.iq_connected ? '✅' : '❌'}</div>
+                        <div>IQ Option</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${status.pair}</div>
+                        <div>Par</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${status.current_price || 'N/A'}</div>
+                        <div>Precio</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        function updateAnalysis(analysis) {
+            const data = analysis.analysis || {};
+            document.getElementById('analysis-container').innerHTML = data.status === 'SUCCESS' ? `
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value">${data.trend_strength?.toFixed(1) || 0}</div>
+                        <div>Tendencia</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${data.volatility?.toFixed(1) || 0}</div>
+                        <div>Volatilidad</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${Math.round((data.buy_pressure || 0) * 100)}%</div>
+                        <div>Compra</div>
+                    </div>
+                </div>
+            ` : `<div>${data.message || 'Sin datos'}</div>`;
+        }
+        
+        function updatePerformance(performance) {
+            const stats = performance.performance || {};
+            document.getElementById('performance-container').innerHTML = `
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <div class="stat-value">${stats.recent_accuracy || 0}%</div>
+                        <div>Precisión</div>
+                    </div>
+                    <div class="stat-item">
+                        <div class="stat-value">${stats.total_predictions || 0}</div>
+                        <div>Predicciones</div>
+                    </div>
+                </div>
+            `;
+        }
+        
+        // Actualizar cada 3 segundos
+        updateInterface();
+        setInterval(updateInterface, 3000);
+    </script>
+</body>
+</html>
+"""
+
+# ------------------ ENDPOINTS COMPLETOS ------------------
+@app.get("/", response_class=HTMLResponse)
 async def root():
-    return {
-        "message": "Delowyss Trading AI V5.7 - Sistema Completo", 
-        "status": "active",
-        "version": "5.7.0",
-        "pair": "EURUSD",
-        "timestamp": now_iso()
-    }
+    return HTML_INTERFACE
 
 @app.get("/api/prediction")
 async def get_prediction():
@@ -1185,7 +1594,7 @@ async def get_performance():
     return {
         "performance": stats,
         "ml_training": online_learner.last_training_result,
-        "system_status": "ACTIVE",
+        "system_status": "IQ_REAL_ACTIVE",
         "timestamp": now_iso()
     }
 
@@ -1202,20 +1611,32 @@ async def get_status():
     return {
         "status": "operational",
         "version": "5.7.0",
-        "pair": "EURUSD",
+        "pair": PAR,
         "timeframe": "1min",
         "iq_connected": iq_connector.connected,
         "current_price": iq_connector.current_price,
+        "connection_attempts": iq_connector.connection_attempts,
+        "timestamp": now_iso()
+    }
+
+@app.get("/api/iq-connect")
+async def iq_connect():
+    """Forzar reconexión a IQ Option"""
+    result = iq_connector.connect()
+    return {
+        "connected": result,
+        "message": "Conexión forzada a IQ Option",
         "timestamp": now_iso()
     }
 
 # ------------------ INICIALIZACIÓN ------------------
 def start_system():
     try:
-        thread = threading.Thread(target=premium_main_loop_corregido, daemon=True)
+        thread = threading.Thread(target=premium_main_loop_iq_real, daemon=True)
         thread.start()
-        logging.info(f"⭐ DELOWYSS AI V5.7 INICIADA - SISTEMA COMPLETO")
-        logging.info("🎯 FLUJO: Análisis 0s-55s → Predicción 55s-60s → Validación")
+        logging.info(f"⭐ DELOWYSS AI V5.7 INICIADA - IQ OPTION REAL")
+        logging.info("🌐 URL Principal: https://delowyss-trading.onrender.com")
+        logging.info("🔗 Estado IQ: https://delowyss-trading.onrender.com/api/status")
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 

@@ -206,9 +206,11 @@ class UltraEfficientAnalyzer:
             volatility = (max(prices) - min(prices)) * 10000 if prices else 0
             avg_price = np.mean(prices) if prices else 0
             
-            # Trend calculation
+            # Trend calculation CORREGIDO
             if len(prices) >= 5:
-                recent_trend = np.polyfit(range(len(prices[-5:])), prices[-5:], 1)[0] * 10000
+                window_prices = prices[-5:] if len(prices) >= 5 else prices
+                x_values = np.arange(len(window_prices))
+                recent_trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
             else:
                 recent_trend = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
             
@@ -241,11 +243,11 @@ class UltraEfficientAnalyzer:
         try:
             prices = np.array(list(self.price_memory))
             
-            # CORRECCIÓN CRÍTICA: Usar índices enteros correctamente
+            # CORRECCIÓN CRÍTICA: Usar índices enteros correctamente - ERROR ARREGLADO
             trend_metrics = []
             for window in [5, 10, 15]:
                 if len(prices) >= window:
-                    # Usar índices enteros explícitos
+                    # Usar índices enteros explícitos - CORREGIDO
                     window_prices = prices[-window:]
                     x_values = np.arange(len(window_prices))
                     trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
@@ -748,6 +750,11 @@ def build_advanced_features_from_analysis(analysis, seconds_remaining):
         elif features.shape[0] > 18:
             features = features[:18]
             
+        # VALIDACIÓN AGREGADA PARA EVITAR NaN/Inf
+        if np.any(np.isnan(features)) or np.any(np.isinf(features)):
+            logging.warning("⚠️ Características inválidas detectadas, usando valores por defecto")
+            return np.zeros(18)
+            
         return features
         
     except Exception as e:
@@ -908,7 +915,7 @@ class ComprehensiveAIPredictor:
                 'current_price': analysis['current_price'],
                 'candle_range': analysis.get('candle_range', 0),
                 'timestamp': now_iso(),
-                'model_version': 'ULTRA_EFFICIENT_V5.7'
+                'model_version': 'ULTRA_EFFICIENT_V5.7_CORREGIDO'
             })
             
             self.last_prediction = prediction

@@ -1,4 +1,9 @@
-# main.py - V5.8 ANÁLISIS PROFUNDO TICK POR TICK - CORREGIDO DEFINITIVO
+# main.py - V5.8 ANÁLISIS PROFUNDO TICK POR TICK - CORREGIDO
+"""
+Delowyss Trading AI — V5.8 ANÁLISIS PROFUNDO EN TIEMPO REAL
+CEO: Eduardo Solis — © 2025
+Sistema 100% Real IQ Option con Dashboard Profesional
+"""
 
 import os
 import time
@@ -9,6 +14,7 @@ import json
 from datetime import datetime
 from collections import deque
 import numpy as np
+from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse

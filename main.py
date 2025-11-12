@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ------------------ CONFIGURACIÓN ------------------
 IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
-IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD", "Eduyesy1986/")
 PAR = "EURUSD"
 TIMEFRAME = 60
 PREDICTION_WINDOW = 5  # Predecir a 5 segundos del final

@@ -1,9 +1,4 @@
-# main.py - V5.8 ANÁLISIS PROFUNDO TICK POR TICK - CORREGIDO
-"""
-Delowyss Trading AI — V5.8 ANÁLISIS PROFUNDO EN TIEMPO REAL
-CEO: Eduardo Solis — © 2025
-Sistema 100% Real IQ Option con Dashboard Profesional
-"""
+# main.py - V5.8 ANÁLISIS PROFUNDO TICK POR TICK - CORREGIDO DEFINITIVO
 
 import os
 import time
@@ -11,12 +6,9 @@ import threading
 import logging
 import asyncio
 import json
-import pickle
 from datetime import datetime
 from collections import deque
 import numpy as np
-import pandas as pd
-from typing import Dict, Any, List, Optional
 
 from fastapi import FastAPI, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
@@ -217,7 +209,7 @@ class UltraEfficientAnalyzer:
         self.tick_count = 0
         self.price_memory = deque(maxlen=100)
         
-        # ✅ CORRECCIÓN: Agregar last_candle_close
+        # ✅ CORREGIDO: Agregar last_candle_close
         self.last_candle_close = None
         
         # Métricas mejoradas
@@ -670,13 +662,11 @@ class AdaptiveMarketLearner:
             return {'predicted': 'LATERAL', 'confidence': 50, 'training_count': self.training_count}
         
         try:
-            # Análisis basado en datos reales, no simulación
             if len(self.training_data) >= 100:
                 confidence = min(95, 70 + (len(self.training_data) / 1000) * 25)
             else:
                 confidence = min(85, 50 + (len(self.training_data) / 100) * 35)
             
-            # Predicción basada en análisis real
             analysis = self._analyze_current_market(features)
             prediction = analysis['prediction']
             
@@ -691,9 +681,7 @@ class AdaptiveMarketLearner:
             return {'predicted': 'LATERAL', 'confidence': 50, 'training_count': self.training_count}
     
     def _analyze_current_market(self, features):
-        """Análisis real del mercado basado en features"""
         try:
-            # Análisis simple basado en tendencias reales
             if len(features) > 0:
                 avg_feature = np.mean(features)
                 if avg_feature > 0.1:
@@ -753,12 +741,10 @@ class ComprehensiveAIPredictor:
                 "status": "INSUFFICIENT_DATA"
             }
         
-        # Usar análisis real, no simulación
         if ml_prediction and ml_prediction.get('confidence', 0) > 60:
             direction = ml_prediction['predicted']
             base_confidence = ml_prediction['confidence']
         else:
-            # Predicción basada en análisis técnico real
             trend = analysis.get('market_phase', 'NORMAL')
             buy_pressure = analysis.get('buy_pressure', 0.5)
             
@@ -822,7 +808,6 @@ class ComprehensiveAIPredictor:
         last_prediction = self.prediction_history[-1]
         predicted_direction = last_prediction['direction']
         
-        # ✅ CORREGIDO: Verificar que last_candle_close existe
         if hasattr(self.analyzer, 'last_candle_close') and self.analyzer.last_candle_close:
             price_change = actual_price - self.analyzer.last_candle_close
             actual_direction = "ALZA" if price_change > 0 else "BAJA" if price_change < 0 else "LATERAL"
@@ -951,7 +936,6 @@ class ResponsiveDashboard:
             
         self.last_prediction = self.dashboard_data["current_prediction"].copy()
         
-        # ✅ CORREGIDO: Manejo correcto de asyncio
         try:
             asyncio.create_task(self._reset_visual_effect("prediction_change", 2))
             asyncio.create_task(self._reset_visual_effect("flash_signal", 1))
@@ -959,7 +943,6 @@ class ResponsiveDashboard:
             logging.debug(f"🔧 Error creando tareas asyncio: {e}")
 
     async def _reset_visual_effect(self, effect: str, delay: float):
-        """✅ CORREGIDO: Manejo correcto de await"""
         try:
             await asyncio.sleep(delay)
             self.dashboard_data["visual_effects"][effect] = False
@@ -1087,23 +1070,21 @@ def _extract_real_features(analysis):
     try:
         features = []
         
-        # Features basados en análisis real
         if 'buy_pressure' in analysis:
             features.append(analysis['buy_pressure'])
         if 'trend_strength' in analysis:
-            features.append(analysis['trend_strength'] / 10.0)  # Normalizar
+            features.append(analysis['trend_strength'] / 10.0)
         if 'velocity' in analysis:
-            features.append(analysis['velocity'] / 5.0)  # Normalizar
+            features.append(analysis['velocity'] / 5.0)
         if 'acceleration' in analysis:
-            features.append(analysis['acceleration'] / 3.0)  # Normalizar
+            features.append(analysis['acceleration'] / 3.0)
         if 'volatility' in analysis:
-            features.append(analysis['volatility'] / 5.0)  # Normalizar
+            features.append(analysis['volatility'] / 5.0)
         
-        # Rellenar con ceros si no hay suficientes features
         while len(features) < 18:
             features.append(0.0)
         
-        return np.array(features[:18])  # Asegurar tamaño 18
+        return np.array(features[:18])
         
     except Exception as e:
         logging.error(f"❌ Error extrayendo features: {e}")
@@ -1120,7 +1101,6 @@ def premium_main_loop_deep_analysis():
         logging.error("❌ No se pudo conectar a IQ Option")
         return
     
-    # ✅ CORREGIDO: Sincronización correcta del metrónomo
     try:
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
@@ -1142,7 +1122,15 @@ def premium_main_loop_deep_analysis():
             price = iq_connector.get_realtime_price()
             if price and price > 0:
                 _last_price = price
-                tick_processor(price, current_time, seconds_remaining)
+                # Procesar tick directamente
+                tick_data = predictor.process_tick(price, seconds_remaining)
+                
+                if tick_data:
+                    dashboard_manager.dashboard.update_candle_progress(
+                        dashboard_manager.metronome,
+                        price,
+                        predictor.analyzer.tick_count
+                    )
 
             prediction_time = (seconds_remaining <= PREDICTION_WINDOW and 
                              seconds_remaining > 0.5)
@@ -1161,7 +1149,6 @@ def premium_main_loop_deep_analysis():
                     
                     final_prediction = predictor.predict_next_candle(ml_prediction)
                     
-                    # ✅ CORREGIDO: Actualización segura del dashboard
                     try:
                         dashboard_manager.dashboard.update_prediction(
                             final_prediction['direction'],
@@ -1188,7 +1175,6 @@ def premium_main_loop_deep_analysis():
             # DETECCIÓN NUEVA VELA
             if current_candle_start > _last_candle_start:
                 if _last_price is not None:
-                    # ✅ CORREGIDO: Validación segura
                     try:
                         validation = predictor.validate_prediction(_last_price)
                         if validation:
@@ -1197,7 +1183,6 @@ def premium_main_loop_deep_analysis():
                             
                             analysis = predictor.analyzer.get_deep_analysis()
                             if analysis.get('status') == 'SUCCESS':
-                                # ✅ CORREGIDO: Llamada correcta a la función
                                 features = _extract_real_features(analysis)
                                 
                                 if features is not None and features.size == 18:
@@ -2033,36 +2018,6 @@ async def continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_co
             logging.error(f"Error en actualización continua: {e}")
             await asyncio.sleep(1)
 
-def tick_processor(price, timestamp, seconds_remaining):
-    global _last_analysis_time
-    try:
-        current_time = time.time()
-        
-        tick_data = predictor.process_tick(price, seconds_remaining)
-        
-        if current_time - _last_analysis_time >= 2:
-            analysis = predictor.analyzer.get_deep_analysis()
-            if analysis.get('status') == 'SUCCESS':
-                density = analysis.get('buy_pressure', 0.5) * 100
-                velocity = analysis.get('velocity', 0)
-                acceleration = analysis.get('acceleration', 0)
-                phase = analysis.get('market_phase', 'INICIAL')
-                
-                dashboard_manager.dashboard.update_metrics(
-                    density, velocity, acceleration, phase
-                )
-                _last_analysis_time = current_time
-            
-        if tick_data:
-            dashboard_manager.dashboard.update_candle_progress(
-                dashboard_manager.metronome,
-                price,
-                predictor.analyzer.tick_count
-            )
-            
-    except Exception as e:
-        logging.error(f"❌ Error procesando tick: {e}")
-
 # Configurar rutas
 setup_responsive_routes(app, dashboard_manager, iq_connector)
 
@@ -2114,6 +2069,7 @@ async def get_status():
 # ------------------ INICIALIZACIÓN ------------------
 def start_system():
     try:
+        # ✅ CORREGIDO: Solo iniciar UNA instancia del sistema
         trading_thread = threading.Thread(target=premium_main_loop_deep_analysis, daemon=True)
         trading_thread.start()
         
@@ -2124,7 +2080,7 @@ def start_system():
     except Exception as e:
         logging.error(f"❌ Error iniciando sistema: {e}")
 
-# ✅ INICIAR SISTEMA COMPLETO
+# ✅ INICIAR SISTEMA COMPLETO - SOLO UNA INSTANCIA
 if __name__ == "__main__":
     start_system()
     import uvicorn
@@ -2135,5 +2091,3 @@ if __name__ == "__main__":
         log_level="info",
         access_log=False
     )
-else:
-    start_system()

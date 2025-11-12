@@ -1,8 +1,8 @@
-# main.py - V5.8 ANÁLISIS PROFUNDO TICK POR TICK - CORREGIDO
+# main.py - V5.10 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN
 """
-Delowyss Trading AI — V5.8 ANÁLISIS PROFUNDO EN TIEMPO REAL
+Delowyss Trading AI — V5.10 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN
 CEO: Eduardo Solis — © 2025
-Sistema 100% Real IQ Option con Dashboard Profesional
+Sistema de análisis completo de vela actual para predecir siguiente vela
 """
 
 import os
@@ -25,8 +25,8 @@ IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
 PAR = "EURUSD"
 TIMEFRAME = 60
-PREDICTION_WINDOW = 5
-MIN_TICKS_FOR_PREDICTION = 30
+PREDICTION_WINDOW = 5  # Predecir a 5 segundos del final
+MIN_TICKS_FOR_PREDICTION = 20
 TICK_BUFFER_SIZE = 200
 PORT = int(os.getenv("PORT", "10000"))
 
@@ -203,9 +203,14 @@ class IQOptionMetronome:
     def is_last_5_seconds(self):
         remaining = self.get_remaining_time()
         return remaining <= 5 and remaining > 0
+    
+    def is_prediction_time(self):
+        """Determina si es momento de hacer predicción (últimos 5 segundos)"""
+        remaining = self.get_remaining_time()
+        return remaining <= PREDICTION_WINDOW and remaining > 0
 
-# ------------------ IA ULTRA EFICIENTE MEJORADA ------------------
-class UltraEfficientAnalyzer:
+# ------------------ ANALIZADOR DE VELA COMPLETA ------------------
+class CompleteCandleAnalyzer:
     def __init__(self):
         self.ticks = deque(maxlen=TICK_BUFFER_SIZE)
         self.current_candle_open = None
@@ -215,34 +220,55 @@ class UltraEfficientAnalyzer:
         self.tick_count = 0
         self.price_memory = deque(maxlen=100)
         
-        # ✅ CORREGIDO: Agregar last_candle_close
-        self.last_candle_close = None
+        # Almacenar datos de vela anterior para comparación
+        self.previous_candle = {
+            'open': None,
+            'high': None, 
+            'low': None,
+            'close': None,
+            'direction': None,
+            'body_size': None
+        }
         
-        # Métricas mejoradas
+        # Métricas de análisis de vela completa
+        self.candle_phases = {
+            'first_15s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'next_20s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'middle_20s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'final_5s': {'ticks': 0, 'analysis': {}, 'completed': False}
+        }
+        
+        # Análisis de comportamiento por segmentos de tiempo
+        self.time_segments = {
+            '0-15s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '15-35s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '35-55s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '55-60s': {'price_action': [], 'volatility': 0, 'direction': None}
+        }
+        
+        # Indicadores técnicos para la vela actual
         self.velocity_metrics = deque(maxlen=50)
-        self.acceleration_metrics = deque(maxlen=40)
-        self.volume_profile = deque(maxlen=20)
-        self.price_levels = deque(maxlen=15)
-        self.micro_trends = deque(maxlen=25)
+        self.pressure_zones = deque(maxlen=30)
+        self.momentum_indicators = deque(maxlen=20)
+        self.support_resistance = deque(maxlen=15)
+        self.volume_profile = deque(maxlen=25)
         
         self.candle_start_time = None
-        self.analysis_phases = {
-            'initial': {'ticks': 0, 'analysis': {}, 'weight': 0.2},
-            'middle': {'ticks': 0, 'analysis': {}, 'weight': 0.3},
-            'final': {'ticks': 0, 'analysis': {}, 'weight': 0.5}
-        }
-        self.phase_accuracy = {'initial': 0.6, 'middle': 0.7, 'final': 0.9}
+        self.prediction_ready = False
         
     def add_tick(self, price: float, seconds_remaining: float = None):
         try:
             price = float(price)
             current_time = time.time()
             
+            # Inicializar vela si es necesario
             if self.current_candle_open is None:
                 self.current_candle_open = self.current_candle_high = self.current_candle_low = price
                 self.candle_start_time = current_time
-                logging.info("🕯️ Nueva vela iniciada - Análisis profundo activado")
+                logging.info("🕯️ Nueva vela iniciada - Análisis completo activado")
+                self._reset_candle_analysis()
             
+            # Actualizar precios extremos
             self.current_candle_high = max(self.current_candle_high, price)
             self.current_candle_low = min(self.current_candle_low, price)
             self.current_candle_close = price
@@ -250,30 +276,182 @@ class UltraEfficientAnalyzer:
             tick_data = {
                 'price': price,
                 'timestamp': current_time,
-                'volume': 1,
-                'microtimestamp': current_time * 1000,
                 'seconds_remaining': seconds_remaining,
-                'candle_age': current_time - self.candle_start_time if self.candle_start_time else 0
+                'candle_age': current_time - self.candle_start_time if self.candle_start_time else 0,
+                'segment': self._get_time_segment(current_time - self.candle_start_time)
             }
             
             self.ticks.append(tick_data)
             self.price_memory.append(price)
             self.tick_count += 1
             
+            # Análisis en tiempo real según el segmento
+            self._analyze_time_segment(tick_data)
             self._calculate_advanced_metrics(tick_data)
+            self._analyze_pressure_zones(tick_data)
             
-            if self.tick_count % 3 == 0:
-                self._analyze_market_phases(tick_data)
+            # Verificar si se completaron fases
+            self._check_phase_completion(tick_data)
             
             return tick_data
         except Exception as e:
             logging.error(f"❌ Error en add_tick: {e}")
             return None
     
-    def _calculate_advanced_metrics(self, current_tick):
+    def _get_time_segment(self, candle_age):
+        """Determina el segmento de tiempo actual de la vela"""
+        if candle_age < 15:
+            return '0-15s'
+        elif candle_age < 35:
+            return '15-35s'
+        elif candle_age < 55:
+            return '35-55s'
+        else:
+            return '55-60s'
+    
+    def _reset_candle_analysis(self):
+        """Reinicia el análisis para nueva vela"""
+        self.candle_phases = {
+            'first_15s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'next_20s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'middle_20s': {'ticks': 0, 'analysis': {}, 'completed': False},
+            'final_5s': {'ticks': 0, 'analysis': {}, 'completed': False}
+        }
+        self.time_segments = {
+            '0-15s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '15-35s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '35-55s': {'price_action': [], 'volatility': 0, 'direction': None},
+            '55-60s': {'price_action': [], 'volatility': 0, 'direction': None}
+        }
+        self.prediction_ready = False
+    
+    def _analyze_time_segment(self, tick_data):
+        """Analiza el comportamiento del precio en cada segmento de tiempo"""
+        segment = tick_data['segment']
+        price = tick_data['price']
+        
+        # Agregar precio al segmento actual
+        self.time_segments[segment]['price_action'].append(price)
+        
+        # Calcular volatilidad del segmento
+        if len(self.time_segments[segment]['price_action']) >= 5:
+            prices = self.time_segments[segment]['price_action']
+            volatility = (max(prices) - min(prices)) * 10000
+            self.time_segments[segment]['volatility'] = volatility
+            
+            # Determinar dirección del segmento
+            if len(prices) >= 3:
+                price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+                positive_changes = len([x for x in price_changes if x > 0])
+                buy_ratio = positive_changes / len(price_changes)
+                
+                if buy_ratio > 0.6:
+                    self.time_segments[segment]['direction'] = 'ALCISTA'
+                elif buy_ratio < 0.4:
+                    self.time_segments[segment]['direction'] = 'BAJISTA'
+                else:
+                    self.time_segments[segment]['direction'] = 'LATERAL'
+    
+    def _check_phase_completion(self, tick_data):
+        """Verifica y actualiza el estado de completitud de las fases"""
+        candle_age = tick_data['candle_age']
+        segment = tick_data['segment']
+        
+        # Primera fase: 0-15 segundos
+        if candle_age >= 15 and not self.candle_phases['first_15s']['completed']:
+            self.candle_phases['first_15s']['completed'] = True
+            self.candle_phases['first_15s']['analysis'] = self._analyze_phase('first_15s')
+            logging.info("📊 Fase 0-15s completada - Análisis inicial listo")
+        
+        # Segunda fase: 15-35 segundos  
+        elif candle_age >= 35 and not self.candle_phases['next_20s']['completed']:
+            self.candle_phases['next_20s']['completed'] = True
+            self.candle_phases['next_20s']['analysis'] = self._analyze_phase('next_20s')
+            logging.info("📊 Fase 15-35s completada - Tendencia definiéndose")
+        
+        # Tercera fase: 35-55 segundos
+        elif candle_age >= 55 and not self.candle_phases['middle_20s']['completed']:
+            self.candle_phases['middle_20s']['completed'] = True
+            self.candle_phases['middle_20s']['analysis'] = self._analyze_phase('middle_20s')
+            logging.info("📊 Fase 35-55s completada - Comportamiento establecido")
+        
+        # Cuarta fase: Últimos 5 segundos (para predicción)
+        elif segment == '55-60s' and not self.candle_phases['final_5s']['completed']:
+            self.candle_phases['final_5s']['completed'] = True
+            self.candle_phases['final_5s']['analysis'] = self._analyze_phase('final_5s')
+            self.prediction_ready = True
+            logging.info("🎯 Fase 55-60s - Predicción habilitada")
+    
+    def _analyze_phase(self, phase):
+        """Analiza una fase específica de la vela"""
         try:
-            current_price = current_tick['price']
-            current_time = current_tick['timestamp']
+            if phase == 'first_15s':
+                segment_data = self.time_segments['0-15s']
+            elif phase == 'next_20s':
+                segment_data = self.time_segments['15-35s']
+            elif phase == 'middle_20s':
+                segment_data = self.time_segments['35-55s']
+            else:  # final_5s
+                segment_data = self.time_segments['55-60s']
+            
+            if not segment_data['price_action']:
+                return {}
+            
+            prices = segment_data['price_action']
+            
+            # Análisis básico
+            high = max(prices)
+            low = min(prices)
+            open_price = prices[0] if prices else 0
+            close_price = prices[-1] if prices else 0
+            
+            volatility = (high - low) * 10000
+            body_size = abs(close_price - open_price) * 10000
+            body_direction = 'ALCISTA' if close_price > open_price else 'BAJISTA' if close_price < open_price else 'LATERAL'
+            
+            # Análisis de tendencia intra-fase
+            if len(prices) >= 5:
+                x_values = np.arange(len(prices))
+                try:
+                    trend_coeff = np.polyfit(x_values, prices, 1)[0]
+                    trend_strength = abs(trend_coeff) * 10000
+                    trend_direction = 'ALCISTA' if trend_coeff > 0 else 'BAJISTA' if trend_coeff < 0 else 'LATERAL'
+                except:
+                    trend_strength = 0
+                    trend_direction = 'LATERAL'
+            else:
+                trend_strength = 0
+                trend_direction = segment_data.get('direction', 'LATERAL')
+            
+            # Presión de compra/venta
+            if len(prices) >= 3:
+                price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
+                buy_pressure = len([x for x in price_changes if x > 0]) / len(price_changes)
+            else:
+                buy_pressure = 0.5
+            
+            return {
+                'prices_analyzed': len(prices),
+                'volatility': volatility,
+                'body_size': body_size,
+                'body_direction': body_direction,
+                'trend_strength': trend_strength,
+                'trend_direction': trend_direction,
+                'buy_pressure': buy_pressure,
+                'high': high,
+                'low': low,
+                'open': open_price,
+                'close': close_price
+            }
+        except Exception as e:
+            logging.debug(f"🔧 Error analizando fase {phase}: {e}")
+            return {}
+    
+    def _calculate_advanced_metrics(self, tick_data):
+        """Calcula métricas avanzadas en tiempo real"""
+        try:
+            current_price = tick_data['price']
+            current_time = tick_data['timestamp']
 
             if len(self.ticks) >= 2:
                 previous_tick = list(self.ticks)[-2]
@@ -288,344 +466,259 @@ class UltraEfficientAnalyzer:
                         'timestamp': current_time,
                         'price_change': price_diff
                     })
-                    
-                    if len(self.velocity_metrics) >= 3:
-                        recent_velocities = [v['velocity'] for v in list(self.velocity_metrics)[-3:]]
-                        micro_trend = np.mean(recent_velocities)
-                        self.micro_trends.append({
-                            'trend': micro_trend,
-                            'timestamp': current_time
-                        })
-
-            if len(self.velocity_metrics) >= 2:
-                current_velocity = self.velocity_metrics[-1]['velocity']
-                previous_velocity = self.velocity_metrics[-2]['velocity']
-                velocity_time_diff = current_time - self.velocity_metrics[-2]['timestamp']
-                
-                if velocity_time_diff > 0:
-                    acceleration = (current_velocity - previous_velocity) / velocity_time_diff
-                    self.acceleration_metrics.append({
-                        'acceleration': acceleration,
-                        'timestamp': current_time
-                    })
-            
-            if len(self.price_memory) >= 10:
-                prices = list(self.price_memory)
-                recent_prices = prices[-10:]
-                resistance = max(recent_prices)
-                support = min(recent_prices)
-                self.price_levels.append({
-                    'resistance': resistance,
-                    'support': support,
-                    'timestamp': current_time
-                })
-                
         except Exception as e:
             logging.debug(f"🔧 Error en cálculo avanzado: {e}")
     
-    def _analyze_market_phases(self, tick_data):
-        candle_age = tick_data['candle_age']
-        
-        if candle_age < 20:
-            self.analysis_phases['initial']['ticks'] += 1
-            if self.analysis_phases['initial']['ticks'] % 5 == 0:
-                self.analysis_phases['initial']['analysis'] = self._get_phase_analysis('initial')
-                
-        elif candle_age < 40:
-            self.analysis_phases['middle']['ticks'] += 1
-            if self.analysis_phases['middle']['ticks'] % 4 == 0:
-                self.analysis_phases['middle']['analysis'] = self._get_phase_analysis('middle')
-                
-        else:
-            self.analysis_phases['final']['ticks'] += 1
-            if self.analysis_phases['final']['ticks'] % 2 == 0:
-                self.analysis_phases['final']['analysis'] = self._get_phase_analysis('final')
-    
-    def _get_phase_analysis(self, phase):
+    def _analyze_pressure_zones(self, tick_data):
+        """Analiza zonas de presión de compra/venta"""
         try:
-            ticks_list = list(self.ticks)
-            if not ticks_list:
-                return {}
+            if len(self.ticks) < 6:
+                return
                 
-            if phase == 'initial':
-                ticks = ticks_list[:min(25, len(ticks_list))]
-            elif phase == 'middle':
-                if len(ticks_list) >= 50:
-                    ticks = ticks_list[25:50]
-                elif len(ticks_list) > 25:
-                    ticks = ticks_list[25:]
-                else:
-                    ticks = []
-            else:
-                if len(ticks_list) >= 50:
-                    ticks = ticks_list[50:]
-                else:
-                    ticks = []
+            recent_ticks = list(self.ticks)[-6:]
+            price_changes = []
             
-            if not ticks:
-                return {}
+            for i in range(1, len(recent_ticks)):
+                change = recent_ticks[i]['price'] - recent_ticks[i-1]['price']
+                price_changes.append(change)
             
-            prices = [tick['price'] for tick in ticks]
-            
-            volatility = (max(prices) - min(prices)) * 10000 if prices else 0
-            avg_price = np.mean(prices) if prices else 0
-            
-            if len(prices) >= 8:
-                window_prices = prices[-8:]
-                x_values = np.arange(len(window_prices))
-                try:
-                    recent_trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
-                except:
-                    recent_trend = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
-            else:
-                recent_trend = (prices[-1] - prices[0]) * 10000 if len(prices) > 1 else 0
-            
-            if len(prices) >= 3:
-                price_changes = [prices[i] - prices[i-1] for i in range(1, len(prices))]
-                positive_changes = len([x for x in price_changes if x > 0])
-                total_changes = len(price_changes)
-                buy_pressure = positive_changes / total_changes if total_changes > 0 else 0.5
-            else:
-                buy_pressure = 0.5
-            
-            momentum = 0
-            if len(prices) >= 5:
-                momentum = (prices[-1] - prices[-5]) * 10000
-            
-            return {
-                'avg_price': avg_price,
-                'volatility': volatility,
-                'trend': 'ALCISTA' if recent_trend > 0.15 else 'BAJISTA' if recent_trend < -0.15 else 'LATERAL',
-                'trend_strength': abs(recent_trend),
-                'buy_pressure': buy_pressure,
-                'momentum': momentum,
-                'tick_count': len(ticks),
-                'phase_accuracy': self.phase_accuracy[phase]
-            }
+            if price_changes:
+                buy_pressure = len([x for x in price_changes if x > 0]) / len(price_changes)
+                
+                self.pressure_zones.append({
+                    'buy_pressure': buy_pressure,
+                    'sell_pressure': 1 - buy_pressure,
+                    'timestamp': tick_data['timestamp'],
+                    'strength': abs(buy_pressure - 0.5) * 2
+                })
+                
         except Exception as e:
-            logging.debug(f"🔧 Error en análisis de fase {phase}: {e}")
-            return {}
+            logging.debug(f"🔧 Error analizando presión: {e}")
     
-    def get_deep_analysis(self):
+    def get_candle_analysis(self):
+        """Obtiene el análisis completo de la vela actual"""
         if self.tick_count < MIN_TICKS_FOR_PREDICTION:
             return {
-                'status': 'INSUFFICIENT_DATA', 
+                'status': 'ANALYZING',
                 'tick_count': self.tick_count,
-                'message': f'Analizando ticks: {self.tick_count}/{MIN_TICKS_FOR_PREDICTION}',
-                'confidence': self._calculate_confidence_score()
+                'message': f'Analizando vela: {self.tick_count}/{MIN_TICKS_FOR_PREDICTION} ticks',
+                'current_progress': self._get_candle_progress()
             }
         
         try:
-            advanced_metrics = self._calculate_advanced_analysis()
-            if not advanced_metrics:
-                return {'status': 'ERROR', 'message': 'Error en análisis avanzado'}
+            # Análisis de fases completadas
+            phase_analysis = {}
+            for phase, data in self.candle_phases.items():
+                if data['completed']:
+                    phase_analysis[phase] = data['analysis']
             
-            phase_analysis = self._combine_phase_analysis()
+            # Análisis de segmentos de tiempo
+            segment_analysis = {}
+            for segment, data in self.time_segments.items():
+                if data['price_action']:
+                    segment_analysis[segment] = {
+                        'direction': data['direction'],
+                        'volatility': data['volatility'],
+                        'samples': len(data['price_action'])
+                    }
             
-            overall_confidence = self._calculate_overall_confidence(advanced_metrics, phase_analysis)
+            # Análisis general de la vela
+            general_analysis = self._analyze_complete_candle()
+            
+            # Preparar predicción si está lista
+            prediction_readiness = self._assess_prediction_readiness()
             
             result = {
-                'status': 'SUCCESS',
+                'status': 'COMPLETE_ANALYSIS',
                 'tick_count': self.tick_count,
                 'current_price': self.current_candle_close,
-                'open_price': self.current_candle_open,
-                'high_price': self.current_candle_high,
-                'low_price': self.current_candle_low,
-                'candle_range': (self.current_candle_high - self.current_candle_low) * 10000,
-                'timestamp': time.time(),
-                'candle_age': time.time() - self.candle_start_time if self.candle_start_time else 0,
-                'overall_confidence': overall_confidence,
-                **advanced_metrics,
-                'phase_analysis': phase_analysis
+                'candle_progress': self._get_candle_progress(),
+                'candle_stats': {
+                    'open': self.current_candle_open,
+                    'high': self.current_candle_high,
+                    'low': self.current_candle_low,
+                    'close': self.current_candle_close,
+                    'range': (self.current_candle_high - self.current_candle_low) * 10000,
+                    'body_size': abs(self.current_candle_close - self.current_candle_open) * 10000,
+                    'direction': 'ALCISTA' if self.current_candle_close > self.current_candle_open else 'BAJISTA' if self.current_candle_close < self.current_candle_open else 'LATERAL'
+                },
+                'phase_analysis': phase_analysis,
+                'segment_analysis': segment_analysis,
+                'general_analysis': general_analysis,
+                'prediction_readiness': prediction_readiness,
+                'timestamp': time.time()
             }
             
             return result
             
         except Exception as e:
-            logging.error(f"❌ Error en análisis profundo: {e}")
+            logging.error(f"❌ Error en análisis de vela: {e}")
             return {'status': 'ERROR', 'message': str(e)}
     
-    def _calculate_advanced_analysis(self):
-        if len(self.price_memory) < 10:
-            return {}
-            
-        try:
-            prices = np.array(list(self.price_memory))
-            
-            trend_windows = [5, 8, 12, 15]
-            trend_metrics = []
-            
-            for window in trend_windows:
-                if len(prices) >= window:
-                    window_prices = prices[-window:]
-                    x_values = np.arange(len(window_prices))
-                    try:
-                        trend = np.polyfit(x_values, window_prices, 1)[0] * 10000
-                        trend_metrics.append(trend)
-                    except:
-                        continue
-            
-            trend_strength = np.mean(trend_metrics) if trend_metrics else 0
-            
-            momentums = []
-            for period in [3, 5, 8]:
-                if len(prices) >= period:
-                    momentum = (prices[-1] - prices[-period]) * 10000
-                    momentums.append(momentum)
-            
-            momentum = np.mean(momentums) if momentums else 0
-            
-            if len(prices) >= 15:
-                recent_prices = prices[-15:]
-                volatility = (np.max(recent_prices) - np.min(recent_prices)) * 10000
-            else:
-                volatility = (np.max(prices) - np.min(prices)) * 10000
-            
-            if len(self.ticks) >= 10:
-                recent_ticks = list(self.ticks)[-10:]
-                price_changes = []
-                for i in range(1, len(recent_ticks)):
-                    change = recent_ticks[i]['price'] - recent_ticks[i-1]['price']
-                    price_changes.append(change)
-                
-                if price_changes:
-                    positive = len([x for x in price_changes if x > 0])
-                    total = len(price_changes)
-                    buy_pressure = positive / total
-                else:
-                    buy_pressure = 0.5
-            else:
-                buy_pressure = 0.5
-            
-            avg_velocity = 0
-            if self.velocity_metrics:
-                velocities = [v['velocity'] for v in list(self.velocity_metrics)[-15:]]
-                avg_velocity = np.mean(velocities) * 10000 if velocities else 0
-            
-            avg_acceleration = 0
-            if self.acceleration_metrics:
-                accelerations = [a['acceleration'] for a in list(self.acceleration_metrics)[-10:]]
-                avg_acceleration = np.mean(accelerations) * 10000 if accelerations else 0
-            
-            micro_trend_strength = 0
-            if self.micro_trends:
-                recent_micro_trends = [t['trend'] for t in list(self.micro_trends)[-8:]]
-                micro_trend_strength = np.mean(recent_micro_trends) * 10000 if recent_micro_trends else 0
-            
-            return {
-                'trend_strength': trend_strength,
-                'momentum': momentum,
-                'volatility': volatility,
-                'buy_pressure': buy_pressure,
-                'sell_pressure': 1 - buy_pressure,
-                'pressure_ratio': buy_pressure / (1 - buy_pressure) if buy_pressure < 1 else 10.0,
-                'velocity': avg_velocity,
-                'acceleration': avg_acceleration,
-                'micro_trend': micro_trend_strength,
-                'market_phase': self._determine_market_phase(trend_strength, volatility, momentum),
-                'data_quality': min(1.0, self.tick_count / 40.0)
-            }
-            
-        except Exception as e:
-            logging.error(f"❌ Error en análisis avanzado: {e}")
-            return {}
+    def _get_candle_progress(self):
+        """Calcula el progreso actual de la vela"""
+        if not self.candle_start_time:
+            return 0
+        candle_age = time.time() - self.candle_start_time
+        return min(100, (candle_age / TIMEFRAME) * 100)
     
-    def _combine_phase_analysis(self):
+    def _analyze_complete_candle(self):
+        """Analiza el comportamiento completo de la vela"""
         try:
-            initial = self.analysis_phases['initial']['analysis']
-            middle = self.analysis_phases['middle']['analysis']
-            final = self.analysis_phases['final']['analysis']
+            if not self.ticks:
+                return {}
             
-            weights = {
-                'initial': self.analysis_phases['initial']['weight'],
-                'middle': self.analysis_phases['middle']['weight'], 
-                'final': self.analysis_phases['final']['weight']
-            }
+            # Comportamiento por cuartos
+            total_ticks = len(self.ticks)
+            quarter_size = max(1, total_ticks // 4)
             
-            trends = []
-            trend_strengths = []
-            
-            for phase, data in [('initial', initial), ('middle', middle), ('final', final)]:
-                if data and data.get('trend'):
-                    trends.append((data['trend'], weights[phase]))
-                    trend_strengths.append(data.get('trend_strength', 0) * weights[phase])
-            
-            if trends:
-                alcista_weight = sum(weight for trend, weight in trends if trend == 'ALCISTA')
-                bajista_weight = sum(weight for trend, weight in trends if trend == 'BAJISTA')
+            quarters = []
+            for i in range(4):
+                start_idx = i * quarter_size
+                end_idx = min((i + 1) * quarter_size, total_ticks)
+                quarter_ticks = list(self.ticks)[start_idx:end_idx]
                 
-                if alcista_weight > bajista_weight:
-                    combined_trend = 'ALCISTA'
-                elif bajista_weight > alcista_weight:
-                    combined_trend = 'BAJISTA'
-                else:
-                    combined_trend = 'LATERAL'
+                if quarter_ticks:
+                    quarter_prices = [t['price'] for t in quarter_ticks]
+                    quarter_direction = 'ALCISTA' if quarter_prices[-1] > quarter_prices[0] else 'BAJISTA' if quarter_prices[-1] < quarter_prices[0] else 'LATERAL'
+                    quarter_volatility = (max(quarter_prices) - min(quarter_prices)) * 10000
                     
-                combined_trend_strength = np.mean(trend_strengths) if trend_strengths else 0
-            else:
-                combined_trend = 'N/A'
-                combined_trend_strength = 0
+                    quarters.append({
+                        'quarter': i + 1,
+                        'direction': quarter_direction,
+                        'volatility': quarter_volatility,
+                        'ticks': len(quarter_ticks)
+                    })
+            
+            # Consistencia de la vela
+            consistency_score = self._calculate_consistency()
+            
+            # Fuerza de la tendencia
+            trend_strength = self._calculate_trend_strength()
             
             return {
-                'trend': combined_trend,
-                'trend_strength': combined_trend_strength,
-                'momentum_shift': len(set(trend for trend, _ in trends)) > 1 if trends else False,
-                'consistency_score': alcista_weight if combined_trend == 'ALCISTA' else bajista_weight if combined_trend == 'BAJISTA' else 0.5,
+                'quarters_analysis': quarters,
+                'consistency_score': consistency_score,
+                'trend_strength': trend_strength,
+                'total_volatility': (self.current_candle_high - self.current_candle_low) * 10000,
+                'current_momentum': self._calculate_current_momentum(),
+                'pressure_balance': self._calculate_pressure_balance()
             }
         except Exception as e:
-            logging.debug(f"🔧 Error combinando análisis de fases: {e}")
+            logging.debug(f"🔧 Error en análisis completo: {e}")
             return {}
     
-    def _determine_market_phase(self, trend_strength, volatility, momentum):
-        if volatility < 0.3 and abs(trend_strength) < 0.4:
-            return "CONSOLIDACIÓN"
-        elif abs(trend_strength) > 2.0:
-            return "TENDENCIA_FUERTE"
-        elif abs(trend_strength) > 1.0:
-            return "TENDENCIA"
-        elif volatility > 2.5:
-            return "ALTA_VOLATILIDAD"
-        elif abs(momentum) > 1.5:
-            return "MOMENTUM"
-        else:
-            return "NORMAL"
+    def _calculate_consistency(self):
+        """Calcula la consistencia del movimiento de la vela"""
+        try:
+            if len(self.ticks) < 10:
+                return 50
+                
+            directions = []
+            for segment in self.time_segments.values():
+                if segment['direction']:
+                    dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
+                    directions.append(dir_map[segment['direction']])
+            
+            if directions:
+                consistency = 1 - (np.std(directions) / 2)  # Normalizar a 0-1
+                return min(100, consistency * 100)
+            return 50
+        except:
+            return 50
     
-    def _calculate_confidence_score(self):
-        score = min(40, (self.tick_count / 30) * 40)
-        
-        if len(self.velocity_metrics) >= 15:
-            score += 20
-        
-        if len(self.acceleration_metrics) >= 10:
-            score += 15
-        
-        score += self.analysis_phases['final']['weight'] * 25
-        
-        if len(self.price_memory) >= 20:
-            prices = list(self.price_memory)[-20:]
-            volatility = (max(prices) - min(prices)) * 10000
-            if 0.5 < volatility < 3.0:
-                score += 20
-        
-        return min(100, score)
+    def _calculate_trend_strength(self):
+        """Calcula la fuerza de la tendencia general"""
+        try:
+            if len(self.price_memory) < 8:
+                return 0
+                
+            prices = list(self.price_memory)
+            x_values = np.arange(len(prices))
+            trend_coeff = np.polyfit(x_values, prices, 1)[0]
+            return abs(trend_coeff) * 10000
+        except:
+            return 0
     
-    def _calculate_overall_confidence(self, advanced_metrics, phase_analysis):
-        base_confidence = self._calculate_confidence_score()
+    def _calculate_current_momentum(self):
+        """Calcula el momentum actual"""
+        try:
+            if len(self.price_memory) < 5:
+                return 0
+            prices = list(self.price_memory)[-5:]
+            return (prices[-1] - prices[0]) * 10000
+        except:
+            return 0
+    
+    def _calculate_pressure_balance(self):
+        """Calcula el balance de presión"""
+        try:
+            if not self.pressure_zones:
+                return 0.5
+            recent_pressure = list(self.pressure_zones)[-5:]
+            avg_buy_pressure = np.mean([p['buy_pressure'] for p in recent_pressure])
+            return avg_buy_pressure
+        except:
+            return 0.5
+    
+    def _assess_prediction_readiness(self):
+        """Evalúa si el sistema está listo para predecir"""
+        try:
+            readiness = {
+                'ready': self.prediction_ready,
+                'phases_completed': sum(1 for phase in self.candle_phases.values() if phase['completed']),
+                'total_phases': len(self.candle_phases),
+                'data_sufficiency': min(100, (self.tick_count / 30) * 100),
+                'analysis_quality': self._calculate_analysis_quality()
+            }
+            
+            # Solo considerar listo si tenemos al menos 3 fases completas y suficientes ticks
+            readiness['ready'] = (
+                readiness['phases_completed'] >= 3 and 
+                readiness['data_sufficiency'] >= 70 and
+                self.prediction_ready
+            )
+            
+            return readiness
+        except:
+            return {'ready': False, 'phases_completed': 0, 'data_sufficiency': 0}
+    
+    def _calculate_analysis_quality(self):
+        """Calcula la calidad general del análisis"""
+        quality = 0
         
-        data_quality = advanced_metrics.get('data_quality', 0)
-        adjusted_confidence = base_confidence * data_quality
+        # Por cada fase completada
+        quality += sum(20 for phase in self.candle_phases.values() if phase['completed'])
         
-        consistency = phase_analysis.get('consistency_score', 0.5)
-        consistency_bonus = consistency * 20
+        # Por ticks suficientes
+        quality += min(30, (self.tick_count / 40) * 30)
         
-        return min(95, adjusted_confidence + consistency_bonus)
+        # Por consistencia
+        quality += min(20, self._calculate_consistency() / 5)
+        
+        return min(100, quality)
+    
+    def is_ready_for_prediction(self):
+        """Verifica si el sistema está listo para hacer predicción"""
+        readiness = self._assess_prediction_readiness()
+        return readiness['ready']
     
     def reset(self):
-        """✅ CORREGIDO: Guardar last_candle_close antes de resetear"""
+        """Prepara el analyzer para la siguiente vela"""
         try:
-            if self.current_candle_close is not None:
-                self.last_candle_close = self.current_candle_close
-                
+            # Guardar vela actual como anterior
+            if all([self.current_candle_open, self.current_candle_high, 
+                   self.current_candle_low, self.current_candle_close]):
+                self.previous_candle = {
+                    'open': self.current_candle_open,
+                    'high': self.current_candle_high,
+                    'low': self.current_candle_low,
+                    'close': self.current_candle_close,
+                    'direction': 'ALCISTA' if self.current_candle_close > self.current_candle_open else 'BAJISTA',
+                    'body_size': abs(self.current_candle_close - self.current_candle_open) * 10000
+                }
+            
+            # Reiniciar para nueva vela
             self.ticks.clear()
             self.current_candle_open = None
             self.current_candle_high = None
@@ -634,215 +727,333 @@ class UltraEfficientAnalyzer:
             self.tick_count = 0
             self.price_memory.clear()
             self.velocity_metrics.clear()
-            self.acceleration_metrics.clear()
-            self.micro_trends.clear()
+            self.pressure_zones.clear()
+            self.momentum_indicators.clear()
             self.candle_start_time = None
+            self.prediction_ready = False
             
-            for phase in self.analysis_phases:
-                self.analysis_phases[phase] = {'ticks': 0, 'analysis': {}, 'weight': self.analysis_phases[phase]['weight']}
+            # Mantener el reset de fases en _reset_candle_analysis
                 
         except Exception as e:
             logging.error(f"❌ Error en reset: {e}")
 
-# ------------------ ADAPTIVE MARKET LEARNER ------------------
-class AdaptiveMarketLearner:
-    def __init__(self, feature_size=18):
-        self.feature_size = feature_size
-        self.training_data = deque(maxlen=1000)
-        self.labels = deque(maxlen=1000)
-        self.model = None
-        self.scaler = None
-        self.training_count = 0
-        self.last_training_result = {}
-        
-    def add_sample(self, features, direction):
-        if features is not None and features.size == self.feature_size:
-            label = 1 if direction == "ALZA" else 0 if direction == "BAJA" else 0.5
-            self.training_data.append(features)
-            self.labels.append(label)
-            return True
-        return False
-    
-    def predict(self, features):
-        if len(self.training_data) < 50 or features is None:
-            return {'predicted': 'LATERAL', 'confidence': 50, 'training_count': self.training_count}
-        
-        try:
-            if len(self.training_data) >= 100:
-                confidence = min(95, 70 + (len(self.training_data) / 1000) * 25)
-            else:
-                confidence = min(85, 50 + (len(self.training_data) / 100) * 35)
-            
-            analysis = self._analyze_current_market(features)
-            prediction = analysis['prediction']
-            
-            return {
-                'predicted': prediction,
-                'confidence': confidence,
-                'training_count': self.training_count
-            }
-            
-        except Exception as e:
-            logging.error(f"❌ Error en predicción ML: {e}")
-            return {'predicted': 'LATERAL', 'confidence': 50, 'training_count': self.training_count}
-    
-    def _analyze_current_market(self, features):
-        try:
-            if len(features) > 0:
-                avg_feature = np.mean(features)
-                if avg_feature > 0.1:
-                    return {'prediction': 'ALZA'}
-                elif avg_feature < -0.1:
-                    return {'prediction': 'BAJA'}
-            
-            return {'prediction': 'LATERAL'}
-        except:
-            return {'prediction': 'LATERAL'}
-    
-    def partial_train(self, batch_size=32):
-        if len(self.training_data) < batch_size:
-            return {'trained': False, 'samples': len(self.training_data)}
-        
-        try:
-            self.training_count += 1
-            self.last_training_result = {
-                'trained': True,
-                'samples_used': min(batch_size, len(self.training_data)),
-                'total_samples': len(self.training_data),
-                'training_count': self.training_count
-            }
-            return self.last_training_result
-        except Exception as e:
-            logging.error(f"❌ Error en entrenamiento: {e}")
-            return {'trained': False, 'error': str(e)}
-
-# ------------------ COMPREHENSIVE AI PREDICTOR ------------------
-class ComprehensiveAIPredictor:
+# ------------------ PREDICTOR DE SIGUIENTE VELA ------------------
+class NextCandlePredictor:
     def __init__(self):
-        self.analyzer = UltraEfficientAnalyzer()
+        self.analyzer = CompleteCandleAnalyzer()
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
             'current_streak': 0,
             'best_streak': 0,
-            'today_profit': 0.0,
             'today_signals': 0
         }
-        self.prediction_history = deque(maxlen=100)
+        self.prediction_history = deque(maxlen=50)
         
     def process_tick(self, price: float, seconds_remaining: float = None):
         return self.analyzer.add_tick(price, seconds_remaining)
     
-    def predict_next_candle(self, ml_prediction: Dict = None):
-        analysis = self.analyzer.get_deep_analysis()
+    def predict_next_candle(self):
+        """Predice la dirección de la siguiente vela basado en el análisis completo"""
+        analysis = self.analyzer.get_candle_analysis()
         
-        if analysis.get('status') != 'SUCCESS':
+        if analysis.get('status') != 'COMPLETE_ANALYSIS':
             return {
                 "direction": "LATERAL",
                 "confidence": 50,
                 "tick_count": self.analyzer.tick_count,
                 "current_price": self.analyzer.current_candle_close or 0.0,
-                "reasons": ["Datos insuficientes para predicción"],
+                "reasons": ["Análisis de vela en curso"],
                 "timestamp": now_iso(),
-                "status": "INSUFFICIENT_DATA"
+                "status": "ANALYZING"
             }
         
-        if ml_prediction and ml_prediction.get('confidence', 0) > 60:
-            direction = ml_prediction['predicted']
-            base_confidence = ml_prediction['confidence']
-        else:
-            trend = analysis.get('market_phase', 'NORMAL')
-            buy_pressure = analysis.get('buy_pressure', 0.5)
+        if not self.analyzer.is_ready_for_prediction():
+            return {
+                "direction": "LATERAL", 
+                "confidence": 50,
+                "tick_count": self.analyzer.tick_count,
+                "current_price": self.analyzer.current_candle_close or 0.0,
+                "reasons": ["Esperando análisis completo de vela"],
+                "timestamp": now_iso(),
+                "status": "WAITING"
+            }
+        
+        try:
+            # Obtener análisis detallado
+            phase_analysis = analysis.get('phase_analysis', {})
+            segment_analysis = analysis.get('segment_analysis', {})
+            general_analysis = analysis.get('general_analysis', {})
+            candle_stats = analysis.get('candle_stats', {})
             
-            if buy_pressure > 0.6:
+            # 1. Análisis de tendencia por fases
+            phase_trends = self._analyze_phase_trends(phase_analysis)
+            
+            # 2. Análisis de momentum y presión
+            momentum_analysis = self._analyze_momentum_pressure(general_analysis)
+            
+            # 3. Análisis de comportamiento por segmentos
+            segment_prediction = self._analyze_segment_behavior(segment_analysis)
+            
+            # 4. Análisis de vela completa
+            candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
+            
+            # Combinar todas las predicciones
+            final_prediction = self._combine_predictions(
+                phase_trends, momentum_analysis, segment_prediction, candle_pattern
+            )
+            
+            # Generar razones detalladas
+            reasons = self._generate_prediction_reasons(
+                phase_trends, momentum_analysis, segment_prediction, candle_pattern
+            )
+            
+            self.performance_stats['total_predictions'] += 1
+            self.performance_stats['today_signals'] += 1
+            
+            prediction = {
+                "direction": final_prediction['direction'],
+                "confidence": final_prediction['confidence'],
+                "tick_count": self.analyzer.tick_count,
+                "current_price": analysis['current_price'],
+                "reasons": reasons,
+                "timestamp": now_iso(),
+                "status": "PREDICTION_READY",
+                "analysis_breakdown": {
+                    "phase_analysis": phase_trends,
+                    "momentum_analysis": momentum_analysis,
+                    "segment_analysis": segment_prediction,
+                    "candle_pattern": candle_pattern
+                }
+            }
+            
+            self.prediction_history.append(prediction)
+            return prediction
+            
+        except Exception as e:
+            logging.error(f"❌ Error en predicción: {e}")
+            return {
+                "direction": "LATERAL",
+                "confidence": 50,
+                "tick_count": self.analyzer.tick_count,
+                "reasons": [f"Error en análisis: {str(e)}"],
+                "timestamp": now_iso(),
+                "status": "ERROR"
+            }
+    
+    def _analyze_phase_trends(self, phase_analysis):
+        """Analiza las tendencias por fases de la vela"""
+        trends = []
+        strengths = []
+        
+        for phase, analysis in phase_analysis.items():
+            if analysis.get('trend_direction') and analysis.get('trend_strength', 0) > 0.5:
+                trends.append(analysis['trend_direction'])
+                strengths.append(analysis['trend_strength'])
+        
+        if trends:
+            # Ponderar más las fases finales
+            weights = [0.1, 0.2, 0.3, 0.4]  # Pesos para cada fase
+            weighted_trends = {}
+            
+            for i, trend in enumerate(trends):
+                weight = weights[i] if i < len(weights) else 0.1
+                if trend in weighted_trends:
+                    weighted_trends[trend] += weight
+                else:
+                    weighted_trends[trend] = weight
+            
+            dominant_trend = max(weighted_trends, key=weighted_trends.get)
+            avg_strength = np.mean(strengths) if strengths else 0
+            
+            return {
+                'direction': dominant_trend,
+                'strength': min(100, avg_strength * 10),
+                'consistency': len(set(trends)) == 1  # True si todas las fases coinciden
+            }
+        
+        return {'direction': 'LATERAL', 'strength': 0, 'consistency': False}
+    
+    def _analyze_momentum_pressure(self, general_analysis):
+        """Analiza momentum y presión de la vela"""
+        momentum = general_analysis.get('current_momentum', 0)
+        pressure = general_analysis.get('pressure_balance', 0.5)
+        
+        direction = "ALZA" if momentum > 1.0 else "BAJA" if momentum < -1.0 else "LATERAL"
+        strength = min(100, abs(momentum) * 20)
+        
+        pressure_signal = "ALZA" if pressure > 0.6 else "BAJA" if pressure < 0.4 else "LATERAL"
+        pressure_strength = abs(pressure - 0.5) * 200
+        
+        return {
+            'momentum_direction': direction,
+            'momentum_strength': strength,
+            'pressure_direction': pressure_signal,
+            'pressure_strength': pressure_strength,
+            'alignment': direction == pressure_signal
+        }
+    
+    def _analyze_segment_behavior(self, segment_analysis):
+        """Analiza el comportamiento por segmentos de tiempo"""
+        segments = list(segment_analysis.keys())
+        directions = []
+        
+        for segment in segments:
+            if segment_analysis[segment].get('direction'):
+                directions.append(segment_analysis[segment]['direction'])
+        
+        if directions:
+            # Los segmentos finales tienen más peso
+            recent_directions = directions[-2:] if len(directions) >= 2 else directions
+            alcista_count = recent_directions.count('ALCISTA')
+            bajista_count = recent_directions.count('BAJISTA')
+            
+            if alcista_count > bajista_count:
                 direction = "ALZA"
-                base_confidence = min(90, int(buy_pressure * 100))
-            elif buy_pressure < 0.4:
-                direction = "BAJA" 
-                base_confidence = min(90, int((1 - buy_pressure) * 100))
+                confidence = (alcista_count / len(recent_directions)) * 80
+            elif bajista_count > alcista_count:
+                direction = "BAJA"
+                confidence = (bajista_count / len(recent_directions)) * 80
             else:
                 direction = "LATERAL"
-                base_confidence = 50
+                confidence = 50
+                
+            return {
+                'direction': direction,
+                'confidence': confidence,
+                'recent_alignment': alcista_count == len(recent_directions) or bajista_count == len(recent_directions)
+            }
         
-        data_quality = analysis.get('data_quality', 0.5)
-        final_confidence = int(base_confidence * data_quality)
-        
-        reasons = self._generate_prediction_reasons(analysis, direction)
-        
-        self.performance_stats['total_predictions'] += 1
-        self.performance_stats['today_signals'] += 1
-        
-        prediction = {
-            "direction": direction,
-            "confidence": final_confidence,
-            "tick_count": self.analyzer.tick_count,
-            "current_price": analysis['current_price'],
-            "reasons": reasons,
-            "timestamp": now_iso(),
-            "status": "SUCCESS"
-        }
-        
-        self.prediction_history.append(prediction)
-        return prediction
+        return {'direction': 'LATERAL', 'confidence': 50, 'recent_alignment': False}
     
-    def _generate_prediction_reasons(self, analysis, direction):
+    def _analyze_candle_pattern(self, candle_stats, general_analysis):
+        """Analiza el patrón de la vela actual"""
+        direction = candle_stats.get('direction', 'LATERAL')
+        body_size = candle_stats.get('body_size', 0)
+        range_size = candle_stats.get('range', 0)
+        
+        # Vela con cuerpo grande → continuación probable
+        if body_size > range_size * 0.7:  # Cuerpo > 70% del rango
+            pattern_strength = 80
+            pattern_type = "FUERTE"
+        elif body_size > range_size * 0.4:  # Cuerpo > 40% del rango
+            pattern_strength = 65
+            pattern_type = "MODERADO"
+        else:
+            pattern_strength = 50
+            pattern_type = "LIGERO"
+        
+        consistency = general_analysis.get('consistency_score', 50)
+        
+        return {
+            'direction': direction,
+            'strength': pattern_strength,
+            'type': pattern_type,
+            'consistency': consistency,
+            'continuation_bias': pattern_strength > 60  # Sesgo hacia continuación
+        }
+    
+    def _combine_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
+        """Combina todas las predicciones en una final"""
+        predictions = [
+            (phase_trends['direction'], phase_trends['strength'], 0.30),
+            (momentum_analysis['momentum_direction'], momentum_analysis['momentum_strength'], 0.25),
+            (segment_prediction['direction'], segment_prediction['confidence'], 0.25),
+            (candle_pattern['direction'], candle_pattern['strength'], 0.20)
+        ]
+        
+        direction_scores = {"ALZA": 0, "BAJA": 0, "LATERAL": 0}
+        total_confidence = 0
+        
+        for direction, confidence, weight in predictions:
+            direction_scores[direction] += confidence * weight
+            total_confidence += confidence * weight
+        
+        final_direction = max(direction_scores, key=direction_scores.get)
+        
+        # Ajustar confianza basado en consistencia
+        base_confidence = min(90, int(total_confidence))
+        
+        # Bonus por consistencia
+        consistency_bonus = 0
+        if phase_trends.get('consistency', False):
+            consistency_bonus += 10
+        if momentum_analysis.get('alignment', False):
+            consistency_bonus += 8
+        if segment_prediction.get('recent_alignment', False):
+            consistency_bonus += 7
+        if candle_pattern.get('continuation_bias', False):
+            consistency_bonus += 5
+        
+        final_confidence = min(95, base_confidence + consistency_bonus)
+        
+        return {
+            'direction': final_direction,
+            'confidence': final_confidence,
+            'base_confidence': base_confidence,
+            'consistency_bonus': consistency_bonus
+        }
+    
+    def _generate_prediction_reasons(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
+        """Genera razones detalladas para la predicción"""
         reasons = []
         
-        if analysis.get('buy_pressure', 0.5) > 0.6:
-            reasons.append(f"Presión compra {int(analysis['buy_pressure']*100)}%")
-        elif analysis.get('buy_pressure', 0.5) < 0.4:
-            reasons.append(f"Presión venta {int((1-analysis['buy_pressure'])*100)}%")
+        # Razones de fase
+        if phase_trends['strength'] > 60:
+            reasons.append(f"Tendencia {phase_trends['direction']} en fases ({phase_trends['strength']:.0f}%)")
         
-        if analysis.get('trend_strength', 0) > 1.0:
-            reasons.append(f"Fuerza tendencia: {analysis['trend_strength']:.1f}")
+        # Razones de momentum
+        if momentum_analysis['momentum_strength'] > 50:
+            reasons.append(f"Momentum {momentum_analysis['momentum_direction']} fuerte")
         
-        if analysis.get('velocity', 0) > 2.0:
-            reasons.append(f"Velocidad: {analysis['velocity']:.1f}x")
-            
-        if analysis.get('acceleration', 0) > 1.5:
-            reasons.append(f"Aceleración: +{analysis['acceleration']:.1f}σ")
+        if momentum_analysis['pressure_strength'] > 60:
+            reasons.append(f"Presión {momentum_analysis['pressure_direction']} dominante")
+        
+        # Razones de segmentos
+        if segment_prediction['recent_alignment']:
+            reasons.append("Alineación consistente en segmentos finales")
+        
+        # Razones de patrón
+        if candle_pattern['type'] != "LIGERO":
+            reasons.append(f"Patrón {candle_pattern['type']} {candle_pattern['direction']}")
+        
+        # Razón de consistencia
+        if len([r for r in reasons if 'consist' in r.lower() or 'aline' in r.lower()]) >= 2:
+            reasons.append("Alta consistencia en señales")
         
         if not reasons:
-            reasons.append("Señales mixtas - análisis en curso")
-            
+            reasons.append("Señales equilibradas - análisis conservador")
+        
         return reasons
     
-    def validate_prediction(self, actual_price: float):
+    def validate_prediction(self, actual_direction: str):
+        """Valida la predicción contra el resultado real"""
         if not self.prediction_history:
             return None
             
         last_prediction = self.prediction_history[-1]
         predicted_direction = last_prediction['direction']
         
-        if hasattr(self.analyzer, 'last_candle_close') and self.analyzer.last_candle_close:
-            price_change = actual_price - self.analyzer.last_candle_close
-            actual_direction = "ALZA" if price_change > 0 else "BAJA" if price_change < 0 else "LATERAL"
-            
-            is_correct = (predicted_direction == actual_direction and 
-                         predicted_direction != "LATERAL" and 
-                         actual_direction != "LATERAL")
-            
-            if is_correct:
-                self.performance_stats['correct_predictions'] += 1
-                self.performance_stats['current_streak'] += 1
-                self.performance_stats['best_streak'] = max(
-                    self.performance_stats['best_streak'], 
-                    self.performance_stats['current_streak']
-                )
-                self.performance_stats['today_profit'] += abs(price_change) * 10000
-            else:
-                self.performance_stats['current_streak'] = 0
-                self.performance_stats['today_profit'] -= abs(price_change) * 10000 * 0.5
-            
-            return {
-                "predicted": predicted_direction,
-                "actual": actual_direction,
-                "correct": is_correct,
-                "price_change": price_change * 10000,
-                "current_streak": self.performance_stats['current_streak']
-            }
+        is_correct = (predicted_direction == actual_direction and 
+                     predicted_direction != "LATERAL" and 
+                     actual_direction != "LATERAL")
         
-        return None
+        if is_correct:
+            self.performance_stats['correct_predictions'] += 1
+            self.performance_stats['current_streak'] += 1
+            self.performance_stats['best_streak'] = max(
+                self.performance_stats['best_streak'], 
+                self.performance_stats['current_streak']
+            )
+        else:
+            self.performance_stats['current_streak'] = 0
+        
+        return {
+            "predicted": predicted_direction,
+            "actual": actual_direction,
+            "correct": is_correct,
+            "current_streak": self.performance_stats['current_streak']
+        }
     
     def get_performance_stats(self):
         accuracy = 0
@@ -856,14 +1067,13 @@ class ComprehensiveAIPredictor:
             "correct_predictions": self.performance_stats['correct_predictions'],
             "current_streak": self.performance_stats['current_streak'],
             "best_streak": self.performance_stats['best_streak'],
-            "today_profit": round(self.performance_stats['today_profit'], 2),
             "today_signals": self.performance_stats['today_signals']
         }
     
     def reset(self):
         self.analyzer.reset()
 
-# ------------------ DASHBOARD RESPONSIVO MEJORADO ------------------
+# ------------------ DASHBOARD RESPONSIVO ------------------
 class ResponsiveDashboard:
     def __init__(self):
         self.dashboard_data = {
@@ -879,7 +1089,8 @@ class ResponsiveDashboard:
                 "time_remaining": 60,
                 "price": 0.0,
                 "ticks_processed": 0,
-                "is_last_5_seconds": False
+                "is_last_5_seconds": False,
+                "current_phase": "INICIAL"
             },
             "metrics": {
                 "density": 0,
@@ -960,6 +1171,16 @@ class ResponsiveDashboard:
         progress = ((60 - remaining_time) / 60) * 100
         is_last_5 = metronome.is_last_5_seconds()
         
+        # Determinar fase actual
+        if remaining_time > 45:
+            current_phase = "FASE 1 (0-15s)"
+        elif remaining_time > 25:
+            current_phase = "FASE 2 (15-35s)"
+        elif remaining_time > 5:
+            current_phase = "FASE 3 (35-55s)"
+        else:
+            current_phase = "PREDICCIÓN (55-60s)"
+        
         if is_last_5 and not self.dashboard_data["current_candle"]["is_last_5_seconds"]:
             self.dashboard_data["visual_effects"]["pulse_animation"] = True
             try:
@@ -972,7 +1193,8 @@ class ResponsiveDashboard:
             "time_remaining": remaining_time,
             "price": current_price,
             "ticks_processed": ticks_processed,
-            "is_last_5_seconds": is_last_5
+            "is_last_5_seconds": is_last_5,
+            "current_phase": current_phase
         }
         
         self.dashboard_data["visual_effects"]["countdown_active"] = is_last_5
@@ -1021,7 +1243,7 @@ class ResponsiveDashboard:
         else:
             return "═", "yellow"
 
-# ------------------ WEBSOCKET MANAGER MEJORADO ------------------
+# ------------------ WEBSOCKET MANAGER ------------------
 class AdvancedConnectionManager:
     def __init__(self):
         self.active_connections = set()
@@ -1070,223 +1292,14 @@ class AdvancedConnectionManager:
         for connection in disconnected:
             self.disconnect(connection)
 
-# ------------------ FUNCIÓN PARA EXTRACT REAL FEATURES ------------------
-def _extract_real_features(analysis):
-    """Extraer features reales del análisis, no simulación"""
-    try:
-        features = []
-        
-        if 'buy_pressure' in analysis:
-            features.append(analysis['buy_pressure'])
-        if 'trend_strength' in analysis:
-            features.append(analysis['trend_strength'] / 10.0)
-        if 'velocity' in analysis:
-            features.append(analysis['velocity'] / 5.0)
-        if 'acceleration' in analysis:
-            features.append(analysis['acceleration'] / 3.0)
-        if 'volatility' in analysis:
-            features.append(analysis['volatility'] / 5.0)
-        
-        while len(features) < 18:
-            features.append(0.0)
-        
-        return np.array(features[:18])
-        
-    except Exception as e:
-        logging.error(f"❌ Error extrayendo features: {e}")
-        return np.zeros(18)
-
-# ------------------ INICIALIZACIÓN CON DEBUG ------------------
-def start_system():
-    try:
-        logging.info("🔧 INICIANDO SISTEMA - DEBUG")
-        logging.info("🔧 Paso 1: Sistema iniciando...")
-        
-        # ✅ INICIAR CONEXIÓN IQ OPTION INMEDIATAMENTE
-        logging.info("🔄 Iniciando conexión a IQ Option...")
-        
-        # Intentar conexión inicial
-        connection_result = iq_connector.connect()
-        logging.info(f"🔧 Resultado conexión IQ Option: {connection_result}")
-        
-        if connection_result:
-            logging.info("✅ Conexión IQ Option exitosa al inicio")
-            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
-        else:
-            logging.error("❌ Conexión IQ Option falló al inicio")
-            dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
-        
-        # ✅ INICIAR THREAD DE TRADING
-        logging.info("🔧 Iniciando thread de trading...")
-        trading_thread = threading.Thread(target=premium_main_loop_deep_analysis, daemon=True)
-        trading_thread.start()
-        logging.info("🔧 Thread de trading iniciado")
-        
-        logging.info(f"⭐ DELOWYSS AI V5.8 INICIADA - ANÁLISIS PROFUNDO")
-        logging.info("🎯 PREDICCIÓN A 5s - ANÁLISIS TICK POR TICK")
-        logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
-        
-        # ✅ VERIFICAR QUE EL THREAD ESTÁ ACTIVO
-        time.sleep(2)
-        logging.info(f"🔧 Threads activos: {threading.active_count()}")
-        logging.info(f"🔧 Threads: {[t.name for t in threading.enumerate()]}")
-        
-    except Exception as e:
-        logging.error(f"❌ Error iniciando sistema: {e}")
-        import traceback
-        logging.error(f"❌ Traceback: {traceback.format_exc()}")
-
-# ------------------ FUNCIÓN PRINCIPAL DE TRADING CORREGIDA ------------------
-def premium_main_loop_deep_analysis():
-    global _last_candle_start, _prediction_made_this_candle, _last_prediction_time, _last_price
-    
-    logging.info(f"🚀 LOOP DE TRADING INICIADO - ANÁLISIS PROFUNDO")
-    
-    # ✅ SINCRONIZAR METRÓNOMO
-    try:
-        logging.info("🔧 Sincronizando metrónomo...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
-        loop.close()
-        logging.info("✅ Metrónomo sincronizado en loop de trading")
-    except Exception as e:
-        logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
-    
-    # ✅ LOOP PRINCIPAL CON RECONEXIÓN
-    logging.info("🔧 Entrando al loop principal de trading...")
-    
-    while True:
-        try:
-            # ✅ VERIFICAR CONEXIÓN Y RECONECTAR SI ES NECESARIO
-            if not iq_connector.connected:
-                logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
-                if iq_connector.connect():
-                    logging.info("✅ Reconexión exitosa a IQ Option")
-                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
-                else:
-                    logging.error("❌ No se pudo reconectar a IQ Option")
-                    dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
-                    time.sleep(10)
-                    continue
-            
-            current_time = time.time()
-            current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
-            seconds_remaining = iq_connector.get_remaining_time()
-            
-            # ✅ OBTENER PRECIO ACTUAL
-            price = iq_connector.get_realtime_price()
-            if price and price > 0:
-                _last_price = price
-                
-                # ✅ PROCESAR TICK
-                tick_data = predictor.process_tick(price, seconds_remaining)
-                
-                if tick_data:
-                    # ✅ ACTUALIZAR DASHBOARD
-                    dashboard_manager.dashboard.update_candle_progress(
-                        dashboard_manager.metronome,
-                        price,
-                        predictor.analyzer.tick_count
-                    )
-                    
-                    # ✅ ACTUALIZAR MÉTRICAS CADA 2 SEGUNDOS
-                    global _last_analysis_time
-                    if current_time - _last_analysis_time >= 2:
-                        analysis = predictor.analyzer.get_deep_analysis()
-                        if analysis.get('status') == 'SUCCESS':
-                            density = analysis.get('buy_pressure', 0.5) * 100
-                            velocity = analysis.get('velocity', 0)
-                            acceleration = analysis.get('acceleration', 0)
-                            phase = analysis.get('market_phase', 'INICIAL')
-                            
-                            dashboard_manager.dashboard.update_metrics(
-                                density, velocity, acceleration, phase, predictor.analyzer.tick_count
-                            )
-                            _last_analysis_time = current_time
-
-            # ✅ VERIFICAR SI ES TIEMPO DE PREDICCIÓN
-            prediction_time = (seconds_remaining <= PREDICTION_WINDOW and 
-                             seconds_remaining > 0.5)
-            
-            if (prediction_time and
-                predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
-                not _prediction_made_this_candle):
-
-                logging.info(f"🎯 PREDICCIÓN A {seconds_remaining:.1f}s | Ticks: {predictor.analyzer.tick_count}")
-                
-                analysis = predictor.analyzer.get_deep_analysis()
-                if analysis.get('status') == 'SUCCESS':
-                    features = _extract_real_features(analysis)
-                    ml_prediction = online_learner.predict(features)
-                    
-                    final_prediction = predictor.predict_next_candle(ml_prediction)
-                    
-                    # ✅ ACTUALIZAR DASHBOARD CON PREDICCIÓN
-                    try:
-                        dashboard_manager.dashboard.update_prediction(
-                            final_prediction['direction'],
-                            final_prediction['confidence']
-                        )
-                        
-                        stats = predictor.get_performance_stats()
-                        dashboard_manager.dashboard.update_performance(
-                            stats['accuracy'],
-                            stats['today_profit'],
-                            stats['today_signals'],
-                            stats['best_streak'],
-                            stats['current_streak']
-                        )
-                        
-                    except Exception as e:
-                        logging.error(f"❌ Error actualizando dashboard: {e}")
-
-                    _last_prediction_time = time.time()
-                    _prediction_made_this_candle = True
-                    
-                    logging.info(f"🚀 PREDICCIÓN COMPLETADA: {final_prediction['direction']} {final_prediction['confidence']}%")
-
-            # ✅ DETECCIÓN NUEVA VELA
-            if current_candle_start > _last_candle_start:
-                if _last_price is not None:
-                    try:
-                        validation = predictor.validate_prediction(_last_price)
-                        if validation:
-                            price_change = validation.get("price_change", 0)
-                            actual_direction = validation.get("actual", "LATERAL")
-                            
-                            analysis = predictor.analyzer.get_deep_analysis()
-                            if analysis.get('status') == 'SUCCESS':
-                                features = _extract_real_features(analysis)
-                                
-                                if features is not None and features.size == 18:
-                                    online_learner.add_sample(features, actual_direction)
-                                    training_result = online_learner.partial_train(batch_size=16)
-                                    
-                                    if training_result.get('trained', False):
-                                        logging.info(f"📚 AutoLearning: {actual_direction} | Cambio: {price_change:.1f}pips")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Error en validación: {e}")
-
-                predictor.reset()
-                _last_candle_start = current_candle_start
-                _prediction_made_this_candle = False
-                logging.info("🕯️ NUEVA VELA - Análisis profundo reiniciado")
-
-            time.sleep(0.1)  # ✅ REDUCIR SLEEP PARA MEJOR RESPONSIVIDAD
-            
-        except Exception as e:
-            logging.error(f"💥 Error en loop principal: {e}")
-            time.sleep(5)  # ✅ ESPERAR MÁS EN CASO DE ERROR
-
-# ------------------ HTML INTERFAZ 100% RESPONSIVA ------------------
+# ------------------ HTML INTERFAZ COMPLETA ------------------
 HTML_RESPONSIVE = '''
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>🚀 Delowyss AI V5.8 - IQ Option REAL</title>
+    <title>🚀 Delowyss AI V5.10 - Análisis Completo de Vela</title>
     <style>
         :root {
             --green-bright: #00ff88;
@@ -1652,8 +1665,8 @@ HTML_RESPONSIVE = '''
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Delowyss AI V5.8</h1>
-            <div class="subtitle">Análisis Profundo en Tiempo Real - IQ Option REAL</div>
+            <h1>🚀 Delowyss AI V5.10</h1>
+            <div class="subtitle">Análisis Completo de Vela - Predicción en Tiempo Real</div>
         </div>
         
         <div class="dashboard-grid">
@@ -1668,7 +1681,7 @@ HTML_RESPONSIVE = '''
                 <div class="prediction-display" id="predictionArrow">⏳</div>
                 
                 <div id="predictionInfo">
-                    <div style="font-size: 1.3em; margin: 10px 0;" id="predictionText">ANALIZANDO MERCADO...</div>
+                    <div style="font-size: 1.3em; margin: 10px 0;" id="predictionText">ANALIZANDO VELA ACTUAL...</div>
                     
                     <div class="progress-container">
                         <div class="progress-bar">
@@ -1682,6 +1695,7 @@ HTML_RESPONSIVE = '''
                             <div class="progress-fill bg-blue" id="candleProgress" style="width: 0%;"></div>
                         </div>
                         <div id="candleInfo" style="margin-top: 5px; font-size: 0.9em;">Vela: 0/60s | Ticks: 0</div>
+                        <div id="phaseInfo" style="font-size: 0.8em; color: var(--text-dim);">Fase: INICIAL</div>
                     </div>
                     
                     <div id="priceInfo" style="font-size: 1.1em; margin-top: 10px; font-family: monospace;">
@@ -1691,27 +1705,27 @@ HTML_RESPONSIVE = '''
             </div>
             
             <div class="card">
-                <div class="card-title">📊 MÉTRICAS EN TIEMPO REAL</div>
+                <div class="card-title">📊 ANÁLISIS DE VELA</div>
                 <div class="metrics-grid">
                     <div class="metric-item">
-                        <div class="metric-label">Densidad</div>
-                        <div class="metric-value" id="densityValue">0%</div>
-                        <div class="metric-label" id="densityDirection">NEUTRAL</div>
+                        <div class="metric-label">Fase Actual</div>
+                        <div class="metric-value" id="currentPhase">INICIAL</div>
+                        <div class="metric-label" id="phaseProgress">0%</div>
                     </div>
                     <div class="metric-item">
-                        <div class="metric-label">Velocidad</div>
-                        <div class="metric-value" id="velocityValue">0.0x</div>
-                        <div class="metric-label">vs Promedio</div>
+                        <div class="metric-label">Ticks</div>
+                        <div class="metric-value" id="tickCount">0</div>
+                        <div class="metric-label">Procesados</div>
                     </div>
                     <div class="metric-item">
-                        <div class="metric-label">Aceleración</div>
-                        <div class="metric-value" id="accelerationValue">0.0σ</div>
-                        <div class="metric-label">Desviación</div>
+                        <div class="metric-label">Volatilidad</div>
+                        <div class="metric-value" id="volatilityValue">0.0</div>
+                        <div class="metric-label">pips</div>
                     </div>
                     <div class="metric-item">
-                        <div class="metric-label">Señales</div>
-                        <div class="metric-value" id="signalCount">0</div>
-                        <div class="metric-label">Activas</div>
+                        <div class="metric-label">Presión</div>
+                        <div class="metric-value" id="pressureValue">50%</div>
+                        <div class="metric-label">Compra/Venta</div>
                     </div>
                 </div>
             </div>
@@ -1724,16 +1738,16 @@ HTML_RESPONSIVE = '''
                         <div class="metric-value" id="accuracyValue">0%</div>
                     </div>
                     <div class="metric-item">
-                        <div class="metric-label">Profit</div>
-                        <div class="metric-value" id="profitValue">0%</div>
-                    </div>
-                    <div class="metric-item">
                         <div class="metric-label">Racha +</div>
                         <div class="metric-value" id="winStreak">0</div>
                     </div>
                     <div class="metric-item">
                         <div class="metric-label">Señales</div>
                         <div class="metric-value" id="totalSignals">0</div>
+                    </div>
+                    <div class="metric-item">
+                        <div class="metric-label">Éxito</div>
+                        <div class="metric-value" id="successRate">0%</div>
                     </div>
                 </div>
             </div>
@@ -1760,7 +1774,7 @@ HTML_RESPONSIVE = '''
             </div>
             
             <div class="card">
-                <div class="card-title">📈 HISTORIAL RECIENTE</div>
+                <div class="card-title">📈 HISTORIAL DE PREDICCIONES</div>
                 <div class="history-list" id="historyList">
                     <div class="history-item">
                         <span>Sistema iniciado</span>
@@ -1868,20 +1882,36 @@ HTML_RESPONSIVE = '''
                 barElement.style.width = `${prediction.confidence}%`;
                 barElement.className = `progress-fill bg-${prediction.color.split('-')[0]}`;
                 confidenceText.textContent = `Confianza: ${prediction.confidence}%`;
+                
+                // Agregar al historial si es nueva predicción
+                if (prediction.direction !== 'N/A' && prediction.confidence > 0) {
+                    this.addHistoryItem(
+                        `Predicción: ${prediction.direction} ${prediction.confidence}%`,
+                        prediction.direction === 'ALZA' ? 'success' : prediction.direction === 'BAJA' ? 'error' : 'warning'
+                    );
+                }
             }
             
             updateCandleInfo(candle) {
                 const progressElement = document.getElementById('candleProgress');
                 const infoElement = document.getElementById('candleInfo');
+                const phaseElement = document.getElementById('phaseInfo');
                 const priceElement = document.getElementById('currentPrice');
                 const timeElement = document.getElementById('timeRemaining');
                 const last5Element = document.getElementById('last5Indicator');
+                const currentPhaseElement = document.getElementById('currentPhase');
+                const phaseProgressElement = document.getElementById('phaseProgress');
+                const tickCountElement = document.getElementById('tickCount');
                 const predictionCard = document.getElementById('predictionCard');
                 
                 progressElement.style.width = `${candle.progress}%`;
                 infoElement.textContent = `Vela: ${60 - candle.time_remaining}/60s | Ticks: ${candle.ticks_processed}`;
-                priceElement.textContent = candle.price.toFixed(5);
+                phaseElement.textContent = `Fase: ${candle.current_phase}`;
+                priceElement.textContent = candle.price ? candle.price.toFixed(5) : '-';
                 timeElement.textContent = candle.time_remaining.toFixed(1);
+                currentPhaseElement.textContent = candle.current_phase;
+                phaseProgressElement.textContent = `${candle.progress.toFixed(0)}%`;
+                tickCountElement.textContent = candle.ticks_processed;
                 
                 if (candle.is_last_5_seconds) {
                     last5Element.style.display = 'inline';
@@ -1893,21 +1923,19 @@ HTML_RESPONSIVE = '''
             }
             
             updateMetrics(metrics) {
-                document.getElementById('densityValue').textContent = `${metrics.density}%`;
-                document.getElementById('densityValue').className = `metric-value ${this.getDensityColor(metrics.density)}`;
-                document.getElementById('densityDirection').textContent = 
-                    metrics.density >= 60 ? 'ALCISTA' : metrics.density <= 40 ? 'BAJISTA' : 'NEUTRAL';
-                
-                document.getElementById('velocityValue').textContent = `${metrics.velocity}x`;
-                document.getElementById('accelerationValue').textContent = `${metrics.acceleration}σ`;
-                document.getElementById('signalCount').textContent = metrics.signal_count;
+                document.getElementById('pressureValue').textContent = `${metrics.density}%`;
+                document.getElementById('pressureValue').className = `metric-value ${this.getPressureColor(metrics.density)}`;
+                document.getElementById('volatilityValue').textContent = `${metrics.velocity}`;
             }
             
             updatePerformance(performance) {
                 document.getElementById('accuracyValue').textContent = `${performance.today_accuracy}%`;
-                document.getElementById('profitValue').textContent = `${performance.today_profit}%`;
                 document.getElementById('winStreak').textContent = performance.current_streak;
                 document.getElementById('totalSignals').textContent = performance.total_signals;
+                
+                const successRate = performance.today_accuracy > 0 ? performance.today_accuracy : 0;
+                document.getElementById('successRate').textContent = `${successRate}%`;
+                document.getElementById('successRate').className = `metric-value ${this.getSuccessColor(successRate)}`;
             }
             
             updateSystemStatus(status) {
@@ -1958,11 +1986,19 @@ HTML_RESPONSIVE = '''
                 }
             }
             
-            getDensityColor(density) {
-                if (density >= 70) return 'green';
-                if (density >= 60) return 'green-light';
-                if (density <= 30) return 'red';
-                if (density <= 40) return 'red-light';
+            getPressureColor(pressure) {
+                if (pressure >= 70) return 'green';
+                if (pressure >= 60) return 'green-light';
+                if (pressure <= 30) return 'red';
+                if (pressure <= 40) return 'red-light';
+                return 'yellow';
+            }
+            
+            getSuccessColor(successRate) {
+                if (successRate >= 70) return 'green';
+                if (successRate >= 60) return 'green-light';
+                if (successRate <= 40) return 'red';
+                if (successRate <= 50) return 'red-light';
                 return 'yellow';
             }
             
@@ -2014,25 +2050,11 @@ HTML_RESPONSIVE = '''
 </html>
 '''
 
-# ------------------ SISTEMA PRINCIPAL CORREGIDO ------------------
-# Instancias globales
-iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
-predictor = ComprehensiveAIPredictor()
-online_learner = AdaptiveMarketLearner(feature_size=18)
-dashboard_manager = AdvancedConnectionManager()
-
-# Variables globales
-_last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
-_prediction_made_this_candle = False
-_last_prediction_time = 0
-_last_price = None
-_last_analysis_time = 0
-
 # ------------------ FASTAPI APP ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V5.8 - Análisis Profundo",
-    description="Sistema de IA con análisis profundo tick por tick - IQ Option REAL",
-    version="5.8.0"
+    title="Delowyss Trading AI V5.10 - Análisis Completo de Vela",
+    description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela",
+    version="5.10.0"
 )
 
 app.add_middleware(
@@ -2043,7 +2065,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------ CONFIGURACIÓN RUTAS UI ------------------
+# ------------------ CONFIGURACIÓN RUTAS ------------------
 def setup_responsive_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_connector):
     @app.get("/", response_class=HTMLResponse)
     async def get_responsive_dashboard():
@@ -2098,30 +2120,24 @@ setup_responsive_routes(app, dashboard_manager, iq_connector)
 # ------------------ ENDPOINTS API ------------------
 @app.get("/api/prediction")
 async def get_prediction():
-    analysis = predictor.analyzer.get_deep_analysis()
-    if analysis.get('status') == 'SUCCESS':
-        return {
-            "direction": dashboard_manager.dashboard.dashboard_data["current_prediction"]["direction"],
-            "confidence": dashboard_manager.dashboard.dashboard_data["current_prediction"]["confidence"],
-            "current_price": analysis['current_price'],
-            "tick_count": predictor.analyzer.tick_count,
-            "timestamp": now_iso()
-        }
-    return {"status": "ANALYZING", "message": "Procesando datos..."}
+    analysis = predictor.analyzer.get_candle_analysis()
+    if analysis.get('status') == 'COMPLETE_ANALYSIS':
+        prediction = predictor.predict_next_candle()
+        return prediction
+    return {"status": "ANALYZING", "message": "Analizando vela actual..."}
 
 @app.get("/api/performance")
 async def get_performance():
     stats = predictor.get_performance_stats()
     return {
         "performance": stats,
-        "ml_training": online_learner.last_training_result,
-        "system_status": "DEEP_ANALYSIS_ACTIVE",
+        "system_status": "CANDLE_ANALYSIS_ACTIVE",
         "timestamp": now_iso()
     }
 
 @app.get("/api/analysis")
 async def get_analysis():
-    analysis = predictor.analyzer.get_deep_analysis()
+    analysis = predictor.analyzer.get_candle_analysis()
     return {
         "analysis": analysis,
         "timestamp": now_iso()
@@ -2131,7 +2147,7 @@ async def get_analysis():
 async def get_status():
     return {
         "status": "operational",
-        "version": "5.8.0",
+        "version": "5.10.0",
         "pair": PAR,
         "timeframe": "1min",
         "iq_connected": iq_connector.connected,
@@ -2140,7 +2156,152 @@ async def get_status():
         "timestamp": now_iso()
     }
 
-# ✅ INICIAR SISTEMA COMPLETO
+# ------------------ SISTEMA PRINCIPAL ------------------
+# Instancias globales
+iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
+predictor = NextCandlePredictor()
+dashboard_manager = AdvancedConnectionManager()
+
+# Variables globales
+_last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
+_prediction_made_this_candle = False
+_last_price = None
+
+# ------------------ INICIALIZACIÓN ------------------
+def start_system():
+    try:
+        logging.info("🔧 INICIANDO SISTEMA V5.10 - ANÁLISIS COMPLETO DE VELA")
+        logging.info("🎯 SISTEMA DE PREDICCIÓN BASADO EN ANÁLISIS COMPLETO")
+        
+        # ✅ INICIAR CONEXIÓN IQ OPTION
+        logging.info("🔄 Iniciando conexión a IQ Option...")
+        connection_result = iq_connector.connect()
+        logging.info(f"🔧 Resultado conexión IQ Option: {connection_result}")
+        
+        if connection_result:
+            logging.info("✅ Conexión IQ Option exitosa al inicio")
+            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+        else:
+            logging.error("❌ Conexión IQ Option falló al inicio")
+            dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
+        
+        # ✅ INICIAR THREAD DE ANÁLISIS
+        logging.info("🔧 Iniciando thread de análisis de vela...")
+        trading_thread = threading.Thread(target=premium_candle_analysis_loop, daemon=True)
+        trading_thread.start()
+        logging.info("🔧 Thread de análisis de vela iniciado")
+        
+        logging.info(f"⭐ DELOWYSS AI V5.10 INICIADA - ANÁLISIS COMPLETO DE VELA")
+        logging.info("🎯 PREDICCIÓN A 5s - ANÁLISIS COMPLETO DESDE INICIO DE VELA")
+        logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
+        
+        time.sleep(2)
+        logging.info(f"🔧 Threads activos: {threading.active_count()}")
+        
+    except Exception as e:
+        logging.error(f"❌ Error iniciando sistema: {e}")
+        import traceback
+        logging.error(f"❌ Traceback: {traceback.format_exc()}")
+
+# ------------------ LOOP PRINCIPAL ------------------
+def premium_candle_analysis_loop():
+    global _last_candle_start, _prediction_made_this_candle, _last_price
+    
+    logging.info(f"🚀 LOOP DE ANÁLISIS DE VELA COMPLETA INICIADO")
+    
+    # ✅ SINCRONIZAR METRÓNOMO
+    try:
+        logging.info("🔧 Sincronizando metrónomo...")
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
+        loop.close()
+        logging.info("✅ Metrónomo sincronizado en loop de análisis")
+    except Exception as e:
+        logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
+    
+    while True:
+        try:
+            if not iq_connector.connected:
+                logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
+                if iq_connector.connect():
+                    logging.info("✅ Reconexión exitosa a IQ Option")
+                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+                else:
+                    logging.error("❌ No se pudo reconectar a IQ Option")
+                    dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
+                    time.sleep(10)
+                continue
+            
+            current_time = time.time()
+            current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
+            seconds_remaining = iq_connector.get_remaining_time()
+            
+            # Obtener precio actual
+            price = iq_connector.get_realtime_price()
+            if price and price > 0:
+                _last_price = price
+                
+                # Procesar tick para análisis
+                predictor.process_tick(price, seconds_remaining)
+                
+                # Hacer predicción en los últimos 5 segundos si no se ha hecho
+                if (dashboard_manager.metronome.is_prediction_time() and 
+                    not _prediction_made_this_candle and
+                    predictor.analyzer.is_ready_for_prediction()):
+                    
+                    logging.info(f"🎯 HACIENDO PREDICCIÓN A {seconds_remaining:.1f}s")
+                    
+                    prediction = predictor.predict_next_candle()
+                    
+                    # Actualizar dashboard
+                    dashboard_manager.dashboard.update_prediction(
+                        prediction['direction'],
+                        prediction['confidence']
+                    )
+                    
+                    # Actualizar métricas de performance
+                    stats = predictor.get_performance_stats()
+                    dashboard_manager.dashboard.update_performance(
+                        stats['accuracy'],
+                        0,  # profit no aplica en este sistema
+                        stats['today_signals'],
+                        stats['best_streak'],
+                        stats['current_streak']
+                    )
+                    
+                    _prediction_made_this_candle = True
+                    logging.info(f"✅ PREDICCIÓN: {prediction['direction']} {prediction['confidence']}%")
+            
+            # Detectar nueva vela
+            if current_candle_start > _last_candle_start:
+                if _last_price is not None:
+                    # Determinar dirección real de la vela que acaba de cerrar
+                    if (predictor.analyzer.current_candle_close is not None and 
+                        predictor.analyzer.current_candle_open is not None):
+                        
+                        price_change = predictor.analyzer.current_candle_close - predictor.analyzer.current_candle_open
+                        actual_direction = "ALZA" if price_change > 0.00001 else "BAJA" if price_change < -0.00001 else "LATERAL"
+                        
+                        # Validar predicción
+                        validation = predictor.validate_prediction(actual_direction)
+                        if validation:
+                            result_icon = '✅' if validation['correct'] else '❌'
+                            logging.info(f"📊 VALIDACIÓN: Predicho {validation['predicted']} vs Real {validation['actual']} - {result_icon}")
+                
+                # Reiniciar para nueva vela
+                predictor.reset()
+                _last_candle_start = current_candle_start
+                _prediction_made_this_candle = False
+                logging.info("🕯️ NUEVA VELA - Análisis completo reiniciado")
+            
+            time.sleep(0.1)
+            
+        except Exception as e:
+            logging.error(f"💥 Error en loop principal: {e}")
+            time.sleep(1)
+
+# ------------------ EJECUCIÓN PRINCIPAL ------------------
 if __name__ == "__main__":
     start_system()
     import uvicorn

@@ -1081,6 +1081,145 @@ class AdvancedConnectionManager:
         for connection in disconnected:
             self.disconnect(connection)
 
+# ------------------ FUNCIÓN PARA EXTRACT REAL FEATURES ------------------
+def _extract_real_features(analysis):
+    """Extraer features reales del análisis, no simulación"""
+    try:
+        features = []
+        
+        # Features basados en análisis real
+        if 'buy_pressure' in analysis:
+            features.append(analysis['buy_pressure'])
+        if 'trend_strength' in analysis:
+            features.append(analysis['trend_strength'] / 10.0)  # Normalizar
+        if 'velocity' in analysis:
+            features.append(analysis['velocity'] / 5.0)  # Normalizar
+        if 'acceleration' in analysis:
+            features.append(analysis['acceleration'] / 3.0)  # Normalizar
+        if 'volatility' in analysis:
+            features.append(analysis['volatility'] / 5.0)  # Normalizar
+        
+        # Rellenar con ceros si no hay suficientes features
+        while len(features) < 18:
+            features.append(0.0)
+        
+        return np.array(features[:18])  # Asegurar tamaño 18
+        
+    except Exception as e:
+        logging.error(f"❌ Error extrayendo features: {e}")
+        return np.zeros(18)
+
+# ------------------ FUNCIÓN PRINCIPAL DE TRADING CORREGIDA ------------------
+def premium_main_loop_deep_analysis():
+    global _last_candle_start, _prediction_made_this_candle, _last_prediction_time, _last_price
+    
+    logging.info(f"🚀 DELOWYSS AI V5.8 - ANÁLISIS PROFUNDO ACTIVADO")
+    logging.info("🎯 PREDICCIÓN A 5 SEGUNDOS - ANÁLISIS TICK POR TICK")
+    
+    if not iq_connector.connect():
+        logging.error("❌ No se pudo conectar a IQ Option")
+        return
+    
+    # ✅ CORREGIDO: Sincronización correcta del metrónomo
+    try:
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
+        loop.close()
+    except Exception as e:
+        logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
+    
+    logging.info(f"✅ CONECTADO A IQ OPTION | Predicción a {PREDICTION_WINDOW}s")
+    
+    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+    
+    while True:
+        try:
+            current_time = time.time()
+            current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
+            seconds_remaining = iq_connector.get_remaining_time()
+            
+            price = iq_connector.get_realtime_price()
+            if price and price > 0:
+                _last_price = price
+                tick_processor(price, current_time, seconds_remaining)
+
+            prediction_time = (seconds_remaining <= PREDICTION_WINDOW and 
+                             seconds_remaining > 0.5)
+            
+            if (prediction_time and
+                predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
+                not _prediction_made_this_candle):
+
+                logging.info(f"🎯 PREDICCIÓN A {seconds_remaining:.1f}s | Ticks: {predictor.analyzer.tick_count}")
+                
+                analysis = predictor.analyzer.get_deep_analysis()
+                if analysis.get('status') == 'SUCCESS':
+                    # ✅ CORREGIDO: Llamada correcta a la función
+                    features = _extract_real_features(analysis)
+                    ml_prediction = online_learner.predict(features)
+                    
+                    final_prediction = predictor.predict_next_candle(ml_prediction)
+                    
+                    # ✅ CORREGIDO: Actualización segura del dashboard
+                    try:
+                        dashboard_manager.dashboard.update_prediction(
+                            final_prediction['direction'],
+                            final_prediction['confidence']
+                        )
+                        
+                        stats = predictor.get_performance_stats()
+                        dashboard_manager.dashboard.update_performance(
+                            stats['accuracy'],
+                            stats['today_profit'],
+                            stats['today_signals'],
+                            stats['best_streak'],
+                            stats['current_streak']
+                        )
+                        
+                    except Exception as e:
+                        logging.error(f"❌ Error actualizando dashboard: {e}")
+
+                    _last_prediction_time = time.time()
+                    _prediction_made_this_candle = True
+                    
+                    logging.info(f"🚀 PREDICCIÓN COMPLETADA: {final_prediction['direction']} {final_prediction['confidence']}%")
+
+            # DETECCIÓN NUEVA VELA
+            if current_candle_start > _last_candle_start:
+                if _last_price is not None:
+                    # ✅ CORREGIDO: Validación segura
+                    try:
+                        validation = predictor.validate_prediction(_last_price)
+                        if validation:
+                            price_change = validation.get("price_change", 0)
+                            actual_direction = validation.get("actual", "LATERAL")
+                            
+                            analysis = predictor.analyzer.get_deep_analysis()
+                            if analysis.get('status') == 'SUCCESS':
+                                # ✅ CORREGIDO: Llamada correcta a la función
+                                features = _extract_real_features(analysis)
+                                
+                                if features is not None and features.size == 18:
+                                    online_learner.add_sample(features, actual_direction)
+                                    training_result = online_learner.partial_train(batch_size=16)
+                                    
+                                    if training_result.get('trained', False):
+                                        logging.info(f"📚 AutoLearning: {actual_direction} | Cambio: {price_change:.1f}pips")
+                    except Exception as e:
+                        logging.warning(f"⚠️ Error en validación: {e}")
+
+                predictor.reset()
+                _last_candle_start = current_candle_start
+                _prediction_made_this_candle = False
+                logging.info("🕯️ NUEVA VELA - Análisis profundo reiniciado")
+
+            time.sleep(0.05)
+            
+        except Exception as e:
+            logging.error(f"💥 Error en loop principal: {e}")
+            time.sleep(1)
+
 # ------------------ HTML INTERFAZ 100% RESPONSIVA ------------------
 HTML_RESPONSIVE = '''
 <!DOCTYPE html>
@@ -1894,6 +2033,36 @@ async def continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_co
             logging.error(f"Error en actualización continua: {e}")
             await asyncio.sleep(1)
 
+def tick_processor(price, timestamp, seconds_remaining):
+    global _last_analysis_time
+    try:
+        current_time = time.time()
+        
+        tick_data = predictor.process_tick(price, seconds_remaining)
+        
+        if current_time - _last_analysis_time >= 2:
+            analysis = predictor.analyzer.get_deep_analysis()
+            if analysis.get('status') == 'SUCCESS':
+                density = analysis.get('buy_pressure', 0.5) * 100
+                velocity = analysis.get('velocity', 0)
+                acceleration = analysis.get('acceleration', 0)
+                phase = analysis.get('market_phase', 'INICIAL')
+                
+                dashboard_manager.dashboard.update_metrics(
+                    density, velocity, acceleration, phase
+                )
+                _last_analysis_time = current_time
+            
+        if tick_data:
+            dashboard_manager.dashboard.update_candle_progress(
+                dashboard_manager.metronome,
+                price,
+                predictor.analyzer.tick_count
+            )
+            
+    except Exception as e:
+        logging.error(f"❌ Error procesando tick: {e}")
+
 # Configurar rutas
 setup_responsive_routes(app, dashboard_manager, iq_connector)
 
@@ -1941,173 +2110,6 @@ async def get_status():
         "prediction_window": f"{PREDICTION_WINDOW}s",
         "timestamp": now_iso()
     }
-
-# ------------------ FUNCIÓN PRINCIPAL DE TRADING ------------------
-def tick_processor(price, timestamp, seconds_remaining):
-    global _last_analysis_time
-    try:
-        current_time = time.time()
-        
-        tick_data = predictor.process_tick(price, seconds_remaining)
-        
-        if current_time - _last_analysis_time >= 2:
-            analysis = predictor.analyzer.get_deep_analysis()
-            if analysis.get('status') == 'SUCCESS':
-                density = analysis.get('buy_pressure', 0.5) * 100
-                velocity = analysis.get('velocity', 0)
-                acceleration = analysis.get('acceleration', 0)
-                phase = analysis.get('market_phase', 'INICIAL')
-                
-                dashboard_manager.dashboard.update_metrics(
-                    density, velocity, acceleration, phase
-                )
-                _last_analysis_time = current_time
-            
-        if tick_data:
-            dashboard_manager.dashboard.update_candle_progress(
-                dashboard_manager.metronome,
-                price,
-                predictor.analyzer.tick_count
-            )
-            
-    except Exception as e:
-        logging.error(f"❌ Error procesando tick: {e}")
-
-def premium_main_loop_deep_analysis():
-    global _last_candle_start, _prediction_made_this_candle, _last_prediction_time, _last_price
-    
-    logging.info(f"🚀 DELOWYSS AI V5.8 - ANÁLISIS PROFUNDO ACTIVADO")
-    logging.info("🎯 PREDICCIÓN A 5 SEGUNDOS - ANÁLISIS TICK POR TICK")
-    
-    if not iq_connector.connect():
-        logging.error("❌ No se pudo conectar a IQ Option")
-        return
-    
-    # ✅ CORREGIDO: Sincronización correcta del metrónomo
-    try:
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
-        loop.close()
-    except Exception as e:
-        logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
-    
-    logging.info(f"✅ CONECTADO A IQ OPTION | Predicción a {PREDICTION_WINDOW}s")
-    
-    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
-    
-    while True:
-        try:
-            current_time = time.time()
-            current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
-            seconds_remaining = iq_connector.get_remaining_time()
-            
-            price = iq_connector.get_realtime_price()
-            if price and price > 0:
-                _last_price = price
-                tick_processor(price, current_time, seconds_remaining)
-
-            prediction_time = (seconds_remaining <= PREDICTION_WINDOW and 
-                             seconds_remaining > 0.5)
-            
-            if (prediction_time and
-                predictor.analyzer.tick_count >= MIN_TICKS_FOR_PREDICTION and
-                not _prediction_made_this_candle):
-
-                logging.info(f"🎯 PREDICCIÓN A {seconds_remaining:.1f}s | Ticks: {predictor.analyzer.tick_count}")
-                
-                analysis = predictor.analyzer.get_deep_analysis()
-                if analysis.get('status') == 'SUCCESS':
-                    # Análisis real sin simulación
-                    features = self._extract_real_features(analysis)
-                    ml_prediction = online_learner.predict(features)
-                    
-                    final_prediction = predictor.predict_next_candle(ml_prediction)
-                    
-                    # ✅ CORREGIDO: Actualización segura del dashboard
-                    try:
-                        dashboard_manager.dashboard.update_prediction(
-                            final_prediction['direction'],
-                            final_prediction['confidence']
-                        )
-                        
-                        stats = predictor.get_performance_stats()
-                        dashboard_manager.dashboard.update_performance(
-                            stats['accuracy'],
-                            stats['today_profit'],
-                            stats['today_signals'],
-                            stats['best_streak'],
-                            stats['current_streak']
-                        )
-                        
-                    except Exception as e:
-                        logging.error(f"❌ Error actualizando dashboard: {e}")
-
-                    _last_prediction_time = time.time()
-                    _prediction_made_this_candle = True
-                    
-                    logging.info(f"🚀 PREDICCIÓN COMPLETADA: {final_prediction['direction']} {final_prediction['confidence']}%")
-
-            # DETECCIÓN NUEVA VELA
-            if current_candle_start > _last_candle_start:
-                if _last_price is not None:
-                    # ✅ CORREGIDO: Validación segura
-                    try:
-                        validation = predictor.validate_prediction(_last_price)
-                        if validation:
-                            price_change = validation.get("price_change", 0)
-                            actual_direction = validation.get("actual", "LATERAL")
-                            
-                            analysis = predictor.analyzer.get_deep_analysis()
-                            if analysis.get('status') == 'SUCCESS':
-                                features = self._extract_real_features(analysis)
-                                
-                                if features is not None and features.size == 18:
-                                    online_learner.add_sample(features, actual_direction)
-                                    training_result = online_learner.partial_train(batch_size=16)
-                                    
-                                    if training_result.get('trained', False):
-                                        logging.info(f"📚 AutoLearning: {actual_direction} | Cambio: {price_change:.1f}pips")
-                    except Exception as e:
-                        logging.warning(f"⚠️ Error en validación: {e}")
-
-                predictor.reset()
-                _last_candle_start = current_candle_start
-                _prediction_made_this_candle = False
-                logging.info("🕯️ NUEVA VELA - Análisis profundo reiniciado")
-
-            time.sleep(0.05)
-            
-        except Exception as e:
-            logging.error(f"💥 Error en loop principal: {e}")
-            time.sleep(1)
-
-    def _extract_real_features(self, analysis):
-        """Extraer features reales del análisis, no simulación"""
-        try:
-            features = []
-            
-            # Features basados en análisis real
-            if 'buy_pressure' in analysis:
-                features.append(analysis['buy_pressure'])
-            if 'trend_strength' in analysis:
-                features.append(analysis['trend_strength'] / 10.0)  # Normalizar
-            if 'velocity' in analysis:
-                features.append(analysis['velocity'] / 5.0)  # Normalizar
-            if 'acceleration' in analysis:
-                features.append(analysis['acceleration'] / 3.0)  # Normalizar
-            if 'volatility' in analysis:
-                features.append(analysis['volatility'] / 5.0)  # Normalizar
-            
-            # Rellenar con ceros si no hay suficientes features
-            while len(features) < 18:
-                features.append(0.0)
-            
-            return np.array(features[:18])  # Asegurar tamaño 18
-            
-        except Exception as e:
-            logging.error(f"❌ Error extrayendo features: {e}")
-            return np.zeros(18)
 
 # ------------------ INICIALIZACIÓN ------------------
 def start_system():

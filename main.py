@@ -22,7 +22,7 @@ from fastapi.middleware.cors import CORSMiddleware
 
 # ------------------ CONFIGURACIÓN ------------------
 IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
-IQ_PASSWORD = os.getenv("IQ_PASSWORD", "Eduyesy1986/")
+IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
 PAR = "EURUSD"
 TIMEFRAME = 60
 PREDICTION_WINDOW = 5
@@ -1096,48 +1096,116 @@ def _extract_real_features(analysis):
         logging.error(f"❌ Error extrayendo features: {e}")
         return np.zeros(18)
 
+# ------------------ INICIALIZACIÓN CON DEBUG ------------------
+def start_system():
+    try:
+        logging.info("🔧 INICIANDO SISTEMA - DEBUG")
+        logging.info("🔧 Paso 1: Sistema iniciando...")
+        
+        # ✅ INICIAR CONEXIÓN IQ OPTION INMEDIATAMENTE
+        logging.info("🔄 Iniciando conexión a IQ Option...")
+        
+        # Intentar conexión inicial
+        connection_result = iq_connector.connect()
+        logging.info(f"🔧 Resultado conexión IQ Option: {connection_result}")
+        
+        if connection_result:
+            logging.info("✅ Conexión IQ Option exitosa al inicio")
+            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+        else:
+            logging.error("❌ Conexión IQ Option falló al inicio")
+            dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
+        
+        # ✅ INICIAR THREAD DE TRADING
+        logging.info("🔧 Iniciando thread de trading...")
+        trading_thread = threading.Thread(target=premium_main_loop_deep_analysis, daemon=True)
+        trading_thread.start()
+        logging.info("🔧 Thread de trading iniciado")
+        
+        logging.info(f"⭐ DELOWYSS AI V5.8 INICIADA - ANÁLISIS PROFUNDO")
+        logging.info("🎯 PREDICCIÓN A 5s - ANÁLISIS TICK POR TICK")
+        logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
+        
+        # ✅ VERIFICAR QUE EL THREAD ESTÁ ACTIVO
+        time.sleep(2)
+        logging.info(f"🔧 Threads activos: {threading.active_count()}")
+        logging.info(f"🔧 Threads: {[t.name for t in threading.enumerate()]}")
+        
+    except Exception as e:
+        logging.error(f"❌ Error iniciando sistema: {e}")
+        import traceback
+        logging.error(f"❌ Traceback: {traceback.format_exc()}")
+
 # ------------------ FUNCIÓN PRINCIPAL DE TRADING CORREGIDA ------------------
 def premium_main_loop_deep_analysis():
     global _last_candle_start, _prediction_made_this_candle, _last_prediction_time, _last_price
     
-    logging.info(f"🚀 DELOWYSS AI V5.8 - ANÁLISIS PROFUNDO ACTIVADO")
-    logging.info("🎯 PREDICCIÓN A 5 SEGUNDOS - ANÁLISIS TICK POR TICK")
+    logging.info(f"🚀 LOOP DE TRADING INICIADO - ANÁLISIS PROFUNDO")
     
-    if not iq_connector.connect():
-        logging.error("❌ No se pudo conectar a IQ Option")
-        return
-    
+    # ✅ SINCRONIZAR METRÓNOMO
     try:
+        logging.info("🔧 Sincronizando metrónomo...")
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
         loop.close()
+        logging.info("✅ Metrónomo sincronizado en loop de trading")
     except Exception as e:
         logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
     
-    logging.info(f"✅ CONECTADO A IQ OPTION | Predicción a {PREDICTION_WINDOW}s")
-    
-    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+    # ✅ LOOP PRINCIPAL CON RECONEXIÓN
+    logging.info("🔧 Entrando al loop principal de trading...")
     
     while True:
         try:
+            # ✅ VERIFICAR CONEXIÓN Y RECONECTAR SI ES NECESARIO
+            if not iq_connector.connected:
+                logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
+                if iq_connector.connect():
+                    logging.info("✅ Reconexión exitosa a IQ Option")
+                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL", "SYNCED")
+                else:
+                    logging.error("❌ No se pudo reconectar a IQ Option")
+                    dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
+                    time.sleep(10)
+                    continue
+            
             current_time = time.time()
             current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
             seconds_remaining = iq_connector.get_remaining_time()
             
+            # ✅ OBTENER PRECIO ACTUAL
             price = iq_connector.get_realtime_price()
             if price and price > 0:
                 _last_price = price
-                # Procesar tick directamente
+                
+                # ✅ PROCESAR TICK
                 tick_data = predictor.process_tick(price, seconds_remaining)
                 
                 if tick_data:
+                    # ✅ ACTUALIZAR DASHBOARD
                     dashboard_manager.dashboard.update_candle_progress(
                         dashboard_manager.metronome,
                         price,
                         predictor.analyzer.tick_count
                     )
+                    
+                    # ✅ ACTUALIZAR MÉTRICAS CADA 2 SEGUNDOS
+                    global _last_analysis_time
+                    if current_time - _last_analysis_time >= 2:
+                        analysis = predictor.analyzer.get_deep_analysis()
+                        if analysis.get('status') == 'SUCCESS':
+                            density = analysis.get('buy_pressure', 0.5) * 100
+                            velocity = analysis.get('velocity', 0)
+                            acceleration = analysis.get('acceleration', 0)
+                            phase = analysis.get('market_phase', 'INICIAL')
+                            
+                            dashboard_manager.dashboard.update_metrics(
+                                density, velocity, acceleration, phase, predictor.analyzer.tick_count
+                            )
+                            _last_analysis_time = current_time
 
+            # ✅ VERIFICAR SI ES TIEMPO DE PREDICCIÓN
             prediction_time = (seconds_remaining <= PREDICTION_WINDOW and 
                              seconds_remaining > 0.5)
             
@@ -1149,12 +1217,12 @@ def premium_main_loop_deep_analysis():
                 
                 analysis = predictor.analyzer.get_deep_analysis()
                 if analysis.get('status') == 'SUCCESS':
-                    # ✅ CORREGIDO: Llamada correcta a la función
                     features = _extract_real_features(analysis)
                     ml_prediction = online_learner.predict(features)
                     
                     final_prediction = predictor.predict_next_candle(ml_prediction)
                     
+                    # ✅ ACTUALIZAR DASHBOARD CON PREDICCIÓN
                     try:
                         dashboard_manager.dashboard.update_prediction(
                             final_prediction['direction'],
@@ -1178,7 +1246,7 @@ def premium_main_loop_deep_analysis():
                     
                     logging.info(f"🚀 PREDICCIÓN COMPLETADA: {final_prediction['direction']} {final_prediction['confidence']}%")
 
-            # DETECCIÓN NUEVA VELA
+            # ✅ DETECCIÓN NUEVA VELA
             if current_candle_start > _last_candle_start:
                 if _last_price is not None:
                     try:
@@ -1205,11 +1273,11 @@ def premium_main_loop_deep_analysis():
                 _prediction_made_this_candle = False
                 logging.info("🕯️ NUEVA VELA - Análisis profundo reiniciado")
 
-            time.sleep(0.05)
+            time.sleep(0.1)  # ✅ REDUCIR SLEEP PARA MEJOR RESPONSIVIDAD
             
         except Exception as e:
             logging.error(f"💥 Error en loop principal: {e}")
-            time.sleep(1)
+            time.sleep(5)  # ✅ ESPERAR MÁS EN CASO DE ERROR
 
 # ------------------ HTML INTERFAZ 100% RESPONSIVA ------------------
 HTML_RESPONSIVE = '''
@@ -2072,21 +2140,7 @@ async def get_status():
         "timestamp": now_iso()
     }
 
-# ------------------ INICIALIZACIÓN ------------------
-def start_system():
-    try:
-        # ✅ CORREGIDO: Solo iniciar UNA instancia del sistema
-        trading_thread = threading.Thread(target=premium_main_loop_deep_analysis, daemon=True)
-        trading_thread.start()
-        
-        logging.info(f"⭐ DELOWYSS AI V5.8 INICIADA - ANÁLISIS PROFUNDO")
-        logging.info("🎯 PREDICCIÓN A 5s - ANÁLISIS TICK POR TICK")
-        logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
-        
-    except Exception as e:
-        logging.error(f"❌ Error iniciando sistema: {e}")
-
-# ✅ INICIAR SISTEMA COMPLETO - SOLO UNA INSTANCIA
+# ✅ INICIAR SISTEMA COMPLETO
 if __name__ == "__main__":
     start_system()
     import uvicorn
@@ -2095,5 +2149,7 @@ if __name__ == "__main__":
         host="0.0.0.0", 
         port=PORT,
         log_level="info",
-        access_log=False
+        access_log=True
     )
+else:
+    start_system()

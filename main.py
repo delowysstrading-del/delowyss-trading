@@ -17,11 +17,22 @@ import pandas as pd
 from datetime import datetime, timedelta
 from collections import deque
 from typing import Dict, Any, List, Optional
-from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
-from sklearn.preprocessing import StandardScaler
-from sklearn.model_selection import train_test_split
-from sklearn.metrics import accuracy_score, classification_report
-import joblib
+
+# Importaciones de FastAPI primero
+from fastapi import FastAPI, WebSocket, WebSocketDisconnect
+from fastapi.responses import HTMLResponse
+from fastapi.middleware.cors import CORSMiddleware
+
+# Luego las demás importaciones
+try:
+    from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+    from sklearn.preprocessing import StandardScaler
+    from sklearn.model_selection import train_test_split
+    from sklearn.metrics import accuracy_score
+    SKLEARN_AVAILABLE = True
+except ImportError:
+    SKLEARN_AVAILABLE = False
+    logging.warning("⚠️ scikit-learn no disponible, usando modo básico")
 
 # ------------------ CONFIGURACIÓN ------------------
 IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
@@ -1382,6 +1393,10 @@ class AdvancedLearningSystem:
     
     def train_model(self):
         """Entrena el modelo de machine learning"""
+        if not SKLEARN_AVAILABLE:
+            logging.warning("⚠️ scikit-learn no disponible, no se puede entrenar modelo")
+            return False
+            
         try:
             if len(self.training_data) < self.min_training_samples:
                 logging.info(f"📊 Insuficientes muestras para entrenar: {len(self.training_data)}/{self.min_training_samples}")

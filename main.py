@@ -1,6 +1,6 @@
-# main.py - V6.2 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO CON DEBUG
+# main.py - V6.3 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
 """
-Delowyss Trading AI — V6.2 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
+Delowyss Trading AI — V6.3 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
 CEO: Eduardo Solis — © 2025
 Sistema de análisis completo con IA avanzada y autoaprendizaje MEJORADO
 """
@@ -39,7 +39,7 @@ IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
 IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
 PAR = "EURUSD"
 TIMEFRAME = 60
-PREDICTION_WINDOW = 5  # Predecir a 5 segundos del final
+PREDICTION_WINDOW = 5
 MIN_TICKS_FOR_PREDICTION = 15
 TICK_BUFFER_SIZE = 200
 PORT = int(os.getenv("PORT", "10000"))
@@ -62,7 +62,7 @@ HTML_RESPONSIVE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delowyss Trading AI V6.2</title>
+    <title>Delowyss Trading AI V6.3</title>
     <style>
         * { 
             margin: 0; 
@@ -282,7 +282,7 @@ HTML_RESPONSIVE = """
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Delowyss AI V6.2</h1>
+            <h1>🚀 Delowyss AI V6.3</h1>
             <div class="subtitle">Análisis Completo + Predicción + AutoML</div>
         </div>
         
@@ -552,7 +552,7 @@ HTML_RESPONSIVE = """
         
         // Inicializar cuando cargue la página
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando Delowyss Trading AI V6.2');
+            console.log('🚀 Iniciando Delowyss Trading AI V6.3');
             connectWebSocket();
             
             // Verificar conexión periódicamente
@@ -1274,7 +1274,7 @@ class AdvancedLearningSystem:
         self.model_accuracy_history = deque(maxlen=100)
         self.last_training_time = 0
         self.training_interval = 300
-        self.min_training_samples = 5
+        self.min_training_samples = 3  # 🚀 CAMBIO CRÍTICO: 5 → 3
         self.model_accuracy = 0.0
         self.feature_importance = {}
         self.debug_logs = deque(maxlen=50)
@@ -1283,6 +1283,9 @@ class AdvancedLearningSystem:
         self.load_model()
         
         self._add_debug_log("info", "Sistema de aprendizaje inicializado")
+        
+        # 🚀 INICIALIZACIÓN MEJORADA
+        self.initialize_ml_system()
     
     def _add_debug_log(self, level: str, message: str):
         """Agrega log de debug"""
@@ -1311,7 +1314,7 @@ class AdvancedLearningSystem:
                 for sample in synthetic_samples:
                     self.training_data.append(sample)
                 
-                # Entrenar modelo inicial
+                # 🚀 ENTRENAR INMEDIATAMENTE
                 if self.train_model():
                     self._add_debug_log("success", "Modelo ML inicial entrenado exitosamente")
                 else:
@@ -1636,9 +1639,9 @@ class EnhancedNextCandlePredictor:
             'total_signals': 0,
             'prediction_history': [],
             'bias_tracking': {
-                'alza_count': 0,
-                'baja_count': 0,
-                'lateral_count': 0
+                'alza_count': 1,  # 🚀 CAMBIO CRÍTICO: 0 → 1
+                'baja_count': 1,  # 🚀 CAMBIO CRÍTICO: 0 → 1  
+                'lateral_count': 1  # 🚀 CAMBIO CRÍTICO: 0 → 1
             }
         }
         self.prediction_history = deque(maxlen=50)
@@ -1652,9 +1655,6 @@ class EnhancedNextCandlePredictor:
         self.last_prediction_features = None
         self.auto_learning_active = True
         self.debug_logs = deque(maxlen=50)
-        
-        # Inicializar sistema ML
-        self.learning_system.initialize_ml_system()
         
         self._add_debug_log("info", "Predictor mejorado inicializado")
     
@@ -2608,9 +2608,9 @@ _last_price = None
 
 # ------------------ FASTAPI APP ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V6.2 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
+    title="Delowyss Trading AI V6.3 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
     description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela con autoaprendizaje MEJORADO",
-    version="6.2.0"
+    version="6.3.0"
 )
 
 # SOLUCIÓN DEFINITIVA: Configuración CORS para Render.com
@@ -2699,8 +2699,8 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
     @app.get("/api/status")
     async def get_status():
         return {
-            "status": "operational_mejorado_v6.2",
-            "version": "6.2.0",
+            "status": "operational_mejorado_v6.3",
+            "version": "6.3.0",
             "pair": PAR,
             "timeframe": "1min",
             "iq_connected": iq_connector.connected,
@@ -2724,7 +2724,7 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                     await manager.metronome.sync_with_iqoption(iq_connector)
                     manager.dashboard.update_system_status(
                         "CONNECTED" if iq_connector.connected else "DISCONNECTED",
-                        "OPERATIONAL_MEJORADO_V6.2",
+                        "OPERATIONAL_MEJORADO_V6.3",
                         "SYNCED" if manager.metronome.last_sync_time > 0 else "UNSYNCED"
                     )
                 except Exception as e:
@@ -2785,7 +2785,7 @@ setup_enhanced_routes(app, dashboard_manager, iq_connector)
 # ------------------ INICIALIZACIÓN MEJORADA ------------------
 def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V6.2 MEJORADO - DEBUG ACTIVADO")
+        logging.info("🔧 INICIANDO SISTEMA V6.3 MEJORADO - DEBUG ACTIVADO")
         logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML)")
         logging.info("🐛 MODO DEBUG: Activado con seguimiento de sesgo y logs detallados")
         
@@ -2807,7 +2807,7 @@ def start_enhanced_system():
         
         if connection_result:
             logging.info("✅ Conexión IQ Option exitosa al inicio")
-            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.2", "SYNCED")
+            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.3", "SYNCED")
         else:
             logging.error("❌ Conexión IQ Option falló al inicio")
             dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
@@ -2818,7 +2818,7 @@ def start_enhanced_system():
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V6.2 MEJORADA INICIADA - DEBUG ACTIVADO")
+        logging.info(f"⭐ DELOWYSS AI V6.3 MEJORADA INICIADA - DEBUG ACTIVADO")
         logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML MEJORADO")
         logging.info("🐛 SEGUIMIENTO DE SESGO: Activado")
         logging.info("📊 VALIDACIÓN: Sistema de tracking implementado")
@@ -2849,7 +2849,7 @@ def premium_candle_analysis_loop():
                 logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
                 if iq_connector.connect():
                     logging.info("✅ Reconexión exitosa a IQ Option")
-                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.2", "SYNCED")
+                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.3", "SYNCED")
                 else:
                     logging.error("❌ No se pudo reconectar a IQ Option")
                     dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")

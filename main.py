@@ -1,4 +1,4 @@
-# main.py - V6.3 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
+# main.py - V6.3 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO - CORREGIDO
 """
 Delowyss Trading AI — V6.3 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
 CEO: Eduardo Solis — © 2025
@@ -1263,7 +1263,7 @@ class CompleteCandleAnalyzer:
         except Exception as e:
             logging.error(f"❌ Error en reset: {e}")
 
-# ------------------ SISTEMA DE AUTOAPRENDIZAJE AVANZADO MEJORADO ------------------
+# ------------------ SISTEMA DE AUTOAPRENDIZAJE AVANZADO MEJORADO - CORREGIDO ------------------
 class AdvancedLearningSystem:
     def __init__(self):
         self.model = None
@@ -1274,7 +1274,7 @@ class AdvancedLearningSystem:
         self.model_accuracy_history = deque(maxlen=100)
         self.last_training_time = 0
         self.training_interval = 300
-        self.min_training_samples = 3  # 🚀 CAMBIO CRÍTICO: 5 → 3
+        self.min_training_samples = 6  # 🚀 CORRECCIÓN: Aumentado a 6 para tener al menos 2 por clase
         self.model_accuracy = 0.0
         self.feature_importance = {}
         self.debug_logs = deque(maxlen=50)
@@ -1284,7 +1284,7 @@ class AdvancedLearningSystem:
         
         self._add_debug_log("info", "Sistema de aprendizaje inicializado")
         
-        # 🚀 INICIALIZACIÓN MEJORADA
+        # 🚀 INICIALIZACIÓN MEJORADA - CORREGIDA
         self.initialize_ml_system()
     
     def _add_debug_log(self, level: str, message: str):
@@ -1298,27 +1298,33 @@ class AdvancedLearningSystem:
         logging.info(f"🧠 [LEARNING_DEBUG] {message}")
     
     def initialize_ml_system(self):
-        """Inicializa el sistema ML con datos básicos"""
+        """Inicializa el sistema ML con datos básicos - CORREGIDO"""
         try:
-            # Crear datos de entrenamiento sintéticos iniciales
-            if len(self.training_data) < 3:
-                self._add_debug_log("info", "Creando datos de entrenamiento iniciales...")
+            # Crear datos de entrenamiento sintéticos iniciales MEJORADOS
+            if len(self.training_data) < 6:
+                self._add_debug_log("info", "Creando datos de entrenamiento iniciales MEJORADOS...")
                 
-                # Datos sintéticos balanceados
+                # 🚀 DATOS SINTÉTICOS MEJORADOS - MÁS VARIEDAD Y BALANCE
                 synthetic_samples = [
+                    # Muestras ALCISTAS (2 muestras)
                     {'features': [5.0, 8.0, 0.7, 0.8, 0.6, 0.3, 0.9, 0.7, 0.2, 0.5, 0.4, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.4, 0.5, 0.6], 'label': 0, 'confidence': 70},
+                    {'features': [4.0, 7.0, 0.6, 0.7, 0.5, 0.4, 0.8, 0.6, 0.3, 0.6, 0.5, 0.7, 0.7, 0.4, 0.6, 0.6, 0.7, 0.5, 0.6, 0.7], 'label': 0, 'confidence': 65},
+                    # Muestras BAJISTAS (2 muestras)  
                     {'features': [3.0, 5.0, 0.3, 0.2, 0.4, 0.7, 0.1, 0.3, 0.8, 0.5, 0.6, 0.4, 0.2, 0.7, 0.3, 0.5, 0.4, 0.6, 0.5, 0.4], 'label': 1, 'confidence': 65},
+                    {'features': [2.0, 4.0, 0.4, 0.3, 0.3, 0.6, 0.2, 0.4, 0.7, 0.4, 0.7, 0.3, 0.3, 0.6, 0.4, 0.4, 0.3, 0.7, 0.4, 0.3], 'label': 1, 'confidence': 60},
+                    # Muestras LATERALES (2 muestras)
                     {'features': [2.0, 3.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], 'label': 2, 'confidence': 50},
+                    {'features': [3.0, 4.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], 'label': 2, 'confidence': 55},
                 ]
                 
                 for sample in synthetic_samples:
                     self.training_data.append(sample)
                 
-                # 🚀 ENTRENAR INMEDIATAMENTE
+                # 🚀 ENTRENAR INMEDIATAMENTE CON DATOS MEJORADOS
                 if self.train_model():
-                    self._add_debug_log("success", "Modelo ML inicial entrenado exitosamente")
+                    self._add_debug_log("success", "Modelo ML inicial entrenado exitosamente con datos balanceados")
                 else:
-                    self._add_debug_log("warning", "No se pudo entrenar modelo inicial")
+                    self._add_debug_log("warning", "No se pudo entrenar modelo inicial - esperando más datos")
                     
         except Exception as e:
             self._add_debug_log("error", f"Error inicializando ML: {e}")
@@ -1423,7 +1429,7 @@ class AdvancedLearningSystem:
             self._add_debug_log("error", f"Error agregando muestra: {e}")
     
     def train_model(self):
-        """Entrena el modelo de machine learning"""
+        """Entrena el modelo de machine learning - CORREGIDO"""
         if not SKLEARN_AVAILABLE:
             self._add_debug_log("warning", "scikit-learn no disponible")
             return False
@@ -1440,8 +1446,11 @@ class AdvancedLearningSystem:
             X = np.array([sample['features'] for sample in self.training_data])
             y = np.array([sample['label'] for sample in self.training_data])
             
-            if len(np.unique(y)) < 2:
-                self._add_debug_log("warning", "No hay suficiente variedad en los datos para entrenar")
+            # 🚀 VERIFICACIÓN CRÍTICA: Comprobar que hay al menos 2 muestras por clase
+            unique_classes, counts = np.unique(y, return_counts=True)
+            if len(unique_classes) < 2 or np.any(counts < 2):
+                self._add_debug_log("warning", 
+                    f"Datos insuficientes por clase. Clases: {unique_classes}, Conteos: {counts}")
                 return False
             
             # Dividir datos
@@ -1625,7 +1634,7 @@ class AdvancedLearningSystem:
             'debug_info': list(self.debug_logs)[-5:]
         }
 
-# ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE MEJORADO ------------------
+# ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE MEJORADO - CORREGIDO ------------------
 class EnhancedNextCandlePredictor:
     def __init__(self):
         self.analyzer = CompleteCandleAnalyzer()
@@ -1639,9 +1648,9 @@ class EnhancedNextCandlePredictor:
             'total_signals': 0,
             'prediction_history': [],
             'bias_tracking': {
-                'alza_count': 1,  # 🚀 CAMBIO CRÍTICO: 0 → 1
-                'baja_count': 1,  # 🚀 CAMBIO CRÍTICO: 0 → 1  
-                'lateral_count': 1  # 🚀 CAMBIO CRÍTICO: 0 → 1
+                'alza_count': 1,  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero
+                'baja_count': 1,  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero  
+                'lateral_count': 1  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero
             }
         }
         self.prediction_history = deque(maxlen=50)
@@ -1705,7 +1714,7 @@ class EnhancedNextCandlePredictor:
             self._add_debug_log("error", f"Error actualizando contexto: {e}")
     
     def predict_next_candle(self):
-        """Predice usando el sistema combinado tradicional + ML"""
+        """Predice usando el sistema combinado tradicional + ML - CORREGIDO"""
         analysis = self.analyzer.get_candle_analysis()
         
         if analysis.get('status') != 'COMPLETE_ANALYSIS':
@@ -1747,8 +1756,8 @@ class EnhancedNextCandlePredictor:
             # 4. Obtener predicción de ML
             ml_direction, ml_confidence = self.learning_system.predict_with_ml(features)
             
-            # VERIFICAR ACTIVACIÓN DE ML
-            if ml_direction and ml_confidence > 55:
+            # VERIFICAR ACTIVACIÓN DE ML - CORREGIDO
+            if ml_direction and ml_confidence > 55 and self.learning_system.model is not None:
                 self._add_debug_log("success", 
                     f"ML ACTIVADO: {ml_direction} {ml_confidence:.1f}%")
                 
@@ -1781,9 +1790,9 @@ class EnhancedNextCandlePredictor:
                 traditional_prediction['method'] = 'TRADICIONAL'
                 if ml_direction:
                     self._add_debug_log("warning", 
-                        f"ML no activado: confianza {ml_confidence:.1f}% < 55%")
+                        f"ML no activado: confianza {ml_confidence:.1f}% < 55% o modelo no disponible")
                 else:
-                    self._add_debug_log("warning", "ML no disponible")
+                    self._add_debug_log("warning", "ML no disponible para esta predicción")
             
             # ACTUALIZAR SEGUIMIENTO DE SESGO
             self._update_bias_tracking(traditional_prediction['direction'])
@@ -1801,7 +1810,7 @@ class EnhancedNextCandlePredictor:
                     if self.learning_system.train_model():
                         self._add_debug_log("success", "Entrenamiento completado")
                     else:
-                        self._add_debug_log("error", "Error en entrenamiento")
+                        self._add_debug_log("error", "Error en entrenamiento automático")
             
             # Actualizar contadores
             self.performance_stats['total_predictions'] += 1
@@ -1828,13 +1837,13 @@ class EnhancedNextCandlePredictor:
             self.performance_stats['bias_tracking']['lateral_count'] += 1
         
         total = sum(self.performance_stats['bias_tracking'].values())
-        if total >= 8:  # Analizar sesgo cada 8 predicciones
+        if total >= 10:  # 🚀 CORRECCIÓN: Aumentado a 10 para análisis más robusto
             alza_pct = (self.performance_stats['bias_tracking']['alza_count'] / total) * 100
             baja_pct = (self.performance_stats['bias_tracking']['baja_count'] / total) * 100
             
-            if alza_pct > 75:
+            if alza_pct > 85:  # 🚀 CORRECCIÓN: Umbral aumentado a 85%
                 self._add_debug_log("warning", f"🚨 SESGO ALCISTA DETECTADO: {alza_pct:.1f}%")
-            elif baja_pct > 75:
+            elif baja_pct > 85:  # 🚀 CORRECCIÓN: Umbral aumentado a 85%
                 self._add_debug_log("warning", f"🚨 SESGO BAJISTA DETECTADO: {baja_pct:.1f}%")
     
     def _get_base_prediction(self, analysis):
@@ -1852,7 +1861,7 @@ class EnhancedNextCandlePredictor:
         }
     
     def _get_traditional_prediction(self, analysis):
-        """Predicción tradicional basada en análisis técnico"""
+        """Predicción tradicional basada en análisis técnico - CORREGIDO"""
         try:
             self._add_debug_log("info", "Calculando predicción tradicional")
             
@@ -1872,7 +1881,7 @@ class EnhancedNextCandlePredictor:
             candle_stats = analysis.get('candle_stats', {})
             candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
             
-            # DETECCIÓN MEJORADA DE SESGO
+            # DETECCIÓN MEJORADA DE SESGO - CORREGIDA
             self._detect_prediction_bias(phase_trends, momentum_analysis, segment_prediction, candle_pattern)
             
             # Combinar predicciones
@@ -1903,7 +1912,7 @@ class EnhancedNextCandlePredictor:
             return self._get_base_prediction(analysis)
     
     def _detect_prediction_bias(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Detecta y corrige sesgos en las predicciones"""
+        """Detecta y corrige sesgos en las predicciones - CORREGIDO"""
         try:
             # Contar direcciones
             directions = [
@@ -1916,17 +1925,17 @@ class EnhancedNextCandlePredictor:
             baja_count = directions.count('BAJA')
             alza_count = directions.count('ALZA')
             
-            # CORRECCIÓN MEJORADA DE SESGO
+            # CORRECCIÓN MEJORADA DE SESGO - Solo aplicar si hay sesgo extremo
             if baja_count >= 3 and alza_count == 0:
                 self._add_debug_log("warning", "🚨 SESGO BAJISTA DETECTADO en análisis tradicional")
-                # Aplicar corrección: reducir confianza en dirección bajista
+                # Aplicar corrección suave: reducir confianza en dirección bajista
                 if phase_trends['direction'] == 'BAJA':
-                    phase_trends['strength'] *= 0.8
+                    phase_trends['strength'] *= 0.9  # 🚀 CORRECCIÓN: Penalización reducida
             elif alza_count >= 3 and baja_count == 0:
                 self._add_debug_log("warning", "🚨 SESGO ALCISTA DETECTADO en análisis tradicional")
-                # Aplicar corrección: reducir confianza en dirección alcista
+                # Aplicar corrección suave: reducir confianza en dirección alcista
                 if phase_trends['direction'] == 'ALZA':
-                    phase_trends['strength'] *= 0.8
+                    phase_trends['strength'] *= 0.9  # 🚀 CORRECCIÓN: Penalización reducida
                     
         except Exception as e:
             self._add_debug_log("error", f"Error detectando sesgo: {e}")
@@ -2068,7 +2077,7 @@ class EnhancedNextCandlePredictor:
         }
     
     def _combine_traditional_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Combina todas las predicciones tradicionales en una final"""
+        """Combina todas las predicciones tradicionales en una final - CORREGIDO"""
         predictions = [
             (phase_trends['direction'], phase_trends['strength'], 0.30),
             (momentum_analysis['momentum_direction'], momentum_analysis['momentum_strength'], 0.25),
@@ -2085,7 +2094,7 @@ class EnhancedNextCandlePredictor:
         
         final_direction = max(direction_scores, key=direction_scores.get)
         
-        # CÁLCULO MEJORADO DE CONFIANZA
+        # CÁLCULO MEJORADO DE CONFIANZA - CORREGIDO
         base_confidence = min(90, int(total_confidence))
         
         # Bonus por consistencia
@@ -2099,11 +2108,11 @@ class EnhancedNextCandlePredictor:
         if candle_pattern.get('continuation_bias', False):
             consistency_bonus += 4
         
-        # CORRECCIÓN MEJORADA DE SESGO
+        # CORRECCIÓN MEJORADA DE SESGO - Solo aplicar si sesgo muy fuerte
         bias_penalty = 0
         total_predictions = self.performance_stats['total_predictions']
         
-        if total_predictions > 5:
+        if total_predictions > 10:  # 🚀 CORRECCIÓN: Aumentado mínimo para análisis
             bias_stats = self.performance_stats['bias_tracking']
             total_recent = sum(bias_stats.values())
             
@@ -2111,12 +2120,12 @@ class EnhancedNextCandlePredictor:
                 recent_alza_pct = bias_stats['alza_count'] / total_recent
                 recent_baja_pct = bias_stats['baja_count'] / total_recent
                 
-                # SOLO aplicar penalización si el sesgo es muy fuerte (>75%)
-                if final_direction == 'ALZA' and recent_alza_pct > 0.75:
-                    bias_penalty = -8
+                # SOLO aplicar penalización si el sesgo es muy fuerte (>85%)
+                if final_direction == 'ALZA' and recent_alza_pct > 0.85:
+                    bias_penalty = -5  # 🚀 CORRECCIÓN: Penalización reducida
                     self._add_debug_log("warning", f"Aplicando penalización suave por sesgo alcista: {recent_alza_pct:.1%}")
-                elif final_direction == 'BAJA' and recent_baja_pct > 0.75:
-                    bias_penalty = -8
+                elif final_direction == 'BAJA' and recent_baja_pct > 0.85:
+                    bias_penalty = -5  # 🚀 CORRECCIÓN: Penalización reducida
                     self._add_debug_log("warning", f"Aplicando penalización suave por sesgo bajista: {recent_baja_pct:.1%}")
         
         final_confidence = min(95, max(40, base_confidence + consistency_bonus + bias_penalty))
@@ -2213,7 +2222,7 @@ class EnhancedNextCandlePredictor:
         }
         self.performance_stats['prediction_history'].append(validation_entry)
         
-        # Aprendizaje automático MEJORADO
+        # Aprendizaje automático MEJORADO - CORREGIDO
         if (self.auto_learning_active and 
             self.last_prediction_features is not None and 
             actual_direction is not None):
@@ -2308,7 +2317,7 @@ class EnhancedNextCandlePredictor:
                 "best_streak": 0,
                 "today_signals": 0,
                 "total_signals": 0,
-                "bias_tracking": {'alza_count': 0, 'baja_count': 0, 'lateral_count': 0},
+                "bias_tracking": {'alza_count': 1, 'baja_count': 1, 'lateral_count': 1},
                 "debug_info": [{'level': 'error', 'timestamp': datetime.now().strftime("%H:%M:%S"), 'message': f"Error: {e}"}]
             }
     
@@ -2782,12 +2791,12 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
 # Configurar rutas
 setup_enhanced_routes(app, dashboard_manager, iq_connector)
 
-# ------------------ INICIALIZACIÓN MEJORADA ------------------
+# ------------------ INICIALIZACIÓN MEJORADA - CORREGIDA ------------------
 def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V6.3 MEJORADO - DEBUG ACTIVADO")
-        logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML)")
-        logging.info("🐛 MODO DEBUG: Activado con seguimiento de sesgo y logs detallados")
+        logging.info("🔧 INICIANDO SISTEMA V6.3 MEJORADO CORREGIDO - DEBUG ACTIVADO")
+        logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML) - CORREGIDO")
+        logging.info("🐛 CORRECCIONES APLICADAS: ML balanceado, sesgo reducido, datos mejorados")
         
         # Verificar sistema de aprendizaje MEJORADO
         if hasattr(predictor, 'learning_system'):
@@ -2798,7 +2807,7 @@ def start_enhanced_system():
             if predictor.learning_system.model is not None:
                 logging.info(f"📊 Accuracy del modelo: {predictor.learning_system.model_accuracy:.3f}")
             else:
-                logging.info("📊 Sistema listo para aprender desde el inicio")
+                logging.info("📊 Sistema listo para aprender con datos balanceados")
         
         # ✅ INICIAR CONEXIÓN IQ OPTION
         logging.info("🔄 Iniciando conexión a IQ Option...")
@@ -2818,10 +2827,10 @@ def start_enhanced_system():
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V6.3 MEJORADA INICIADA - DEBUG ACTIVADO")
+        logging.info(f"⭐ DELOWYSS AI V6.3 MEJORADA CORREGIDA INICIADA - DEBUG ACTIVADO")
         logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML MEJORADO")
-        logging.info("🐛 SEGUIMIENTO DE SESGO: Activado")
-        logging.info("📊 VALIDACIÓN: Sistema de tracking implementado")
+        logging.info("🐛 SEGUIMIENTO DE SESGO: Corregido con umbrales mejorados")
+        logging.info("📊 VALIDACIÓN: Sistema de tracking implementado con datos balanceados")
         logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
         
         time.sleep(2)

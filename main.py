@@ -1,6 +1,6 @@
-# main.py - V6.0 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
+# main.py - V6.1 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO CON DEBUG
 """
-Delowyss Trading AI — V6.0 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
+Delowyss Trading AI — V6.1 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
 CEO: Eduardo Solis — © 2025
 Sistema de análisis completo con IA avanzada y autoaprendizaje MEJORADO
 """
@@ -44,7 +44,7 @@ MIN_TICKS_FOR_PREDICTION = 15  # 🚀 REDUCIDO: 20 → 15
 TICK_BUFFER_SIZE = 200
 PORT = int(os.getenv("PORT", "10000"))
 
-# ---------------- LOGGING ----------------
+# ---------------- LOGGING MEJORADO ----------------
 logging.basicConfig(
     level=logging.INFO,
     format='%(asctime)s [%(levelname)s] %(message)s',
@@ -62,7 +62,7 @@ HTML_RESPONSIVE = """
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delowyss Trading AI V6.0 MEJORADO</title>
+    <title>Delowyss Trading AI V6.1 MEJORADO</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -244,18 +244,36 @@ HTML_RESPONSIVE = """
             from { box-shadow: 0 0 5px #ff6b35; }
             to { box-shadow: 0 0 15px #ff8e53; }
         }
+        .debug-panel {
+            background: rgba(255,255,255,0.02);
+            border: 1px solid rgba(255,255,255,0.1);
+            border-radius: 10px;
+            padding: 15px;
+            margin-top: 10px;
+            font-family: monospace;
+            font-size: 0.8em;
+            max-height: 150px;
+            overflow-y: auto;
+        }
+        .debug-item {
+            margin: 2px 0;
+            color: #ccc;
+        }
+        .debug-warning { color: #ffaa00; }
+        .debug-error { color: #ff4444; }
+        .debug-success { color: #00ff88; }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Delowyss Trading AI V6.0 <span class="hot-indicator">MEJORADO</span></h1>
+            <h1>🚀 Delowyss Trading AI V6.1 <span class="hot-indicator">DEBUG</span></h1>
             <div class="subtitle">Sistema de Análisis Completo de Vela + Predicción + Autoaprendizaje MEJORADO</div>
         </div>
         
         <div class="grid">
             <div class="card prediction-card" id="predictionCard">
-                <h2>🎯 PREDICCIÓN ACTUAL <span class="hot-indicator">APRENDIENDO</span></h2>
+                <h2>🎯 PREDICCIÓN ACTUAL <span class="hot-indicator" id="predictionStatus">ANALIZANDO</span></h2>
                 <div class="countdown" id="countdown">--</div>
                 <div style="font-size: 2em; text-align: center; margin: 10px 0;" id="predictionArrow">⏳</div>
                 <div style="text-align: center; font-size: 1.3em; font-weight: bold;" id="predictionDirection">ANALIZANDO...</div>
@@ -265,10 +283,13 @@ HTML_RESPONSIVE = """
                 <div style="text-align: center;" id="confidenceText">Confianza: 0%</div>
                 <div class="signal-strength" id="signalStrength">Señal: NORMAL</div>
                 <div style="text-align: center; font-size: 0.9em; margin-top: 10px;" id="predictionMethod">Método: Tradicional</div>
+                <div class="debug-panel" id="predictionDebug">
+                    <div class="debug-item">Esperando datos de depuración...</div>
+                </div>
             </div>
             
             <div class="card learning-card">
-                <h2>🧠 SISTEMA DE AUTOAPRENDIZAJE <span class="hot-indicator">ACTIVO</span></h2>
+                <h2>🧠 SISTEMA DE AUTOAPRENDIZAJE <span class="hot-indicator" id="learningStatus">ACTIVO</span></h2>
                 <div class="metric learning-metric">
                     <span class="label">Accuracy Modelo:</span>
                     <span class="value" id="modelAccuracy">0%</span>
@@ -279,7 +300,7 @@ HTML_RESPONSIVE = """
                 </div>
                 <div class="metric learning-metric">
                     <span class="label">Estado Aprendizaje:</span>
-                    <span class="value" id="learningStatus">ACTIVO</span>
+                    <span class="value" id="learningState">ACTIVO</span>
                 </div>
                 <div class="metric learning-metric">
                     <span class="label">Último Entrenamiento:</span>
@@ -287,6 +308,9 @@ HTML_RESPONSIVE = """
                 </div>
                 <div class="feature-list" id="featureImportance">
                     <!-- Características importantes se cargarán aquí -->
+                </div>
+                <div class="debug-panel" id="learningDebug">
+                    <div class="debug-item">Esperando datos de aprendizaje...</div>
                 </div>
             </div>
             
@@ -360,6 +384,9 @@ HTML_RESPONSIVE = """
                     <span class="label">Racha Actual:</span>
                     <span class="value" id="currentStreak">0</span>
                 </div>
+                <div class="debug-panel" id="performanceDebug">
+                    <div class="debug-item">Esperando datos de performance...</div>
+                </div>
             </div>
             
             <div class="card">
@@ -385,6 +412,9 @@ HTML_RESPONSIVE = """
                 <div class="metric">
                     <span class="label">Última Actualización:</span>
                     <span class="value" id="lastUpdate">--:--:--</span>
+                </div>
+                <div class="debug-panel" id="systemDebug">
+                    <div class="debug-item">Inicializando sistema...</div>
                 </div>
             </div>
         </div>
@@ -474,16 +504,24 @@ HTML_RESPONSIVE = """
             document.getElementById('signalStrength').textContent = `Señal: ${pred.signal_strength}`;
             document.getElementById('countdown').textContent = `${Math.round(data.current_candle.time_remaining)}s`;
             document.getElementById('predictionMethod').textContent = `Método: ${pred.method || 'Tradicional'}`;
+            document.getElementById('predictionStatus').textContent = pred.status || 'ANALIZANDO';
+            
+            // Actualizar debug de predicción
+            updateDebugPanel('predictionDebug', pred.debug_info || []);
             
             // Sistema de Aprendizaje
             const learning = data.learning_stats || {};
             document.getElementById('modelAccuracy').textContent = `${learning.model_accuracy || 0}%`;
             document.getElementById('trainingSamples').textContent = learning.training_samples || 0;
-            document.getElementById('learningStatus').textContent = learning.learning_status || 'ACTIVO';
+            document.getElementById('learningState').textContent = learning.learning_status || 'ACTIVO';
             document.getElementById('lastTraining').textContent = learning.last_training || 'N/A';
+            document.getElementById('learningStatus').textContent = learning.learning_status || 'ACTIVO';
             
             // Actualizar importancia de características
             updateFeatureImportance(learning.top_features || []);
+            
+            // Actualizar debug de aprendizaje
+            updateDebugPanel('learningDebug', learning.debug_info || []);
             
             // Efectos visuales
             if (data.visual_effects.pulse_animation) {
@@ -523,6 +561,9 @@ HTML_RESPONSIVE = """
             document.getElementById('winStreak').textContent = perf.win_streak;
             document.getElementById('currentStreak').textContent = perf.current_streak;
             
+            // Actualizar debug de performance
+            updateDebugPanel('performanceDebug', perf.debug_info || []);
+            
             // Estado del Sistema
             const status = data.system_status;
             document.getElementById('iqStatus').className = `status-indicator ${status.iq_connection === 'CONNECTED' ? 'status-connected' : 'status-disconnected'}`;
@@ -532,8 +573,30 @@ HTML_RESPONSIVE = """
             document.getElementById('metronomeStatusText').textContent = status.metronome_sync;
             document.getElementById('lastUpdate').textContent = status.last_update;
             
+            // Actualizar debug del sistema
+            updateDebugPanel('systemDebug', status.debug_info || []);
+            
             // Actualizar historial
             updatePredictionHistory(pred);
+        }
+        
+        function updateDebugPanel(panelId, debugItems) {
+            const container = document.getElementById(panelId);
+            if (!debugItems || debugItems.length === 0) {
+                container.innerHTML = '<div class="debug-item">Esperando datos de depuración...</div>';
+                return;
+            }
+            
+            let html = '';
+            debugItems.forEach(item => {
+                const level = item.level || 'info';
+                const timestamp = item.timestamp || '';
+                const message = item.message || '';
+                const cssClass = `debug-item debug-${level}`;
+                
+                html += `<div class="${cssClass}">${timestamp} ${message}</div>`;
+            });
+            container.innerHTML = html;
         }
         
         function updateFeatureImportance(features) {
@@ -566,7 +629,7 @@ HTML_RESPONSIVE = """
                 entry.className = 'metric';
                 entry.innerHTML = `
                     <span class="label">${prediction.timestamp}</span>
-                    <span class="value">${prediction.direction} ${prediction.arrow} (${prediction.confidence}%)</span>
+                    <span class="value">${prediction.direction} ${prediction.arrow} (${prediction.confidence}%) - ${prediction.method}</span>
                 `;
                 const history = document.getElementById('predictionHistory');
                 history.insertBefore(entry, history.firstChild);
@@ -580,7 +643,7 @@ HTML_RESPONSIVE = """
         
         // Inicializar cuando cargue la página
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando Delowyss Trading AI V6.0 MEJORADO');
+            console.log('🚀 Iniciando Delowyss Trading AI V6.1 MEJORADO');
             connectWebSocket();
             
             // Verificar conexión periódicamente
@@ -637,8 +700,8 @@ class RealIQOptionConnector:
                     logging.info("✅ Conexión exitosa a IQ Option")
                     
                     try:
-                        self.api.change_balance("REAL")
-                        logging.info("💰 Modo: Cuenta REAL")
+                        self.api.change_balance("PRACTICE")  # 🚨 CAMBIADO A PRACTICE POR SEGURIDAD
+                        logging.info("💰 Modo: Cuenta PRACTICE (SEGURIDAD)")
                     except:
                         logging.info("💰 Modo: Cuenta PRACTICE")
                     
@@ -1298,17 +1361,30 @@ class AdvancedLearningSystem:
         self.model = None
         self.scaler = StandardScaler()
         self.feature_names = []
-        self.training_data = deque(maxlen=1000)  # 🚀 MEJORADO: 10,000 → 1,000 muestras
+        self.training_data = deque(maxlen=1000)
         self.prediction_history = deque(maxlen=500)
         self.model_accuracy_history = deque(maxlen=100)
         self.last_training_time = 0
-        self.training_interval = 600  # 🚀 MEJORADO: 1 hora → 10 minutos
-        self.min_training_samples = 10  # 🚀 MEJORADO: 100 → 10 muestras
+        self.training_interval = 300  # 🚀 REDUCIDO: 10 min → 5 min para debug
+        self.min_training_samples = 5   # 🚀 REDUCIDO: 10 → 5 para debug rápido
         self.model_accuracy = 0.0
         self.feature_importance = {}
+        self.debug_logs = deque(maxlen=50)  # 🆕 LOGS DE DEBUG
         
         # Cargar modelo existente si existe
         self.load_model()
+        
+        self._add_debug_log("info", "Sistema de aprendizaje inicializado")
+    
+    def _add_debug_log(self, level: str, message: str):
+        """Agrega log de debug"""
+        log_entry = {
+            'level': level,
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'message': message
+        }
+        self.debug_logs.append(log_entry)
+        logging.info(f"🧠 [LEARNING_DEBUG] {message}")
     
     def extract_advanced_features(self, candle_analysis, current_price, market_context):
         """Extrae características avanzadas para el modelo de ML"""
@@ -1363,7 +1439,7 @@ class AdvancedLearningSystem:
             # 5. Características de comportamiento del mercado
             features['price_acceleration'] = market_context.get('price_acceleration', 0)
             features['volatility_ratio'] = market_context.get('volatility_ratio', 1.0)
-            features['market_regime'] = market_context.get('market_regime', 0)  # 0: normal, 1: volátil, 2: tranquilo
+            features['market_regime'] = market_context.get('market_regime', 0)
             
             # 6. Características temporales
             current_time = datetime.utcnow()
@@ -1376,16 +1452,19 @@ class AdvancedLearningSystem:
             features['trend_continuation'] = market_context.get('trend_continuation', 0)
             
             self.feature_names = list(features.keys())
+            
+            self._add_debug_log("info", f"Características extraídas: {len(features)}")
             return features
             
         except Exception as e:
-            logging.error(f"❌ Error extrayendo características: {e}")
+            self._add_debug_log("error", f"Error extrayendo características: {e}")
             return {}
     
     def add_training_sample(self, features, actual_direction, prediction_confidence):
         """Agrega una muestra de entrenamiento al dataset"""
         try:
             if not features or actual_direction is None:
+                self._add_debug_log("warning", "Datos insuficientes para muestra de entrenamiento")
                 return
             
             # Mapear dirección a label numérico
@@ -1401,30 +1480,31 @@ class AdvancedLearningSystem:
             
             self.training_data.append(sample)
             
-            # 🚀 MEJORADO: Log cada 5 muestras para no saturar
-            if len(self.training_data) % 5 == 0:
-                logging.info(f"📚 Muestras de entrenamiento: {len(self.training_data)}")
+            self._add_debug_log("info", f"Muestra agregada. Total: {len(self.training_data)}. Dirección: {actual_direction}")
             
         except Exception as e:
-            logging.error(f"❌ Error agregando muestra de entrenamiento: {e}")
+            self._add_debug_log("error", f"Error agregando muestra: {e}")
     
     def train_model(self):
         """Entrena el modelo de machine learning"""
         if not SKLEARN_AVAILABLE:
-            logging.warning("⚠️ scikit-learn no disponible, no se puede entrenar modelo")
+            self._add_debug_log("warning", "scikit-learn no disponible")
             return False
             
         try:
             if len(self.training_data) < self.min_training_samples:
-                logging.info(f"📊 Insuficientes muestras para entrenar: {len(self.training_data)}/{self.min_training_samples}")
+                self._add_debug_log("warning", 
+                    f"Muestras insuficientes: {len(self.training_data)}/{self.min_training_samples}")
                 return False
+            
+            self._add_debug_log("info", f"Iniciando entrenamiento con {len(self.training_data)} muestras")
             
             # Preparar datos
             X = np.array([sample['features'] for sample in self.training_data])
             y = np.array([sample['label'] for sample in self.training_data])
             
             if len(np.unique(y)) < 2:
-                logging.info("📊 No hay suficiente variedad en los datos para entrenar")
+                self._add_debug_log("warning", "No hay suficiente variedad en los datos para entrenar")
                 return False
             
             # Dividir datos
@@ -1438,15 +1518,15 @@ class AdvancedLearningSystem:
             
             # Entrenar modelo ensemble
             rf_model = RandomForestClassifier(
-                n_estimators=50,  # 🚀 OPTIMIZADO: De 100 a 50 para más velocidad
-                max_depth=8,      # 🚀 OPTIMIZADO: De 10 a 8
+                n_estimators=50,
+                max_depth=8,
                 min_samples_split=5,
                 random_state=42
             )
             
             gb_model = GradientBoostingClassifier(
-                n_estimators=30,  # 🚀 OPTIMIZADO: De 50 a 30
-                max_depth=6,      # 🚀 OPTIMIZADO: De 8 a 6
+                n_estimators=30,
+                max_depth=6,
                 random_state=42
             )
             
@@ -1464,15 +1544,18 @@ class AdvancedLearningSystem:
             if rf_accuracy >= gb_accuracy:
                 self.model = rf_model
                 self.model_accuracy = rf_accuracy
-                logging.info(f"✅ Modelo RandomForest entrenado - Accuracy: {rf_accuracy:.3f}")
+                self._add_debug_log("success", 
+                    f"Modelo RandomForest entrenado - Accuracy: {rf_accuracy:.3f}")
             else:
                 self.model = gb_model
                 self.model_accuracy = gb_accuracy
-                logging.info(f"✅ Modelo GradientBoosting entrenado - Accuracy: {gb_accuracy:.3f}")
+                self._add_debug_log("success", 
+                    f"Modelo GradientBoosting entrenado - Accuracy: {gb_accuracy:.3f}")
             
             # Guardar importancia de características
             if hasattr(self.model, 'feature_importances_'):
                 self.feature_importance = dict(zip(self.feature_names, self.model.feature_importances_))
+                self._add_debug_log("info", "Importancia de características calculada")
             
             self.model_accuracy_history.append(self.model_accuracy)
             self.last_training_time = time.time()
@@ -1483,13 +1566,18 @@ class AdvancedLearningSystem:
             return True
             
         except Exception as e:
-            logging.error(f"❌ Error entrenando modelo: {e}")
+            self._add_debug_log("error", f"Error entrenando modelo: {e}")
             return False
     
     def predict_with_ml(self, features):
         """Realiza predicción usando el modelo de ML"""
         try:
-            if self.model is None or not features:
+            if self.model is None:
+                self._add_debug_log("warning", "Modelo ML no disponible")
+                return None, 0.0
+            
+            if not features:
+                self._add_debug_log("warning", "Características vacías para predicción ML")
                 return None, 0.0
             
             X = np.array([list(features.values())])
@@ -1500,11 +1588,15 @@ class AdvancedLearningSystem:
             
             # Mapear de vuelta a dirección
             direction_map = {0: 'ALZA', 1: 'BAJA', 2: 'LATERAL'}
+            predicted_direction = direction_map.get(prediction, 'LATERAL')
             
-            return direction_map.get(prediction, 'LATERAL'), probability * 100
+            self._add_debug_log("info", 
+                f"Predicción ML: {predicted_direction} ({probability*100:.1f}%)")
+            
+            return predicted_direction, probability * 100
             
         except Exception as e:
-            logging.error(f"❌ Error en predicción ML: {e}")
+            self._add_debug_log("error", f"Error en predicción ML: {e}")
             return None, 0.0
     
     def get_adaptive_confidence(self, ml_confidence, traditional_confidence, features):
@@ -1519,15 +1611,20 @@ class AdvancedLearningSystem:
             # Reducir confianza en condiciones volátiles o inconsistentes
             if consistency < 0.3:
                 base_confidence *= 0.7
-            elif volatility > 50:  # Alta volatilidad
+            elif volatility > 50:
                 base_confidence *= 0.8
-            elif consistency > 0.8:  # Alta consistencia
+            elif consistency > 0.8:
                 base_confidence *= 1.1
             
-            return min(95, max(50, base_confidence))
+            final_confidence = min(95, max(50, base_confidence))
+            
+            self._add_debug_log("info", 
+                f"Confianza adaptativa: {final_confidence:.1f}% (ML: {ml_confidence:.1f}%, Trad: {traditional_confidence:.1f}%)")
+            
+            return final_confidence
             
         except Exception as e:
-            logging.error(f"❌ Error calculando confianza adaptativa: {e}")
+            self._add_debug_log("error", f"Error calculando confianza adaptativa: {e}")
             return traditional_confidence
     
     def save_model(self):
@@ -1546,10 +1643,10 @@ class AdvancedLearningSystem:
                 with open('advanced_ml_model.pkl', 'wb') as f:
                     pickle.dump(model_data, f)
                 
-                logging.info("💾 Modelo guardado exitosamente")
+                self._add_debug_log("success", "Modelo guardado exitosamente")
                 
         except Exception as e:
-            logging.error(f"❌ Error guardando modelo: {e}")
+            self._add_debug_log("error", f"Error guardando modelo: {e}")
     
     def load_model(self):
         """Carga un modelo previamente entrenado"""
@@ -1565,11 +1662,12 @@ class AdvancedLearningSystem:
                 self.feature_importance = model_data.get('feature_importance', {})
                 self.last_training_time = model_data.get('last_trained', 0)
                 
-                logging.info(f"📂 Modelo cargado - Accuracy: {self.model_accuracy:.3f}")
+                self._add_debug_log("success", 
+                    f"Modelo cargado - Accuracy: {self.model_accuracy:.3f}")
                 return True
                 
         except Exception as e:
-            logging.error(f"❌ Error cargando modelo: {e}")
+            self._add_debug_log("error", f"Error cargando modelo: {e}")
         
         return False
     
@@ -1586,7 +1684,8 @@ class AdvancedLearningSystem:
             'feature_importance': self.feature_importance,
             'top_features': top_features,
             'last_training': datetime.fromtimestamp(self.last_training_time).isoformat() if self.last_training_time > 0 else 'Nunca',
-            'accuracy_trend': list(self.model_accuracy_history)[-10:] if self.model_accuracy_history else []
+            'accuracy_trend': list(self.model_accuracy_history)[-10:] if self.model_accuracy_history else [],
+            'debug_info': list(self.debug_logs)[-10:]  # 🆕 INFO DE DEBUG
         }
 
 # ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE MEJORADO ------------------
@@ -1599,7 +1698,13 @@ class EnhancedNextCandlePredictor:
             'correct_predictions': 0,
             'current_streak': 0,
             'best_streak': 0,
-            'today_signals': 0
+            'today_signals': 0,
+            'prediction_history': [],  # 🆕 HISTORIAL DETALLADO
+            'bias_tracking': {  # 🆕 SEGUIMIENTO DE SESGO
+                'alza_count': 0,
+                'baja_count': 0,
+                'lateral_count': 0
+            }
         }
         self.prediction_history = deque(maxlen=50)
         self.market_context = {
@@ -1610,8 +1715,19 @@ class EnhancedNextCandlePredictor:
             'market_regime': 0
         }
         self.last_prediction_features = None
-        self.auto_learning_active = True  # 🚀 MEJORADO: Siempre activo
+        self.auto_learning_active = True
+        self.debug_logs = deque(maxlen=50)  # 🆕 LOGS DE DEBUG
         
+    def _add_debug_log(self, level: str, message: str):
+        """Agrega log de debug"""
+        log_entry = {
+            'level': level,
+            'timestamp': datetime.now().strftime("%H:%M:%S"),
+            'message': message
+        }
+        self.debug_logs.append(log_entry)
+        logging.info(f"🎯 [PREDICTION_DEBUG] {message}")
+    
     def process_tick(self, price: float, seconds_remaining: float = None):
         return self.analyzer.add_tick(price, seconds_remaining)
     
@@ -1646,21 +1762,27 @@ class EnhancedNextCandlePredictor:
                 self.market_context['market_regime'] = 0  # Normal
                 
         except Exception as e:
-            logging.debug(f"🔧 Error actualizando contexto de mercado: {e}")
+            self._add_debug_log("error", f"Error actualizando contexto: {e}")
     
     def predict_next_candle(self):
         """Predice usando el sistema combinado tradicional + ML"""
         analysis = self.analyzer.get_candle_analysis()
         
         if analysis.get('status') != 'COMPLETE_ANALYSIS':
+            self._add_debug_log("warning", "Análisis incompleto, usando predicción base")
             return self._get_base_prediction(analysis)
         
         if not self.analyzer.is_ready_for_prediction():
+            self._add_debug_log("warning", "Sistema no listo para predicción")
             return self._get_base_prediction(analysis)
         
         try:
+            self._add_debug_log("info", "Iniciando predicción mejorada")
+            
             # 1. Obtener predicción tradicional
             traditional_prediction = self._get_traditional_prediction(analysis)
+            self._add_debug_log("info", 
+                f"Predicción tradicional: {traditional_prediction['direction']} {traditional_prediction['confidence']}%")
             
             # 2. Actualizar contexto de mercado
             self.update_market_context(analysis)
@@ -1672,19 +1794,26 @@ class EnhancedNextCandlePredictor:
                 self.market_context
             )
             
-            # 🚀 MEJORADO: Siempre guardar características para aprendizaje
+            # 🆕 DEBUG DETALLADO DE CARACTERÍSTICAS
             if features:
+                feature_summary = {k: round(v, 4) for k, v in features.items()}
+                self._add_debug_log("info", f"Características ML: {len(features)} extraídas")
                 self.last_prediction_features = features
-            
-            if not features:
+            else:
+                self._add_debug_log("warning", "No se pudieron extraer características para ML")
                 traditional_prediction['method'] = 'TRADICIONAL'
+                traditional_prediction['debug_info'] = list(self.debug_logs)[-5:]
                 return traditional_prediction
             
             # 4. Obtener predicción de ML
             ml_direction, ml_confidence = self.learning_system.predict_with_ml(features)
             
-            # 5. Combinar predicciones de manera inteligente
-            if ml_direction and ml_confidence > 55:  # 🚀 MEJORADO: Umbral reducido de 60 a 55
+            # 🆕 VERIFICAR ACTIVACIÓN DE ML
+            if ml_direction and ml_confidence > 55:
+                self._add_debug_log("success", 
+                    f"ML ACTIVADO: {ml_direction} {ml_confidence:.1f}%")
+                
+                # 5. Combinar predicciones de manera inteligente
                 combined_confidence = self.learning_system.get_adaptive_confidence(
                     ml_confidence, 
                     traditional_prediction['confidence'],
@@ -1706,8 +1835,19 @@ class EnhancedNextCandlePredictor:
                 traditional_prediction['traditional_confidence'] = traditional_prediction['confidence']
                 traditional_prediction['method'] = 'HÍBRIDO_ML'
                 
+                self._add_debug_log("success", 
+                    f"Predicción combinada: {final_direction} {combined_confidence:.1f}%")
+                
             else:
                 traditional_prediction['method'] = 'TRADICIONAL'
+                if ml_direction:
+                    self._add_debug_log("warning", 
+                        f"ML no activado: confianza {ml_confidence:.1f}% < 55%")
+                else:
+                    self._add_debug_log("warning", "ML no disponible")
+            
+            # 🆕 ACTUALIZAR SEGUIMIENTO DE SESGO
+            self._update_bias_tracking(traditional_prediction['direction'])
             
             # 6. Entrenamiento automático periódico MEJORADO
             if self.auto_learning_active:
@@ -1715,22 +1855,46 @@ class EnhancedNextCandlePredictor:
                 training_interval = self.learning_system.training_interval
                 min_samples = self.learning_system.min_training_samples
                 
-                # 🚀 MEJORADO: Entrenar más frecuentemente al inicio
                 if (current_time - self.learning_system.last_training_time > training_interval and
                     len(self.learning_system.training_data) >= min_samples):
                     
-                    logging.info("🔧 Ejecutando entrenamiento automático MEJORADO...")
+                    self._add_debug_log("info", "Ejecutando entrenamiento automático...")
                     if self.learning_system.train_model():
-                        logging.info("✅ Entrenamiento completado exitosamente")
+                        self._add_debug_log("success", "Entrenamiento completado")
+                    else:
+                        self._add_debug_log("error", "Error en entrenamiento")
             
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['today_signals'] += 1
             
+            # 🆕 AGREGAR DEBUG INFO A LA PREDICCIÓN
+            traditional_prediction['debug_info'] = list(self.debug_logs)[-5:]
+            traditional_prediction['status'] = 'PREDICTION_READY'
+            
             return traditional_prediction
             
         except Exception as e:
-            logging.error(f"❌ Error en predicción mejorada: {e}")
+            self._add_debug_log("error", f"Error en predicción mejorada: {e}")
             return self._get_base_prediction(analysis)
+    
+    def _update_bias_tracking(self, direction: str):
+        """Actualiza el seguimiento de sesgo predictivo"""
+        if direction == 'ALZA':
+            self.performance_stats['bias_tracking']['alza_count'] += 1
+        elif direction == 'BAJA':
+            self.performance_stats['bias_tracking']['baja_count'] += 1
+        else:
+            self.performance_stats['bias_tracking']['lateral_count'] += 1
+        
+        total = sum(self.performance_stats['bias_tracking'].values())
+        if total >= 10:  # Analizar sesgo cada 10 predicciones
+            alza_pct = (self.performance_stats['bias_tracking']['alza_count'] / total) * 100
+            baja_pct = (self.performance_stats['bias_tracking']['baja_count'] / total) * 100
+            
+            if alza_pct > 70:
+                self._add_debug_log("warning", f"🚨 SESGO ALCISTA DETECTADO: {alza_pct:.1f}%")
+            elif baja_pct > 70:
+                self._add_debug_log("warning", f"🚨 SESGO BAJISTA DETECTADO: {baja_pct:.1f}%")
     
     def _get_base_prediction(self, analysis):
         """Predicción base cuando el análisis no está completo"""
@@ -1742,12 +1906,15 @@ class EnhancedNextCandlePredictor:
             "reasons": ["Análisis de vela en curso"],
             "timestamp": now_iso(),
             "status": "ANALYZING",
-            "method": "TRADICIONAL"
+            "method": "TRADICIONAL",
+            "debug_info": list(self.debug_logs)[-3:] if self.debug_logs else []
         }
     
     def _get_traditional_prediction(self, analysis):
         """Predicción tradicional basada en análisis técnico"""
         try:
+            self._add_debug_log("info", "Calculando predicción tradicional")
+            
             # Análisis de fases
             phase_analysis = analysis.get('phase_analysis', {})
             phase_trends = self._analyze_phase_trends(phase_analysis)
@@ -1764,7 +1931,7 @@ class EnhancedNextCandlePredictor:
             candle_stats = analysis.get('candle_stats', {})
             candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
             
-            # 🚀 MEJORADO: Detección de sesgo
+            # 🆕 DETECCIÓN MEJORADA DE SESGO
             self._detect_prediction_bias(phase_trends, momentum_analysis, segment_prediction, candle_pattern)
             
             # Combinar predicciones
@@ -1775,6 +1942,9 @@ class EnhancedNextCandlePredictor:
             reasons = self._generate_prediction_reasons(
                 phase_trends, momentum_analysis, segment_prediction, candle_pattern
             )
+            
+            self._add_debug_log("info", 
+                f"Predicción tradicional final: {final_prediction['direction']} {final_prediction['confidence']}%")
             
             return {
                 "direction": final_prediction['direction'],
@@ -1788,7 +1958,7 @@ class EnhancedNextCandlePredictor:
             }
             
         except Exception as e:
-            logging.error(f"❌ Error en predicción tradicional: {e}")
+            self._add_debug_log("error", f"Error en predicción tradicional: {e}")
             return self._get_base_prediction(analysis)
     
     def _detect_prediction_bias(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
@@ -1805,14 +1975,20 @@ class EnhancedNextCandlePredictor:
             baja_count = directions.count('BAJA')
             alza_count = directions.count('ALZA')
             
-            # 🚀 MEJORADO: Detectar sesgo extremo
+            # 🆕 CORRECCIÓN MEJORADA DE SESGO
             if baja_count >= 3 and alza_count == 0:
-                logging.warning("⚠️ DETECTADO: Sesgo bajista en predicciones")
+                self._add_debug_log("warning", "🚨 SESGO BAJISTA DETECTADO en análisis tradicional")
+                # Aplicar corrección: reducir confianza en dirección bajista
+                if phase_trends['direction'] == 'BAJA':
+                    phase_trends['strength'] *= 0.7
             elif alza_count >= 3 and baja_count == 0:
-                logging.warning("⚠️ DETECTADO: Sesgo alcista en predicciones")
-                
+                self._add_debug_log("warning", "🚨 SESGO ALCISTA DETECTADO en análisis tradicional")
+                # Aplicar corrección: reducir confianza en dirección alcista
+                if phase_trends['direction'] == 'ALZA':
+                    phase_trends['strength'] *= 0.7
+                    
         except Exception as e:
-            logging.debug(f"🔧 Error detectando sesgo: {e}")
+            self._add_debug_log("error", f"Error detectando sesgo: {e}")
     
     def _analyze_phase_trends(self, phase_analysis):
         """Analiza las tendencias por fases de la vela"""
@@ -1930,10 +2106,10 @@ class EnhancedNextCandlePredictor:
             mapped_direction = 'LATERAL'
         
         # Vela con cuerpo grande → continuación probable
-        if body_size > range_size * 0.7:  # Cuerpo > 70% del rango
+        if body_size > range_size * 0.7:
             pattern_strength = 80
             pattern_type = "FUERTE"
-        elif body_size > range_size * 0.4:  # Cuerpo > 40% del rango
+        elif body_size > range_size * 0.4:
             pattern_strength = 65
             pattern_type = "MODERADO"
         else:
@@ -1947,7 +2123,7 @@ class EnhancedNextCandlePredictor:
             'strength': pattern_strength,
             'type': pattern_type,
             'consistency': consistency,
-            'continuation_bias': pattern_strength > 60  # Sesgo hacia continuación
+            'continuation_bias': pattern_strength > 60
         }
     
     def _combine_traditional_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
@@ -1968,10 +2144,10 @@ class EnhancedNextCandlePredictor:
         
         final_direction = max(direction_scores, key=direction_scores.get)
         
-        # 🚀 MEJORADO: Ajuste de confianza más inteligente
+        # 🆕 CÁLCULO MEJORADO DE CONFIANZA
         base_confidence = min(90, int(total_confidence))
         
-        # Bonus por consistencia MEJORADO
+        # Bonus por consistencia
         consistency_bonus = 0
         if phase_trends.get('consistency', False):
             consistency_bonus += 10
@@ -1982,11 +2158,22 @@ class EnhancedNextCandlePredictor:
         if candle_pattern.get('continuation_bias', False):
             consistency_bonus += 5
         
-        # 🚀 MEJORADO: Reducir confianza si hay sesgo extremo
+        # 🆕 CORRECCIÓN MEJORADA DE SESGO
         bias_penalty = 0
-        direction_counts = {k: v for k, v in direction_scores.items() if k != 'LATERAL'}
-        if len(direction_counts) == 1:  # Solo una dirección
-            bias_penalty = -15  # Penalizar confianza en caso de sesgo
+        total_predictions = self.performance_stats['total_predictions']
+        if total_predictions > 10:
+            bias_stats = self.performance_stats['bias_tracking']
+            total_recent = sum(bias_stats.values())
+            if total_recent > 0:
+                recent_alza_pct = bias_stats['alza_count'] / total_recent
+                recent_baja_pct = bias_stats['baja_count'] / total_recent
+                
+                if final_direction == 'ALZA' and recent_alza_pct > 0.7:
+                    bias_penalty = -15
+                    self._add_debug_log("warning", "Aplicando penalización por sesgo alcista")
+                elif final_direction == 'BAJA' and recent_baja_pct > 0.7:
+                    bias_penalty = -15
+                    self._add_debug_log("warning", "Aplicando penalización por sesgo bajista")
         
         final_confidence = min(95, max(40, base_confidence + consistency_bonus + bias_penalty))
         
@@ -2002,17 +2189,21 @@ class EnhancedNextCandlePredictor:
         """Combina predicciones tradicionales y de ML"""
         # Si las direcciones coinciden, usar esa dirección
         if trad_direction == ml_direction:
+            self._add_debug_log("info", "Coincidencia ML-Tradicional")
             return trad_direction
         
         # Si ML tiene alta confianza y tradicional baja, favorecer ML
-        if ml_confidence > 70 and trad_confidence < 60:  # 🚀 MEJORADO: Umbral ajustado
+        if ml_confidence > 70 and trad_confidence < 60:
+            self._add_debug_log("info", "Favoreciendo ML (alta confianza)")
             return ml_direction
         
         # Si tradicional tiene alta confianza y ML baja, favorecer tradicional
-        if trad_confidence > 70 and ml_confidence < 60:  # 🚀 MEJORADO: Umbral ajustado
+        if trad_confidence > 70 and ml_confidence < 60:
+            self._add_debug_log("info", "Favoreciendo Tradicional (alta confianza)")
             return trad_direction
         
         # En caso de empate, usar tradicional (más conservador)
+        self._add_debug_log("info", "Usando Tradicional (conservador)")
         return trad_direction
     
     def _generate_prediction_reasons(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
@@ -2067,7 +2258,18 @@ class EnhancedNextCandlePredictor:
                      predicted_direction != "LATERAL" and 
                      actual_mapped != "LATERAL")
         
-        # 🚀 MEJORADO: Aprendizaje automático MEJORADO
+        # 🆕 REGISTRO DETALLADO DE VALIDACIÓN
+        validation_entry = {
+            'timestamp': datetime.now().isoformat(),
+            'predicted': predicted_direction,
+            'actual': actual_mapped,
+            'correct': is_correct,
+            'confidence': last_prediction.get('confidence', 0),
+            'method': last_prediction.get('method', 'TRADICIONAL')
+        }
+        self.performance_stats['prediction_history'].append(validation_entry)
+        
+        # Aprendizaje automático MEJORADO
         if (self.auto_learning_active and 
             self.last_prediction_features is not None and 
             actual_direction is not None):
@@ -2079,12 +2281,12 @@ class EnhancedNextCandlePredictor:
                 last_prediction.get('confidence', 50)
             )
             
-            # 🚀 MEJORADO: Entrenamiento incremental más frecuente
+            # Entrenamiento incremental más frecuente
             current_samples = len(self.learning_system.training_data)
             min_samples = self.learning_system.min_training_samples
             
-            if current_samples >= min_samples and current_samples % 10 == 0:  # Cada 10 muestras
-                logging.info(f"🔧 Entrenamiento incremental activado ({current_samples} muestras)")
+            if current_samples >= min_samples and current_samples % 5 == 0:
+                self._add_debug_log("info", f"Entrenamiento incremental ({current_samples} muestras)")
                 self.learning_system.train_model()
         
         if is_correct:
@@ -2094,16 +2296,19 @@ class EnhancedNextCandlePredictor:
                 self.performance_stats['best_streak'], 
                 self.performance_stats['current_streak']
             )
-            logging.info(f"✅ PREDICCIÓN CORRECTA: {predicted_direction} vs {actual_mapped}")
+            self._add_debug_log("success", 
+                f"PREDICCIÓN CORRECTA: {predicted_direction} vs {actual_mapped}")
         else:
             self.performance_stats['current_streak'] = 0
-            logging.info(f"❌ PREDICCIÓN INCORRECTA: {predicted_direction} vs {actual_mapped}")
+            self._add_debug_log("error", 
+                f"PREDICCIÓN INCORRECTA: {predicted_direction} vs {actual_mapped}")
         
         return {
             "predicted": predicted_direction,
             "actual": actual_mapped,
             "correct": is_correct,
-            "current_streak": self.performance_stats['current_streak']
+            "current_streak": self.performance_stats['current_streak'],
+            "validation_entry": validation_entry
         }
     
     def get_performance_stats(self):
@@ -2112,13 +2317,29 @@ class EnhancedNextCandlePredictor:
             accuracy = (self.performance_stats['correct_predictions'] / 
                        self.performance_stats['total_predictions']) * 100
         
+        # 🆕 CÁLCULO DE SESGO ACTUAL
+        bias_stats = self.performance_stats['bias_tracking']
+        total_bias = sum(bias_stats.values())
+        bias_alza_pct = (bias_stats['alza_count'] / total_bias * 100) if total_bias > 0 else 0
+        bias_baja_pct = (bias_stats['baja_count'] / total_bias * 100) if total_bias > 0 else 0
+        
+        debug_info = [
+            {
+                'level': 'info',
+                'timestamp': datetime.now().strftime("%H:%M:%S"),
+                'message': f"Sesgo: ALZA {bias_alza_pct:.1f}%, BAJA {bias_baja_pct:.1f}%"
+            }
+        ]
+        
         return {
             "accuracy": round(accuracy, 1),
             "total_predictions": self.performance_stats['total_predictions'],
             "correct_predictions": self.performance_stats['correct_predictions'],
             "current_streak": self.performance_stats['current_streak'],
             "best_streak": self.performance_stats['best_streak'],
-            "today_signals": self.performance_stats['today_signals']
+            "today_signals": self.performance_stats['today_signals'],
+            "bias_tracking": self.performance_stats['bias_tracking'],
+            "debug_info": debug_info + list(self.debug_logs)[-3:]
         }
     
     def get_enhanced_performance_stats(self):
@@ -2149,7 +2370,9 @@ class EnhancedResponsiveDashboard:
                 "color": "gray",
                 "signal_strength": "NORMAL",
                 "timestamp": "00:00:00",
-                "method": "TRADICIONAL"
+                "method": "TRADICIONAL",
+                "status": "ANALIZANDO",
+                "debug_info": []
             },
             "current_candle": {
                 "progress": 0,
@@ -2171,20 +2394,23 @@ class EnhancedResponsiveDashboard:
                 "today_profit": 0,
                 "total_signals": 0,
                 "win_streak": 0,
-                "current_streak": 0
+                "current_streak": 0,
+                "debug_info": []
             },
             "system_status": {
                 "iq_connection": "DISCONNECTED",
                 "ai_status": "INITIALIZING",
                 "metronome_sync": "UNSYNCED",
-                "last_update": "N/A"
+                "last_update": "N/A",
+                "debug_info": []
             },
             "learning_stats": {
                 "model_accuracy": 0,
                 "training_samples": 0,
-                "learning_status": "ACTIVO",  # 🚀 MEJORADO: Siempre activo
+                "learning_status": "ACTIVO",
                 "last_training": "N/A",
-                "top_features": []
+                "top_features": [],
+                "debug_info": []
             },
             "visual_effects": {
                 "pulse_animation": False,
@@ -2196,7 +2422,8 @@ class EnhancedResponsiveDashboard:
         self.last_prediction = None
         self.prediction_history = []
         
-    def update_prediction(self, direction: str, confidence: int, signal_strength: str = "NORMAL", method: str = "TRADICIONAL"):
+    def update_prediction(self, direction: str, confidence: int, signal_strength: str = "NORMAL", 
+                         method: str = "TRADICIONAL", debug_info: list = None, status: str = "ANALIZANDO"):
         arrow, color = self._get_direction_arrow(direction, confidence)
         
         prediction_change = (
@@ -2211,7 +2438,9 @@ class EnhancedResponsiveDashboard:
             "color": color,
             "signal_strength": signal_strength,
             "timestamp": datetime.now().strftime("%H:%M:%S"),
-            "method": method
+            "method": method,
+            "status": status,
+            "debug_info": debug_info or []
         }
         
         self.dashboard_data["visual_effects"]["prediction_change"] = prediction_change
@@ -2229,7 +2458,6 @@ class EnhancedResponsiveDashboard:
             
         self.last_prediction = self.dashboard_data["current_prediction"].copy()
         
-        # Corregido: usar asyncio.ensure_future en lugar de create_task
         try:
             asyncio.ensure_future(self._reset_visual_effect("prediction_change", 2))
             asyncio.ensure_future(self._reset_visual_effect("flash_signal", 1))
@@ -2285,30 +2513,36 @@ class EnhancedResponsiveDashboard:
             "signal_count": signal_count
         }
 
-    def update_performance(self, accuracy: float, profit: float, signals: int, streak: int, current_streak: int = 0):
+    def update_performance(self, accuracy: float, profit: float, signals: int, streak: int, 
+                          current_streak: int = 0, debug_info: list = None):
         self.dashboard_data["performance"] = {
             "today_accuracy": accuracy,
             "today_profit": profit,
             "total_signals": signals,
             "win_streak": streak,
-            "current_streak": current_streak
+            "current_streak": current_streak,
+            "debug_info": debug_info or []
         }
 
-    def update_learning_stats(self, accuracy: float, samples: int, status: str, last_training: str, top_features: list):
+    def update_learning_stats(self, accuracy: float, samples: int, status: str, last_training: str, 
+                             top_features: list, debug_info: list = None):
         self.dashboard_data["learning_stats"] = {
             "model_accuracy": accuracy,
             "training_samples": samples,
             "learning_status": status,
             "last_training": last_training,
-            "top_features": top_features
+            "top_features": top_features,
+            "debug_info": debug_info or []
         }
 
-    def update_system_status(self, iq_status: str, ai_status: str, metronome_status: str = "UNSYNCED"):
+    def update_system_status(self, iq_status: str, ai_status: str, metronome_status: str = "UNSYNCED", 
+                            debug_info: list = None):
         self.dashboard_data["system_status"] = {
             "iq_connection": iq_status,
             "ai_status": ai_status,
             "metronome_sync": metronome_status,
-            "last_update": datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            "last_update": datetime.now().strftime("%H:%M:%S.%f")[:-3],
+            "debug_info": debug_info or []
         }
 
     def _get_direction_arrow(self, direction: str, confidence: int):
@@ -2391,9 +2625,9 @@ _last_price = None
 
 # ------------------ FASTAPI APP ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V6.0 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
+    title="Delowyss Trading AI V6.1 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
     description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela con autoaprendizaje MEJORADO",
-    version="6.0.1"  # 🚀 MEJORADO: Versión actualizada
+    version="6.1.0"
 )
 
 # SOLUCIÓN DEFINITIVA: Configuración CORS para Render.com
@@ -2415,7 +2649,6 @@ app.add_middleware(
 @app.middleware("http")
 async def add_security_headers(request, call_next):
     response = await call_next(request)
-    # Headers necesarios para WebSockets en Render
     response.headers["Access-Control-Allow-Origin"] = "https://delowyss-trading.onrender.com"
     response.headers["Access-Control-Allow-Credentials"] = "true"
     response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
@@ -2492,15 +2725,16 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
     @app.get("/api/status")
     async def get_status():
         return {
-            "status": "operational_mejorado",  # 🚀 MEJORADO: Indicador de versión mejorada
-            "version": "6.0.1",
+            "status": "operational_mejorado_v6.1",
+            "version": "6.1.0",
             "pair": PAR,
             "timeframe": "1min",
             "iq_connected": iq_connector.connected,
             "current_price": iq_connector.current_price,
             "prediction_window": f"{PREDICTION_WINDOW}s",
             "auto_learning": predictor.auto_learning_active,
-            "learning_samples": len(predictor.learning_system.training_data),  # 🚀 MEJORADO: Info adicional
+            "learning_samples": len(predictor.learning_system.training_data),
+            "debug_enabled": True,
             "timestamp": now_iso()
         }
 
@@ -2516,7 +2750,7 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                     await manager.metronome.sync_with_iqoption(iq_connector)
                     manager.dashboard.update_system_status(
                         "CONNECTED" if iq_connector.connected else "DISCONNECTED",
-                        "OPERATIONAL_MEJORADO",  # 🚀 MEJORADO: Indicador de versión
+                        "OPERATIONAL_MEJORADO_V6.1",
                         "SYNCED" if manager.metronome.last_sync_time > 0 else "UNSYNCED"
                     )
                 except Exception as e:
@@ -2531,10 +2765,10 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                 ticks_processed
             )
             
-            # 🚀 MEJORADO: Actualizar estadísticas de aprendizaje más frecuentemente
+            # Actualizar estadísticas de aprendizaje más frecuentemente
             current_time = time.time()
             if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
-                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 15:  # 15 segundos
+                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:  # 10 segundos
                     stats = predictor.get_enhanced_performance_stats()
                     learning_stats = stats.get('learning_system', {})
                     
@@ -2544,9 +2778,20 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                     manager.dashboard.update_learning_stats(
                         learning_stats.get('model_accuracy', 0),
                         learning_stats.get('training_samples', 0),
-                        "ACTIVO",  # 🚀 MEJORADO: Siempre activo
+                        "ACTIVO",
                         learning_stats.get('last_training', 'N/A'),
-                        top_features
+                        top_features,
+                        learning_stats.get('debug_info', [])
+                    )
+                    
+                    # Actualizar performance con debug info
+                    manager.dashboard.update_performance(
+                        stats['accuracy'],
+                        0,
+                        stats['total_signals'],
+                        stats['best_streak'],
+                        stats['current_streak'],
+                        stats.get('debug_info', [])
                     )
                     
                     enhanced_continuous_dashboard_updates.last_learning_update = current_time
@@ -2566,12 +2811,13 @@ setup_enhanced_routes(app, dashboard_manager, iq_connector)
 # ------------------ INICIALIZACIÓN MEJORADA ------------------
 def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V6.0 MEJORADO - ANÁLISIS COMPLETO + AUTOAPRENDIZAJE MEJORADO")
+        logging.info("🔧 INICIANDO SISTEMA V6.1 MEJORADO - DEBUG ACTIVADO")
         logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML)")
+        logging.info("🐛 MODO DEBUG: Activado con seguimiento de sesgo y logs detallados")
         
         # Verificar sistema de aprendizaje MEJORADO
         if hasattr(predictor, 'learning_system'):
-            learning_status = "ACTIVO"  # 🚀 MEJORADO: Siempre activo
+            learning_status = "ACTIVO"
             model_status = "CARGADO" if predictor.learning_system.model is not None else "NUEVO_MEJORADO"
             logging.info(f"🧠 SISTEMA DE AUTOAPRENDIZAJE MEJORADO: {learning_status} - MODELO: {model_status}")
             
@@ -2587,7 +2833,7 @@ def start_enhanced_system():
         
         if connection_result:
             logging.info("✅ Conexión IQ Option exitosa al inicio")
-            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO", "SYNCED")
+            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.1", "SYNCED")
         else:
             logging.error("❌ Conexión IQ Option falló al inicio")
             dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
@@ -2598,8 +2844,10 @@ def start_enhanced_system():
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V6.0 MEJORADA INICIADA - ANÁLISIS COMPLETO + AUTOAPRENDIZAJE MEJORADO")
+        logging.info(f"⭐ DELOWYSS AI V6.1 MEJORADA INICIADA - DEBUG ACTIVADO")
         logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML MEJORADO")
+        logging.info("🐛 SEGUIMIENTO DE SESGO: Activado")
+        logging.info("📊 VALIDACIÓN: Sistema de tracking implementado")
         logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
         
         time.sleep(2)
@@ -2633,7 +2881,7 @@ def premium_candle_analysis_loop():
                 logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
                 if iq_connector.connect():
                     logging.info("✅ Reconexión exitosa a IQ Option")
-                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO", "SYNCED")
+                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.1", "SYNCED")
                 else:
                     logging.error("❌ No se pudo reconectar a IQ Option")
                     dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
@@ -2665,17 +2913,20 @@ def premium_candle_analysis_loop():
                     dashboard_manager.dashboard.update_prediction(
                         prediction['direction'],
                         prediction['confidence'],
-                        method=prediction.get('method', 'TRADICIONAL')
+                        method=prediction.get('method', 'TRADICIONAL'),
+                        debug_info=prediction.get('debug_info', []),
+                        status=prediction.get('status', 'PREDICTION_READY')
                     )
                     
                     # Actualizar métricas de performance
                     stats = predictor.get_performance_stats()
                     dashboard_manager.dashboard.update_performance(
                         stats['accuracy'],
-                        0,  # profit no aplica en este sistema
-                        stats['today_signals'],
+                        0,
+                        stats['total_signals'],
                         stats['best_streak'],
-                        stats['current_streak']
+                        stats['current_streak'],
+                        stats.get('debug_info', [])
                     )
                     
                     _prediction_made_this_candle = True
@@ -2691,16 +2942,16 @@ def premium_candle_analysis_loop():
                         price_change = predictor.analyzer.current_candle_close - predictor.analyzer.current_candle_open
                         actual_direction = "ALCISTA" if price_change > 0.00001 else "BAJISTA" if price_change < -0.00001 else "LATERAL"
                         
-                        # 🚀 MEJORADO: Validar predicción ANTES del reset
+                        # 🆕 VALIDAR PREDICCIÓN CON DEBUG MEJORADO
                         validation = predictor.validate_prediction(actual_direction)
                         if validation:
                             result_icon = '✅' if validation['correct'] else '❌'
                             logging.info(f"📊 VALIDACIÓN MEJORADA: Predicho {validation['predicted']} vs Real {validation['actual']} - {result_icon}")
                 
-                # 🚀 MEJORADO: Un solo reset por vela
+                # 🆕 REINICIO MEJORADO
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
-                predictor.analyzer.reset()  # Solo un reset
+                predictor.analyzer.reset()
                 logging.info("🕯️ NUEVA VELA - Análisis completo reiniciado")
             
             time.sleep(0.1)

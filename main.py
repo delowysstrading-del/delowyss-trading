@@ -315,15 +315,71 @@ HTML_RESPONSIVE = """
     </div>
 
     <script>
-        const ws = new WebSocket(`ws://${window.location.host}/ws`);
-        const predictionHistory = document.getElementById('predictionHistory');
+        let ws = null;
+        let reconnectTimeout = null;
         
-        ws.onmessage = function(event) {
-            const data = JSON.parse(event.data);
-            if (data.type === 'dashboard_update') {
-                updateDashboard(data.data);
+        function getWebSocketUrl() {
+            // Render.com requiere wss:// para HTTPS
+            if (window.location.protocol === 'https:') {
+                return `wss://${window.location.host}/ws`;
+            } else {
+                return `ws://${window.location.host}/ws`;
             }
-        };
+        }
+        
+        function connectWebSocket() {
+            const wsUrl = getWebSocketUrl();
+            console.log('🔗 Conectando a:', wsUrl);
+            
+            try {
+                ws = new WebSocket(wsUrl);
+                
+                ws.onopen = function() {
+                    console.log('✅ WebSocket conectado');
+                    updateStatus('CONECTADO', '#00ff88');
+                    clearTimeout(reconnectTimeout);
+                };
+                
+                ws.onmessage = function(event) {
+                    const data = JSON.parse(event.data);
+                    if (data.type === 'dashboard_update') {
+                        updateDashboard(data.data);
+                    }
+                };
+                
+                ws.onclose = function(event) {
+                    console.log('🔌 WebSocket cerrado:', event.code, event.reason);
+                    updateStatus('RECONECTANDO...', '#ffaa00');
+                    scheduleReconnect();
+                };
+                
+                ws.onerror = function(error) {
+                    console.error('❌ Error WebSocket:', error);
+                    updateStatus('ERROR', '#ff4444');
+                };
+                
+            } catch (error) {
+                console.error('❌ Error creando WebSocket:', error);
+                updateStatus('ERROR', '#ff4444');
+                scheduleReconnect();
+            }
+        }
+        
+        function updateStatus(status, color) {
+            const element = document.getElementById('aiStatus');
+            if (element) {
+                element.textContent = status;
+                element.style.color = color;
+            }
+        }
+        
+        function scheduleReconnect() {
+            clearTimeout(reconnectTimeout);
+            reconnectTimeout = setTimeout(() => {
+                console.log('🔄 Intentando reconexión...');
+                connectWebSocket();
+            }, 3000);
+        }
         
         function updateDashboard(data) {
             // Predicción Actual
@@ -394,19 +450,29 @@ HTML_RESPONSIVE = """
                     <span class="label">${prediction.timestamp}</span>
                     <span class="value">${prediction.direction} ${prediction.arrow} (${prediction.confidence}%)</span>
                 `;
-                predictionHistory.insertBefore(entry, predictionHistory.firstChild);
+                const history = document.getElementById('predictionHistory');
+                history.insertBefore(entry, history.firstChild);
                 
                 // Limitar historial a 10 entradas
-                if (predictionHistory.children.length > 10) {
-                    predictionHistory.removeChild(predictionHistory.lastChild);
+                if (history.children.length > 10) {
+                    history.removeChild(history.lastChild);
                 }
             }
         }
         
-        ws.onclose = function() {
-            document.getElementById('aiStatus').textContent = 'DESCONECTADO';
-            document.getElementById('aiStatus').style.color = '#ff4444';
-        };
+        // Inicializar cuando cargue la página
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log('🚀 Iniciando Delowyss Trading AI V5.10');
+            connectWebSocket();
+            
+            // Verificar conexión periódicamente
+            setInterval(() => {
+                if (!ws || ws.readyState !== WebSocket.OPEN) {
+                    console.log('🔄 Verificando conexión WebSocket...');
+                    connectWebSocket();
+                }
+            }, 15000);
+        });
     </script>
 </body>
 </html>
@@ -1717,13 +1783,31 @@ app = FastAPI(
     version="5.10.0"
 )
 
+# SOLUCIÓN DEFINITIVA: Configuración CORS para Render.com
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=[
+        "https://delowyss-trading.onrender.com",
+        "http://delowyss-trading.onrender.com", 
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+        "http://0.0.0.0:10000"
+    ],
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
+
+# Configuración específica para WebSockets en Render
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    # Headers necesarios para WebSockets en Render
+    response.headers["Access-Control-Allow-Origin"] = "https://delowyss-trading.onrender.com"
+    response.headers["Access-Control-Allow-Credentials"] = "true"
+    response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization"
+    return response
 
 # ------------------ CONFIGURACIÓN RUTAS ------------------
 def setup_responsive_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_connector):

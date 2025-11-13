@@ -1,8 +1,8 @@
-# main.py - V5.10 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN
+# main.py - V6.0 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE
 """
-Delowyss Trading AI — V5.10 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN
+Delowyss Trading AI — V6.0 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE
 CEO: Eduardo Solis — © 2025
-Sistema de análisis completo de vela actual para predecir siguiente vela
+Sistema de análisis completo con IA avanzada y autoaprendizaje
 """
 
 import os
@@ -11,14 +11,17 @@ import threading
 import logging
 import asyncio
 import json
-from datetime import datetime
-from collections import deque
+import pickle
 import numpy as np
+import pandas as pd
+from datetime import datetime, timedelta
+from collections import deque
 from typing import Dict, Any, List, Optional
-
-from fastapi import FastAPI, WebSocket, WebSocketDisconnect
-from fastapi.responses import HTMLResponse
-from fastapi.middleware.cors import CORSMiddleware
+from sklearn.ensemble import RandomForestClassifier, GradientBoostingClassifier
+from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import train_test_split
+from sklearn.metrics import accuracy_score, classification_report
+import joblib
 
 # ------------------ CONFIGURACIÓN ------------------
 IQ_EMAIL = os.getenv("IQ_EMAIL", "vozhechacancion1@gmail.com")
@@ -41,14 +44,14 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ HTML RESPONSIVE DASHBOARD ------------------
+# ------------------ HTML RESPONSIVE DASHBOARD MEJORADO ------------------
 HTML_RESPONSIVE = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delowyss Trading AI V5.10</title>
+    <title>Delowyss Trading AI V6.0</title>
     <style>
         * { margin: 0; padding: 0; box-sizing: border-box; }
         body { 
@@ -59,7 +62,7 @@ HTML_RESPONSIVE = """
             padding: 20px;
         }
         .container { 
-            max-width: 1200px; 
+            max-width: 1400px; 
             margin: 0 auto; 
         }
         .header { 
@@ -112,6 +115,14 @@ HTML_RESPONSIVE = """
             color: #000;
             border-bottom-color: rgba(0,0,0,0.2);
         }
+        .learning-card {
+            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
+            color: #000;
+        }
+        .learning-card h2 {
+            color: #000;
+            border-bottom-color: rgba(0,0,0,0.2);
+        }
         .signal-strength {
             font-size: 1.2em;
             font-weight: bold;
@@ -132,7 +143,7 @@ HTML_RESPONSIVE = """
         }
         .metric {
             display: flex;
-            justify-content: between;
+            justify-content: space-between;
             margin: 8px 0;
         }
         .metric .label {
@@ -142,6 +153,9 @@ HTML_RESPONSIVE = """
         .metric .value {
             font-weight: bold;
             color: #00ff88;
+        }
+        .learning-metric .value {
+            color: #000;
         }
         .phase-indicator {
             display: inline-block;
@@ -185,13 +199,34 @@ HTML_RESPONSIVE = """
             color: #00ff88;
             margin: 10px 0;
         }
+        .feature-list {
+            font-size: 0.8em;
+            margin-top: 10px;
+        }
+        .feature-item {
+            display: flex;
+            justify-content: space-between;
+            margin: 4px 0;
+        }
+        .progress-bar {
+            height: 6px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 3px;
+            margin-top: 2px;
+            overflow: hidden;
+        }
+        .progress-fill {
+            height: 100%;
+            background: #000;
+            border-radius: 3px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Delowyss Trading AI V5.10</h1>
-            <div class="subtitle">Sistema de Análisis Completo de Vela + Predicción en Tiempo Real</div>
+            <h1>🚀 Delowyss Trading AI V6.0</h1>
+            <div class="subtitle">Sistema de Análisis Completo de Vela + Predicción + Autoaprendizaje</div>
         </div>
         
         <div class="grid">
@@ -205,6 +240,30 @@ HTML_RESPONSIVE = """
                 </div>
                 <div style="text-align: center;" id="confidenceText">Confianza: 0%</div>
                 <div class="signal-strength" id="signalStrength">Señal: NORMAL</div>
+                <div style="text-align: center; font-size: 0.9em; margin-top: 10px;" id="predictionMethod">Método: Tradicional</div>
+            </div>
+            
+            <div class="card learning-card">
+                <h2>🧠 SISTEMA DE AUTOAPRENDIZAJE</h2>
+                <div class="metric learning-metric">
+                    <span class="label">Accuracy Modelo:</span>
+                    <span class="value" id="modelAccuracy">0%</span>
+                </div>
+                <div class="metric learning-metric">
+                    <span class="label">Muestras Entrenamiento:</span>
+                    <span class="value" id="trainingSamples">0</span>
+                </div>
+                <div class="metric learning-metric">
+                    <span class="label">Estado Aprendizaje:</span>
+                    <span class="value" id="learningStatus">INACTIVO</span>
+                </div>
+                <div class="metric learning-metric">
+                    <span class="label">Último Entrenamiento:</span>
+                    <span class="value" id="lastTraining">N/A</span>
+                </div>
+                <div class="feature-list" id="featureImportance">
+                    <!-- Características importantes se cargarán aquí -->
+                </div>
             </div>
             
             <div class="card">
@@ -390,6 +449,17 @@ HTML_RESPONSIVE = """
             document.getElementById('confidenceBar').style.width = `${pred.confidence}%`;
             document.getElementById('signalStrength').textContent = `Señal: ${pred.signal_strength}`;
             document.getElementById('countdown').textContent = `${Math.round(data.current_candle.time_remaining)}s`;
+            document.getElementById('predictionMethod').textContent = `Método: ${pred.method || 'Tradicional'}`;
+            
+            // Sistema de Aprendizaje
+            const learning = data.learning_stats || {};
+            document.getElementById('modelAccuracy').textContent = `${learning.model_accuracy || 0}%`;
+            document.getElementById('trainingSamples').textContent = learning.training_samples || 0;
+            document.getElementById('learningStatus').textContent = learning.learning_status || 'INACTIVO';
+            document.getElementById('lastTraining').textContent = learning.last_training || 'N/A';
+            
+            // Actualizar importancia de características
+            updateFeatureImportance(learning.top_features || []);
             
             // Efectos visuales
             if (data.visual_effects.pulse_animation) {
@@ -442,6 +512,30 @@ HTML_RESPONSIVE = """
             updatePredictionHistory(pred);
         }
         
+        function updateFeatureImportance(features) {
+            const container = document.getElementById('featureImportance');
+            if (!features.length) {
+                container.innerHTML = '<div style="text-align: center; color: #666;">No hay datos de características</div>';
+                return;
+            }
+            
+            let html = '<div style="font-weight: bold; margin-bottom: 8px;">Características Importantes:</div>';
+            features.forEach(feature => {
+                const name = feature.name || feature;
+                const importance = feature.importance || 50;
+                html += `
+                    <div class="feature-item">
+                        <span>${name}</span>
+                        <span>${importance.toFixed(1)}%</span>
+                    </div>
+                    <div class="progress-bar">
+                        <div class="progress-fill" style="width: ${importance}%"></div>
+                    </div>
+                `;
+            });
+            container.innerHTML = html;
+        }
+        
         function updatePredictionHistory(prediction) {
             if (prediction.direction !== 'N/A') {
                 const entry = document.createElement('div');
@@ -462,7 +556,7 @@ HTML_RESPONSIVE = """
         
         // Inicializar cuando cargue la página
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando Delowyss Trading AI V5.10');
+            console.log('🚀 Iniciando Delowyss Trading AI V6.0');
             connectWebSocket();
             
             // Verificar conexión periódicamente
@@ -1174,10 +1268,300 @@ class CompleteCandleAnalyzer:
         except Exception as e:
             logging.error(f"❌ Error en reset: {e}")
 
-# ------------------ PREDICTOR DE SIGUIENTE VELA ------------------
-class NextCandlePredictor:
+# ------------------ SISTEMA DE AUTOAPRENDIZAJE AVANZADO ------------------
+class AdvancedLearningSystem:
+    def __init__(self):
+        self.model = None
+        self.scaler = StandardScaler()
+        self.feature_names = []
+        self.training_data = deque(maxlen=10000)  # Últimas 10,000 muestras
+        self.prediction_history = deque(maxlen=500)
+        self.model_accuracy_history = deque(maxlen=100)
+        self.last_training_time = 0
+        self.training_interval = 3600  # Entrenar cada hora
+        self.min_training_samples = 100
+        self.model_accuracy = 0.0
+        self.feature_importance = {}
+        
+        # Cargar modelo existente si existe
+        self.load_model()
+    
+    def extract_advanced_features(self, candle_analysis, current_price, market_context):
+        """Extrae características avanzadas para el modelo de ML"""
+        features = {}
+        
+        try:
+            # 1. Características de la vela actual
+            candle_stats = candle_analysis.get('candle_stats', {})
+            features['body_size'] = candle_stats.get('body_size', 0)
+            features['range_size'] = candle_stats.get('range', 0)
+            features['body_ratio'] = features['body_size'] / max(features['range_size'], 0.0001)
+            features['is_doji'] = 1 if features['body_ratio'] < 0.1 else 0
+            
+            # 2. Características de tendencia por fases
+            phase_analysis = candle_analysis.get('phase_analysis', {})
+            phase_directions = []
+            phase_strengths = []
+            
+            for phase, analysis in phase_analysis.items():
+                if analysis.get('trend_direction'):
+                    dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
+                    phase_directions.append(dir_map.get(analysis['trend_direction'], 0))
+                    phase_strengths.append(analysis.get('trend_strength', 0))
+            
+            features['phase_direction_std'] = np.std(phase_directions) if phase_directions else 0
+            features['phase_strength_avg'] = np.mean(phase_strengths) if phase_strengths else 0
+            features['phase_consistency'] = 1 - features['phase_direction_std']  # 1 = máxima consistencia
+            
+            # 3. Características de momentum y presión
+            general_analysis = candle_analysis.get('general_analysis', {})
+            features['momentum'] = general_analysis.get('current_momentum', 0)
+            features['pressure_balance'] = general_analysis.get('pressure_balance', 0.5)
+            features['consistency_score'] = general_analysis.get('consistency_score', 50) / 100.0
+            
+            # 4. Características de segmentos de tiempo
+            segment_analysis = candle_analysis.get('segment_analysis', {})
+            segment_directions = []
+            recent_segment_strength = 0
+            
+            for segment, data in segment_analysis.items():
+                if data.get('direction'):
+                    dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
+                    segment_directions.append(dir_map.get(data['direction'], 0))
+                    
+                # Dar más peso a segmentos recientes
+                if segment in ['35-55s', '55-60s']:
+                    recent_segment_strength += data.get('volatility', 0)
+            
+            features['segment_trend'] = np.mean(segment_directions) if segment_directions else 0
+            features['recent_volatility'] = recent_segment_strength
+            
+            # 5. Características de comportamiento del mercado
+            features['price_acceleration'] = market_context.get('price_acceleration', 0)
+            features['volatility_ratio'] = market_context.get('volatility_ratio', 1.0)
+            features['market_regime'] = market_context.get('market_regime', 0)  # 0: normal, 1: volátil, 2: tranquilo
+            
+            # 6. Características temporales
+            current_time = datetime.utcnow()
+            features['hour_sin'] = np.sin(2 * np.pi * current_time.hour / 24)
+            features['hour_cos'] = np.cos(2 * np.pi * current_time.hour / 24)
+            features['minute'] = current_time.minute / 60.0
+            
+            # 7. Características de patrones históricos
+            features['previous_candle_alignment'] = market_context.get('previous_candle_alignment', 0)
+            features['trend_continuation'] = market_context.get('trend_continuation', 0)
+            
+            self.feature_names = list(features.keys())
+            return features
+            
+        except Exception as e:
+            logging.error(f"❌ Error extrayendo características: {e}")
+            return {}
+    
+    def add_training_sample(self, features, actual_direction, prediction_confidence):
+        """Agrega una muestra de entrenamiento al dataset"""
+        try:
+            if not features or actual_direction is None:
+                return
+            
+            # Mapear dirección a label numérico
+            direction_map = {'ALZA': 0, 'BAJA': 1, 'LATERAL': 2}
+            label = direction_map.get(actual_direction, 2)
+            
+            sample = {
+                'features': list(features.values()),
+                'label': label,
+                'confidence': prediction_confidence,
+                'timestamp': time.time()
+            }
+            
+            self.training_data.append(sample)
+            
+        except Exception as e:
+            logging.error(f"❌ Error agregando muestra de entrenamiento: {e}")
+    
+    def train_model(self):
+        """Entrena el modelo de machine learning"""
+        try:
+            if len(self.training_data) < self.min_training_samples:
+                logging.info(f"📊 Insuficientes muestras para entrenar: {len(self.training_data)}/{self.min_training_samples}")
+                return False
+            
+            # Preparar datos
+            X = np.array([sample['features'] for sample in self.training_data])
+            y = np.array([sample['label'] for sample in self.training_data])
+            
+            if len(np.unique(y)) < 2:
+                logging.info("📊 No hay suficiente variedad en los datos para entrenar")
+                return False
+            
+            # Dividir datos
+            X_train, X_test, y_train, y_test = train_test_split(
+                X, y, test_size=0.2, random_state=42, stratify=y
+            )
+            
+            # Escalar características
+            X_train_scaled = self.scaler.fit_transform(X_train)
+            X_test_scaled = self.scaler.transform(X_test)
+            
+            # Entrenar modelo ensemble
+            rf_model = RandomForestClassifier(
+                n_estimators=100,
+                max_depth=10,
+                min_samples_split=5,
+                random_state=42
+            )
+            
+            gb_model = GradientBoostingClassifier(
+                n_estimators=50,
+                max_depth=8,
+                random_state=42
+            )
+            
+            rf_model.fit(X_train_scaled, y_train)
+            gb_model.fit(X_train_scaled, y_train)
+            
+            # Evaluar modelos
+            rf_pred = rf_model.predict(X_test_scaled)
+            gb_pred = gb_model.predict(X_test_scaled)
+            
+            rf_accuracy = accuracy_score(y_test, rf_pred)
+            gb_accuracy = accuracy_score(y_test, gb_pred)
+            
+            # Seleccionar el mejor modelo
+            if rf_accuracy >= gb_accuracy:
+                self.model = rf_model
+                self.model_accuracy = rf_accuracy
+                logging.info(f"✅ Modelo RandomForest entrenado - Accuracy: {rf_accuracy:.3f}")
+            else:
+                self.model = gb_model
+                self.model_accuracy = gb_accuracy
+                logging.info(f"✅ Modelo GradientBoosting entrenado - Accuracy: {gb_accuracy:.3f}")
+            
+            # Guardar importancia de características
+            if hasattr(self.model, 'feature_importances_'):
+                self.feature_importance = dict(zip(self.feature_names, self.model.feature_importances_))
+            
+            self.model_accuracy_history.append(self.model_accuracy)
+            self.last_training_time = time.time()
+            
+            # Guardar modelo
+            self.save_model()
+            
+            return True
+            
+        except Exception as e:
+            logging.error(f"❌ Error entrenando modelo: {e}")
+            return False
+    
+    def predict_with_ml(self, features):
+        """Realiza predicción usando el modelo de ML"""
+        try:
+            if self.model is None or not features:
+                return None, 0.0
+            
+            X = np.array([list(features.values())])
+            X_scaled = self.scaler.transform(X)
+            
+            prediction = self.model.predict(X_scaled)[0]
+            probability = np.max(self.model.predict_proba(X_scaled))
+            
+            # Mapear de vuelta a dirección
+            direction_map = {0: 'ALZA', 1: 'BAJA', 2: 'LATERAL'}
+            
+            return direction_map.get(prediction, 'LATERAL'), probability * 100
+            
+        except Exception as e:
+            logging.error(f"❌ Error en predicción ML: {e}")
+            return None, 0.0
+    
+    def get_adaptive_confidence(self, ml_confidence, traditional_confidence, features):
+        """Calcula confianza adaptativa basada en condiciones del mercado"""
+        try:
+            base_confidence = (ml_confidence * 0.6 + traditional_confidence * 0.4)
+            
+            # Ajustar confianza basado en consistencia de características
+            consistency = features.get('phase_consistency', 0.5)
+            volatility = features.get('recent_volatility', 0)
+            
+            # Reducir confianza en condiciones volátiles o inconsistentes
+            if consistency < 0.3:
+                base_confidence *= 0.7
+            elif volatility > 50:  # Alta volatilidad
+                base_confidence *= 0.8
+            elif consistency > 0.8:  # Alta consistencia
+                base_confidence *= 1.1
+            
+            return min(95, max(50, base_confidence))
+            
+        except Exception as e:
+            logging.error(f"❌ Error calculando confianza adaptativa: {e}")
+            return traditional_confidence
+    
+    def save_model(self):
+        """Guarda el modelo entrenado"""
+        try:
+            if self.model is not None:
+                model_data = {
+                    'model': self.model,
+                    'scaler': self.scaler,
+                    'feature_names': self.feature_names,
+                    'accuracy': self.model_accuracy,
+                    'feature_importance': self.feature_importance,
+                    'last_trained': self.last_training_time
+                }
+                
+                with open('advanced_ml_model.pkl', 'wb') as f:
+                    pickle.dump(model_data, f)
+                
+                logging.info("💾 Modelo guardado exitosamente")
+                
+        except Exception as e:
+            logging.error(f"❌ Error guardando modelo: {e}")
+    
+    def load_model(self):
+        """Carga un modelo previamente entrenado"""
+        try:
+            if os.path.exists('advanced_ml_model.pkl'):
+                with open('advanced_ml_model.pkl', 'rb') as f:
+                    model_data = pickle.load(f)
+                
+                self.model = model_data['model']
+                self.scaler = model_data['scaler']
+                self.feature_names = model_data['feature_names']
+                self.model_accuracy = model_data.get('accuracy', 0.0)
+                self.feature_importance = model_data.get('feature_importance', {})
+                self.last_training_time = model_data.get('last_trained', 0)
+                
+                logging.info(f"📂 Modelo cargado - Accuracy: {self.model_accuracy:.3f}")
+                return True
+                
+        except Exception as e:
+            logging.error(f"❌ Error cargando modelo: {e}")
+        
+        return False
+    
+    def get_learning_stats(self):
+        """Obtiene estadísticas del sistema de aprendizaje"""
+        top_features = []
+        if self.feature_importance:
+            sorted_features = sorted(self.feature_importance.items(), key=lambda x: x[1], reverse=True)[:5]
+            top_features = [{'name': name, 'importance': importance * 100} for name, importance in sorted_features]
+        
+        return {
+            'model_accuracy': round(self.model_accuracy * 100, 2),
+            'training_samples': len(self.training_data),
+            'feature_importance': self.feature_importance,
+            'top_features': top_features,
+            'last_training': datetime.fromtimestamp(self.last_training_time).isoformat() if self.last_training_time > 0 else 'Nunca',
+            'accuracy_trend': list(self.model_accuracy_history)[-10:] if self.model_accuracy_history else []
+        }
+
+# ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE ------------------
+class EnhancedNextCandlePredictor:
     def __init__(self):
         self.analyzer = CompleteCandleAnalyzer()
+        self.learning_system = AdvancedLearningSystem()
         self.performance_stats = {
             'total_predictions': 0,
             'correct_predictions': 0,
@@ -1186,69 +1570,170 @@ class NextCandlePredictor:
             'today_signals': 0
         }
         self.prediction_history = deque(maxlen=50)
+        self.market_context = {
+            'previous_candle_alignment': 0,
+            'trend_continuation': 0,
+            'price_acceleration': 0,
+            'volatility_ratio': 1.0,
+            'market_regime': 0
+        }
+        self.last_prediction_features = None
+        self.auto_learning_active = True
         
     def process_tick(self, price: float, seconds_remaining: float = None):
         return self.analyzer.add_tick(price, seconds_remaining)
     
+    def update_market_context(self, candle_analysis):
+        """Actualiza el contexto del mercado para el aprendizaje"""
+        try:
+            # Calcular alineación con vela anterior
+            if hasattr(self.analyzer, 'previous_candle'):
+                prev_candle = self.analyzer.previous_candle
+                current_direction = candle_analysis.get('candle_stats', {}).get('direction', 'LATERAL')
+                
+                if prev_candle.get('direction') and current_direction:
+                    dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
+                    prev_dir = dir_map.get(prev_candle['direction'], 0)
+                    curr_dir = dir_map.get(current_direction, 0)
+                    
+                    self.market_context['previous_candle_alignment'] = 1 if prev_dir == curr_dir else -1
+            
+            # Calcular aceleración del precio
+            if len(self.analyzer.velocity_metrics) >= 3:
+                recent_velocities = [v['velocity'] for v in list(self.analyzer.velocity_metrics)[-3:]]
+                if len(recent_velocities) >= 2:
+                    self.market_context['price_acceleration'] = recent_velocities[-1] - recent_velocities[0]
+            
+            # Determinar régimen de mercado basado en volatilidad
+            volatility = candle_analysis.get('candle_stats', {}).get('range', 0)
+            if volatility > 15:
+                self.market_context['market_regime'] = 1  # Volátil
+            elif volatility < 5:
+                self.market_context['market_regime'] = 2  # Tranquilo
+            else:
+                self.market_context['market_regime'] = 0  # Normal
+                
+        except Exception as e:
+            logging.debug(f"🔧 Error actualizando contexto de mercado: {e}")
+    
     def predict_next_candle(self):
-        """Predice la dirección de la siguiente vela basado en el análisis completo"""
+        """Predice usando el sistema combinado tradicional + ML"""
         analysis = self.analyzer.get_candle_analysis()
         
         if analysis.get('status') != 'COMPLETE_ANALYSIS':
-            return {
-                "direction": "LATERAL",
-                "confidence": 50,
-                "tick_count": self.analyzer.tick_count,
-                "current_price": self.analyzer.current_candle_close or 0.0,
-                "reasons": ["Análisis de vela en curso"],
-                "timestamp": now_iso(),
-                "status": "ANALYZING"
-            }
+            return self._get_base_prediction(analysis)
         
         if not self.analyzer.is_ready_for_prediction():
-            return {
-                "direction": "LATERAL", 
-                "confidence": 50,
-                "tick_count": self.analyzer.tick_count,
-                "current_price": self.analyzer.current_candle_close or 0.0,
-                "reasons": ["Esperando análisis completo de vela"],
-                "timestamp": now_iso(),
-                "status": "WAITING"
-            }
+            return self._get_base_prediction(analysis)
         
         try:
-            # Obtener análisis detallado
-            phase_analysis = analysis.get('phase_analysis', {})
-            segment_analysis = analysis.get('segment_analysis', {})
-            general_analysis = analysis.get('general_analysis', {})
-            candle_stats = analysis.get('candle_stats', {})
+            # 1. Obtener predicción tradicional
+            traditional_prediction = self._get_traditional_prediction(analysis)
             
-            # 1. Análisis de tendencia por fases
-            phase_trends = self._analyze_phase_trends(phase_analysis)
+            # 2. Actualizar contexto de mercado
+            self.update_market_context(analysis)
             
-            # 2. Análisis de momentum y presión
-            momentum_analysis = self._analyze_momentum_pressure(general_analysis)
-            
-            # 3. Análisis de comportamiento por segmentos
-            segment_prediction = self._analyze_segment_behavior(segment_analysis)
-            
-            # 4. Análisis de vela completa
-            candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
-            
-            # Combinar todas las predicciones
-            final_prediction = self._combine_predictions(
-                phase_trends, momentum_analysis, segment_prediction, candle_pattern
+            # 3. Extraer características para ML
+            features = self.learning_system.extract_advanced_features(
+                analysis, 
+                self.analyzer.current_candle_close, 
+                self.market_context
             )
             
-            # Generar razones detalladas
-            reasons = self._generate_prediction_reasons(
-                phase_trends, momentum_analysis, segment_prediction, candle_pattern
-            )
+            if not features:
+                traditional_prediction['method'] = 'TRADICIONAL'
+                return traditional_prediction
+            
+            # 4. Obtener predicción de ML
+            ml_direction, ml_confidence = self.learning_system.predict_with_ml(features)
+            
+            # 5. Combinar predicciones de manera inteligente
+            if ml_direction and ml_confidence > 60:  # Solo usar ML si tiene buena confianza
+                combined_confidence = self.learning_system.get_adaptive_confidence(
+                    ml_confidence, 
+                    traditional_prediction['confidence'],
+                    features
+                )
+                
+                # Decidir dirección final (favorecer ML si es consistente)
+                final_direction = self._combine_predictions(
+                    traditional_prediction['direction'], 
+                    ml_direction, 
+                    traditional_prediction['confidence'],
+                    ml_confidence
+                )
+                
+                # Guardar características para aprendizaje posterior
+                self.last_prediction_features = features
+                
+                # Actualizar predicción con resultados combinados
+                traditional_prediction['direction'] = final_direction
+                traditional_prediction['confidence'] = combined_confidence
+                traditional_prediction['ml_confidence'] = ml_confidence
+                traditional_prediction['traditional_confidence'] = traditional_prediction['confidence']
+                traditional_prediction['method'] = 'HÍBRIDO_ML'
+                
+            else:
+                traditional_prediction['method'] = 'TRADICIONAL'
+            
+            # 6. Entrenamiento automático periódico
+            if self.auto_learning_active:
+                current_time = time.time()
+                if current_time - self.learning_system.last_training_time > self.learning_system.training_interval:
+                    logging.info("🔧 Ejecutando entrenamiento automático...")
+                    self.learning_system.train_model()
             
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['today_signals'] += 1
             
-            prediction = {
+            return traditional_prediction
+            
+        except Exception as e:
+            logging.error(f"❌ Error en predicción mejorada: {e}")
+            return self._get_base_prediction(analysis)
+    
+    def _get_base_prediction(self, analysis):
+        """Predicción base cuando el análisis no está completo"""
+        return {
+            "direction": "LATERAL",
+            "confidence": 50,
+            "tick_count": self.analyzer.tick_count,
+            "current_price": self.analyzer.current_candle_close or 0.0,
+            "reasons": ["Análisis de vela en curso"],
+            "timestamp": now_iso(),
+            "status": "ANALYZING",
+            "method": "TRADICIONAL"
+        }
+    
+    def _get_traditional_prediction(self, analysis):
+        """Predicción tradicional basada en análisis técnico"""
+        try:
+            # Análisis de fases
+            phase_analysis = analysis.get('phase_analysis', {})
+            phase_trends = self._analyze_phase_trends(phase_analysis)
+            
+            # Análisis de momentum
+            general_analysis = analysis.get('general_analysis', {})
+            momentum_analysis = self._analyze_momentum_pressure(general_analysis)
+            
+            # Análisis de segmentos
+            segment_analysis = analysis.get('segment_analysis', {})
+            segment_prediction = self._analyze_segment_behavior(segment_analysis)
+            
+            # Análisis de patrón de vela
+            candle_stats = analysis.get('candle_stats', {})
+            candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
+            
+            # Combinar predicciones
+            final_prediction = self._combine_traditional_predictions(
+                phase_trends, momentum_analysis, segment_prediction, candle_pattern
+            )
+            
+            reasons = self._generate_prediction_reasons(
+                phase_trends, momentum_analysis, segment_prediction, candle_pattern
+            )
+            
+            return {
                 "direction": final_prediction['direction'],
                 "confidence": final_prediction['confidence'],
                 "tick_count": self.analyzer.tick_count,
@@ -1256,36 +1741,20 @@ class NextCandlePredictor:
                 "reasons": reasons,
                 "timestamp": now_iso(),
                 "status": "PREDICTION_READY",
-                "analysis_breakdown": {
-                    "phase_analysis": phase_trends,
-                    "momentum_analysis": momentum_analysis,
-                    "segment_analysis": segment_prediction,
-                    "candle_pattern": candle_pattern
-                }
+                "method": "TRADICIONAL"
             }
-            
-            self.prediction_history.append(prediction)
-            return prediction
             
         except Exception as e:
-            logging.error(f"❌ Error en predicción: {e}")
-            return {
-                "direction": "LATERAL",
-                "confidence": 50,
-                "tick_count": self.analyzer.tick_count,
-                "reasons": [f"Error en análisis: {str(e)}"],
-                "timestamp": now_iso(),
-                "status": "ERROR"
-            }
+            logging.error(f"❌ Error en predicción tradicional: {e}")
+            return self._get_base_prediction(analysis)
     
     def _analyze_phase_trends(self, phase_analysis):
-        """Analiza las tendencias por fases de la vela - CORREGIDO"""
+        """Analiza las tendencias por fases de la vela"""
         trends = []
         strengths = []
         
         for phase, analysis in phase_analysis.items():
             if analysis.get('trend_direction'):
-                # CORRECCIÓN: Mapear direcciones correctamente
                 original_direction = analysis['trend_direction']
                 if original_direction == 'ALCISTA':
                     mapped_direction = 'ALZA'
@@ -1341,13 +1810,12 @@ class NextCandlePredictor:
         }
     
     def _analyze_segment_behavior(self, segment_analysis):
-        """Analiza el comportamiento por segmentos de tiempo - CORREGIDO"""
+        """Analiza el comportamiento por segmentos de tiempo"""
         segments = list(segment_analysis.keys())
         directions = []
         
         for segment in segments:
             if segment_analysis[segment].get('direction'):
-                # CORRECCIÓN: Mapear direcciones correctamente
                 original_direction = segment_analysis[segment]['direction']
                 if original_direction == 'ALCISTA':
                     mapped_direction = 'ALZA'
@@ -1387,7 +1855,7 @@ class NextCandlePredictor:
         body_size = candle_stats.get('body_size', 0)
         range_size = candle_stats.get('range', 0)
         
-        # CORRECCIÓN: Mapear dirección de la vela
+        # Mapear dirección de la vela
         if direction == 'ALCISTA':
             mapped_direction = 'ALZA'
         elif direction == 'BAJISTA':
@@ -1416,8 +1884,8 @@ class NextCandlePredictor:
             'continuation_bias': pattern_strength > 60  # Sesgo hacia continuación
         }
     
-    def _combine_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Combina todas las predicciones en una final"""
+    def _combine_traditional_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
+        """Combina todas las predicciones tradicionales en una final"""
         predictions = [
             (phase_trends['direction'], phase_trends['strength'], 0.30),
             (momentum_analysis['momentum_direction'], momentum_analysis['momentum_strength'], 0.25),
@@ -1457,6 +1925,23 @@ class NextCandlePredictor:
             'consistency_bonus': consistency_bonus
         }
     
+    def _combine_predictions(self, trad_direction, ml_direction, trad_confidence, ml_confidence):
+        """Combina predicciones tradicionales y de ML"""
+        # Si las direcciones coinciden, usar esa dirección
+        if trad_direction == ml_direction:
+            return trad_direction
+        
+        # Si ML tiene alta confianza y tradicional baja, favorecer ML
+        if ml_confidence > 75 and trad_confidence < 60:
+            return ml_direction
+        
+        # Si tradicional tiene alta confianza y ML baja, favorecer tradicional
+        if trad_confidence > 75 and ml_confidence < 60:
+            return trad_direction
+        
+        # En caso de empate, usar tradicional (más conservador)
+        return trad_direction
+    
     def _generate_prediction_reasons(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
         """Genera razones detalladas para la predicción"""
         reasons = []
@@ -1490,14 +1975,14 @@ class NextCandlePredictor:
         return reasons
     
     def validate_prediction(self, actual_direction: str):
-        """Valida la predicción contra el resultado real - MEJORADO"""
+        """Valida la predicción contra el resultado real"""
         if not self.prediction_history:
             return None
             
         last_prediction = self.prediction_history[-1]
         predicted_direction = last_prediction['direction']
         
-        # CORRECCIÓN: Manejar direcciones de forma consistente
+        # Mapear direcciones de forma consistente
         if actual_direction == 'ALCISTA':
             actual_mapped = 'ALZA'
         elif actual_direction == 'BAJISTA':
@@ -1518,6 +2003,22 @@ class NextCandlePredictor:
             )
         else:
             self.performance_stats['current_streak'] = 0
+        
+        # Aprendizaje automático si está activo
+        if (self.auto_learning_active and 
+            self.last_prediction_features and 
+            actual_direction is not None):
+            
+            self.learning_system.add_training_sample(
+                self.last_prediction_features,
+                actual_mapped,
+                last_prediction.get('confidence', 50)
+            )
+            
+            # Entrenamiento incremental cada 50 muestras
+            if len(self.learning_system.training_data) % 50 == 0:
+                logging.info("🔧 Entrenamiento incremental activado...")
+                self.learning_system.train_model()
         
         return {
             "predicted": predicted_direction,
@@ -1541,11 +2042,25 @@ class NextCandlePredictor:
             "today_signals": self.performance_stats['today_signals']
         }
     
+    def get_enhanced_performance_stats(self):
+        """Obtiene estadísticas extendidas incluyendo aprendizaje"""
+        base_stats = self.get_performance_stats()
+        learning_stats = self.learning_system.get_learning_stats()
+        
+        return {
+            **base_stats,
+            'learning_system': learning_stats,
+            'auto_learning_active': self.auto_learning_active,
+            'market_context': self.market_context
+        }
+    
     def reset(self):
+        """Reinicia el predictor manteniendo el aprendizaje"""
         self.analyzer.reset()
+        # No reiniciamos el sistema de aprendizaje
 
-# ------------------ DASHBOARD RESPONSIVO ------------------
-class ResponsiveDashboard:
+# ------------------ DASHBOARD MEJORADO CON ESTADÍSTICAS DE APRENDIZAJE ------------------
+class EnhancedResponsiveDashboard:
     def __init__(self):
         self.dashboard_data = {
             "current_prediction": {
@@ -1554,7 +2069,8 @@ class ResponsiveDashboard:
                 "arrow": "⏳",
                 "color": "gray",
                 "signal_strength": "NORMAL",
-                "timestamp": "00:00:00"
+                "timestamp": "00:00:00",
+                "method": "TRADICIONAL"
             },
             "current_candle": {
                 "progress": 0,
@@ -1584,6 +2100,13 @@ class ResponsiveDashboard:
                 "metronome_sync": "UNSYNCED",
                 "last_update": "N/A"
             },
+            "learning_stats": {
+                "model_accuracy": 0,
+                "training_samples": 0,
+                "learning_status": "INACTIVE",
+                "last_training": "N/A",
+                "top_features": []
+            },
             "visual_effects": {
                 "pulse_animation": False,
                 "flash_signal": False,
@@ -1594,7 +2117,7 @@ class ResponsiveDashboard:
         self.last_prediction = None
         self.prediction_history = []
         
-    def update_prediction(self, direction: str, confidence: int, signal_strength: str = "NORMAL"):
+    def update_prediction(self, direction: str, confidence: int, signal_strength: str = "NORMAL", method: str = "TRADICIONAL"):
         arrow, color = self._get_direction_arrow(direction, confidence)
         
         prediction_change = (
@@ -1608,7 +2131,8 @@ class ResponsiveDashboard:
             "arrow": arrow,
             "color": color,
             "signal_strength": signal_strength,
-            "timestamp": datetime.now().strftime("%H:%M:%S")
+            "timestamp": datetime.now().strftime("%H:%M:%S"),
+            "method": method
         }
         
         self.dashboard_data["visual_effects"]["prediction_change"] = prediction_change
@@ -1617,7 +2141,8 @@ class ResponsiveDashboard:
         self.prediction_history.append({
             "direction": direction,
             "confidence": confidence,
-            "timestamp": datetime.now().isoformat()
+            "timestamp": datetime.now().isoformat(),
+            "method": method
         })
         
         if len(self.prediction_history) > 20:
@@ -1690,6 +2215,15 @@ class ResponsiveDashboard:
             "current_streak": current_streak
         }
 
+    def update_learning_stats(self, accuracy: float, samples: int, status: str, last_training: str, top_features: list):
+        self.dashboard_data["learning_stats"] = {
+            "model_accuracy": accuracy,
+            "training_samples": samples,
+            "learning_status": status,
+            "last_training": last_training,
+            "top_features": top_features
+        }
+
     def update_system_status(self, iq_status: str, ai_status: str, metronome_status: str = "UNSYNCED"):
         self.dashboard_data["system_status"] = {
             "iq_connection": iq_status,
@@ -1720,7 +2254,7 @@ class ResponsiveDashboard:
 class AdvancedConnectionManager:
     def __init__(self):
         self.active_connections = set()
-        self.dashboard = ResponsiveDashboard()
+        self.dashboard = EnhancedResponsiveDashboard()
         self.metronome = IQOptionMetronome()
         
     async def connect(self, websocket: WebSocket):
@@ -1766,9 +2300,9 @@ class AdvancedConnectionManager:
             self.disconnect(connection)
 
 # ------------------ SISTEMA PRINCIPAL ------------------
-# Instancias globales - DEFINIDAS ANTES de setup_responsive_routes
+# Instancias globales
 iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
-predictor = NextCandlePredictor()
+predictor = EnhancedNextCandlePredictor()
 dashboard_manager = AdvancedConnectionManager()
 
 # Variables globales
@@ -1778,9 +2312,9 @@ _last_price = None
 
 # ------------------ FASTAPI APP ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V5.10 - Análisis Completo de Vela",
-    description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela",
-    version="5.10.0"
+    title="Delowyss Trading AI V6.0 - Análisis Completo de Vela + Autoaprendizaje",
+    description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela con autoaprendizaje",
+    version="6.0.0"
 )
 
 # SOLUCIÓN DEFINITIVA: Configuración CORS para Render.com
@@ -1810,9 +2344,9 @@ async def add_security_headers(request, call_next):
     return response
 
 # ------------------ CONFIGURACIÓN RUTAS ------------------
-def setup_responsive_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_connector):
+def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_connector):
     @app.get("/", response_class=HTMLResponse)
-    async def get_responsive_dashboard():
+    async def get_enhanced_dashboard():
         return HTML_RESPONSIVE
 
     @app.websocket("/ws")
@@ -1824,11 +2358,77 @@ def setup_responsive_routes(app: FastAPI, manager: AdvancedConnectionManager, iq
         except WebSocketDisconnect:
             manager.disconnect(websocket)
 
+    @app.get("/api/prediction")
+    async def get_prediction():
+        analysis = predictor.analyzer.get_candle_analysis()
+        if analysis.get('status') == 'COMPLETE_ANALYSIS':
+            prediction = predictor.predict_next_candle()
+            return prediction
+        return {"status": "ANALYZING", "message": "Analizando vela actual..."}
+
+    @app.get("/api/performance")
+    async def get_performance():
+        stats = predictor.get_performance_stats()
+        return {
+            "performance": stats,
+            "system_status": "CANDLE_ANALYSIS_ACTIVE",
+            "timestamp": now_iso()
+        }
+
+    @app.get("/api/learning-stats")
+    async def get_learning_stats():
+        stats = predictor.get_enhanced_performance_stats()
+        return {
+            "learning_system": stats.get('learning_system', {}),
+            "auto_learning": stats.get('auto_learning_active', False),
+            "timestamp": now_iso()
+        }
+
+    @app.post("/api/retrain-model")
+    async def retrain_model():
+        success = predictor.learning_system.train_model()
+        return {
+            "success": success,
+            "message": "Modelo reentrenado" if success else "Error en reentrenamiento",
+            "timestamp": now_iso()
+        }
+
+    @app.get("/api/feature-importance")
+    async def get_feature_importance():
+        importance = predictor.learning_system.feature_importance
+        sorted_importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:10])
+        return {
+            "feature_importance": sorted_importance,
+            "timestamp": now_iso()
+        }
+
+    @app.get("/api/analysis")
+    async def get_analysis():
+        analysis = predictor.analyzer.get_candle_analysis()
+        return {
+            "analysis": analysis,
+            "timestamp": now_iso()
+        }
+
+    @app.get("/api/status")
+    async def get_status():
+        return {
+            "status": "operational",
+            "version": "6.0.0",
+            "pair": PAR,
+            "timeframe": "1min",
+            "iq_connected": iq_connector.connected,
+            "current_price": iq_connector.current_price,
+            "prediction_window": f"{PREDICTION_WINDOW}s",
+            "auto_learning": predictor.auto_learning_active,
+            "timestamp": now_iso()
+        }
+
     @app.on_event("startup")
     async def startup_event():
-        asyncio.create_task(continuous_dashboard_updates(manager, iq_connector))
+        asyncio.create_task(enhanced_continuous_dashboard_updates(manager, iq_connector))
 
-async def continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_connector):
+async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_connector):
     while True:
         try:
             if time.time() - manager.metronome.last_sync_time > 30:
@@ -1851,60 +2451,52 @@ async def continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_co
                 ticks_processed
             )
             
+            # Actualizar estadísticas de aprendizaje cada 30 segundos
+            current_time = time.time()
+            if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
+                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 30:
+                    stats = predictor.get_enhanced_performance_stats()
+                    learning_stats = stats.get('learning_system', {})
+                    
+                    # Actualizar dashboard con estadísticas de aprendizaje
+                    top_features = learning_stats.get('top_features', [])
+                    
+                    manager.dashboard.update_learning_stats(
+                        learning_stats.get('model_accuracy', 0),
+                        learning_stats.get('training_samples', 0),
+                        "ACTIVE" if predictor.auto_learning_active else "INACTIVE",
+                        learning_stats.get('last_training', 'N/A'),
+                        top_features
+                    )
+                    
+                    enhanced_continuous_dashboard_updates.last_learning_update = current_time
+            else:
+                enhanced_continuous_dashboard_updates.last_learning_update = current_time
+            
             await manager.broadcast_dashboard_update()
             await asyncio.sleep(0.1)
             
         except Exception as e:
-            logging.error(f"Error en actualización continua: {e}")
+            logging.error(f"Error en actualización mejorada: {e}")
             await asyncio.sleep(1)
 
-# Configurar rutas - AHORA dashboard_manager ESTÁ DEFINIDO
-setup_responsive_routes(app, dashboard_manager, iq_connector)
+# Configurar rutas
+setup_enhanced_routes(app, dashboard_manager, iq_connector)
 
-# ------------------ ENDPOINTS API ------------------
-@app.get("/api/prediction")
-async def get_prediction():
-    analysis = predictor.analyzer.get_candle_analysis()
-    if analysis.get('status') == 'COMPLETE_ANALYSIS':
-        prediction = predictor.predict_next_candle()
-        return prediction
-    return {"status": "ANALYZING", "message": "Analizando vela actual..."}
-
-@app.get("/api/performance")
-async def get_performance():
-    stats = predictor.get_performance_stats()
-    return {
-        "performance": stats,
-        "system_status": "CANDLE_ANALYSIS_ACTIVE",
-        "timestamp": now_iso()
-    }
-
-@app.get("/api/analysis")
-async def get_analysis():
-    analysis = predictor.analyzer.get_candle_analysis()
-    return {
-        "analysis": analysis,
-        "timestamp": now_iso()
-    }
-
-@app.get("/api/status")
-async def get_status():
-    return {
-        "status": "operational",
-        "version": "5.10.0",
-        "pair": PAR,
-        "timeframe": "1min",
-        "iq_connected": iq_connector.connected,
-        "current_price": iq_connector.current_price,
-        "prediction_window": f"{PREDICTION_WINDOW}s",
-        "timestamp": now_iso()
-    }
-
-# ------------------ INICIALIZACIÓN ------------------
-def start_system():
+# ------------------ INICIALIZACIÓN MEJORADA ------------------
+def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V5.10 - ANÁLISIS COMPLETO DE VELA")
-        logging.info("🎯 SISTEMA DE PREDICCIÓN BASADO EN ANÁLISIS COMPLETO")
+        logging.info("🔧 INICIANDO SISTEMA V6.0 - ANÁLISIS COMPLETO + AUTOAPRENDIZAJE")
+        logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO (TRADICIONAL + ML)")
+        
+        # Verificar sistema de aprendizaje
+        if hasattr(predictor, 'learning_system'):
+            learning_status = "ACTIVO" if predictor.auto_learning_active else "INACTIVO"
+            model_status = "CARGADO" if predictor.learning_system.model is not None else "NUEVO"
+            logging.info(f"🧠 SISTEMA DE AUTOAPRENDIZAJE: {learning_status} - MODELO: {model_status}")
+            
+            if predictor.learning_system.model is not None:
+                logging.info(f"📊 Accuracy del modelo: {predictor.learning_system.model_accuracy:.3f}")
         
         # ✅ INICIAR CONEXIÓN IQ OPTION
         logging.info("🔄 Iniciando conexión a IQ Option...")
@@ -1924,19 +2516,19 @@ def start_system():
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V5.10 INICIADA - ANÁLISIS COMPLETO DE VELA")
-        logging.info("🎯 PREDICCIÓN A 5s - ANÁLISIS COMPLETO DESDE INICIO DE VELA")
+        logging.info(f"⭐ DELOWYSS AI V6.0 INICIADA - ANÁLISIS COMPLETO + AUTOAPRENDIZAJE")
+        logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML")
         logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
         
         time.sleep(2)
         logging.info(f"🔧 Threads activos: {threading.active_count()}")
         
     except Exception as e:
-        logging.error(f"❌ Error iniciando sistema: {e}")
+        logging.error(f"❌ Error iniciando sistema mejorado: {e}")
         import traceback
         logging.error(f"❌ Traceback: {traceback.format_exc()}")
 
-# ------------------ LOOP PRINCIPAL ------------------
+# ------------------ LOOP PRINCIPAL MEJORADO ------------------
 def premium_candle_analysis_loop():
     global _last_candle_start, _prediction_made_this_candle, _last_price
     
@@ -1990,7 +2582,8 @@ def premium_candle_analysis_loop():
                     # Actualizar dashboard
                     dashboard_manager.dashboard.update_prediction(
                         prediction['direction'],
-                        prediction['confidence']
+                        prediction['confidence'],
+                        method=prediction.get('method', 'TRADICIONAL')
                     )
                     
                     # Actualizar métricas de performance
@@ -2004,7 +2597,7 @@ def premium_candle_analysis_loop():
                     )
                     
                     _prediction_made_this_candle = True
-                    logging.info(f"✅ PREDICCIÓN: {prediction['direction']} {prediction['confidence']}%")
+                    logging.info(f"✅ PREDICCIÓN: {prediction['direction']} {prediction['confidence']}% - Método: {prediction.get('method', 'TRADICIONAL')}")
             
             # Detectar nueva vela
             if current_candle_start > _last_candle_start:
@@ -2036,7 +2629,7 @@ def premium_candle_analysis_loop():
 
 # ------------------ EJECUCIÓN PRINCIPAL ------------------
 if __name__ == "__main__":
-    start_system()
+    start_enhanced_system()
     import uvicorn
     uvicorn.run(
         app, 
@@ -2046,4 +2639,4 @@ if __name__ == "__main__":
         access_log=True
     )
 else:
-    start_system()
+    start_enhanced_system()

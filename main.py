@@ -1213,37 +1213,47 @@ class NextCandlePredictor:
             }
     
     def _analyze_phase_trends(self, phase_analysis):
-        """Analiza las tendencias por fases de la vela"""
+        """Analiza las tendencias por fases de la vela - CORREGIDO"""
         trends = []
         strengths = []
         
         for phase, analysis in phase_analysis.items():
-            if analysis.get('trend_direction') and analysis.get('trend_strength', 0) > 0.5:
-                trends.append(analysis['trend_direction'])
-                strengths.append(analysis['trend_strength'])
-        
-        if trends:
-            # Ponderar más las fases finales
-            weights = [0.1, 0.2, 0.3, 0.4]  # Pesos para cada fase
-            weighted_trends = {}
-            
-            for i, trend in enumerate(trends):
-                weight = weights[i] if i < len(weights) else 0.1
-                if trend in weighted_trends:
-                    weighted_trends[trend] += weight
+            if analysis.get('trend_direction'):
+                # CORRECCIÓN: Mapear direcciones correctamente
+                original_direction = analysis['trend_direction']
+                if original_direction == 'ALCISTA':
+                    mapped_direction = 'ALZA'
+                elif original_direction == 'BAJISTA':
+                    mapped_direction = 'BAJA'
                 else:
-                    weighted_trends[trend] = weight
-            
-            dominant_trend = max(weighted_trends, key=weighted_trends.get)
-            avg_strength = np.mean(strengths) if strengths else 0
-            
-            return {
-                'direction': dominant_trend,
-                'strength': min(100, avg_strength * 10),
-                'consistency': len(set(trends)) == 1  # True si todas las fases coinciden
-            }
+                    mapped_direction = 'LATERAL'
+                
+                if analysis.get('trend_strength', 0) > 0.5:
+                    trends.append(mapped_direction)
+                    strengths.append(analysis['trend_strength'])
         
-        return {'direction': 'LATERAL', 'strength': 0, 'consistency': False}
+        if not trends:
+            return {'direction': 'LATERAL', 'strength': 0, 'consistency': False}
+        
+        # Ponderar más las fases finales
+        weights = [0.1, 0.2, 0.3, 0.4]
+        weighted_trends = {}
+        
+        for i, trend in enumerate(trends):
+            weight = weights[i] if i < len(weights) else 0.1
+            if trend in weighted_trends:
+                weighted_trends[trend] += weight
+            else:
+                weighted_trends[trend] = weight
+        
+        dominant_trend = max(weighted_trends, key=weighted_trends.get)
+        avg_strength = np.mean(strengths) if strengths else 0
+        
+        return {
+            'direction': dominant_trend,
+            'strength': min(100, avg_strength * 10),
+            'consistency': len(set(trends)) == 1
+        }
     
     def _analyze_momentum_pressure(self, general_analysis):
         """Analiza momentum y presión de la vela"""
@@ -1265,43 +1275,59 @@ class NextCandlePredictor:
         }
     
     def _analyze_segment_behavior(self, segment_analysis):
-        """Analiza el comportamiento por segmentos de tiempo"""
+        """Analiza el comportamiento por segmentos de tiempo - CORREGIDO"""
         segments = list(segment_analysis.keys())
         directions = []
         
         for segment in segments:
             if segment_analysis[segment].get('direction'):
-                directions.append(segment_analysis[segment]['direction'])
+                # CORRECCIÓN: Mapear direcciones correctamente
+                original_direction = segment_analysis[segment]['direction']
+                if original_direction == 'ALCISTA':
+                    mapped_direction = 'ALZA'
+                elif original_direction == 'BAJISTA':
+                    mapped_direction = 'BAJA'
+                else:
+                    mapped_direction = 'LATERAL'
+                directions.append(mapped_direction)
         
-        if directions:
-            # Los segmentos finales tienen más peso
-            recent_directions = directions[-2:] if len(directions) >= 2 else directions
-            alcista_count = recent_directions.count('ALCISTA')
-            bajista_count = recent_directions.count('BAJISTA')
+        if not directions:
+            return {'direction': 'LATERAL', 'confidence': 50, 'recent_alignment': False}
+        
+        # Los segmentos finales tienen más peso
+        recent_directions = directions[-2:] if len(directions) >= 2 else directions
+        alcista_count = recent_directions.count('ALZA')
+        bajista_count = recent_directions.count('BAJA')
+        
+        if alcista_count > bajista_count:
+            direction = "ALZA"
+            confidence = (alcista_count / len(recent_directions)) * 80
+        elif bajista_count > alcista_count:
+            direction = "BAJA"
+            confidence = (bajista_count / len(recent_directions)) * 80
+        else:
+            direction = "LATERAL"
+            confidence = 50
             
-            if alcista_count > bajista_count:
-                direction = "ALZA"
-                confidence = (alcista_count / len(recent_directions)) * 80
-            elif bajista_count > alcista_count:
-                direction = "BAJA"
-                confidence = (bajista_count / len(recent_directions)) * 80
-            else:
-                direction = "LATERAL"
-                confidence = 50
-                
-            return {
-                'direction': direction,
-                'confidence': confidence,
-                'recent_alignment': alcista_count == len(recent_directions) or bajista_count == len(recent_directions)
-            }
-        
-        return {'direction': 'LATERAL', 'confidence': 50, 'recent_alignment': False}
+        return {
+            'direction': direction,
+            'confidence': confidence,
+            'recent_alignment': alcista_count == len(recent_directions) or bajista_count == len(recent_directions)
+        }
     
     def _analyze_candle_pattern(self, candle_stats, general_analysis):
         """Analiza el patrón de la vela actual"""
         direction = candle_stats.get('direction', 'LATERAL')
         body_size = candle_stats.get('body_size', 0)
         range_size = candle_stats.get('range', 0)
+        
+        # CORRECCIÓN: Mapear dirección de la vela
+        if direction == 'ALCISTA':
+            mapped_direction = 'ALZA'
+        elif direction == 'BAJISTA':
+            mapped_direction = 'BAJA'
+        else:
+            mapped_direction = 'LATERAL'
         
         # Vela con cuerpo grande → continuación probable
         if body_size > range_size * 0.7:  # Cuerpo > 70% del rango
@@ -1317,7 +1343,7 @@ class NextCandlePredictor:
         consistency = general_analysis.get('consistency_score', 50)
         
         return {
-            'direction': direction,
+            'direction': mapped_direction,
             'strength': pattern_strength,
             'type': pattern_type,
             'consistency': consistency,
@@ -1398,16 +1424,24 @@ class NextCandlePredictor:
         return reasons
     
     def validate_prediction(self, actual_direction: str):
-        """Valida la predicción contra el resultado real"""
+        """Valida la predicción contra el resultado real - MEJORADO"""
         if not self.prediction_history:
             return None
             
         last_prediction = self.prediction_history[-1]
         predicted_direction = last_prediction['direction']
         
-        is_correct = (predicted_direction == actual_direction and 
+        # CORRECCIÓN: Manejar direcciones de forma consistente
+        if actual_direction == 'ALCISTA':
+            actual_mapped = 'ALZA'
+        elif actual_direction == 'BAJISTA':
+            actual_mapped = 'BAJA'
+        else:
+            actual_mapped = 'LATERAL'
+        
+        is_correct = (predicted_direction == actual_mapped and 
                      predicted_direction != "LATERAL" and 
-                     actual_direction != "LATERAL")
+                     actual_mapped != "LATERAL")
         
         if is_correct:
             self.performance_stats['correct_predictions'] += 1
@@ -1421,7 +1455,7 @@ class NextCandlePredictor:
         
         return {
             "predicted": predicted_direction,
-            "actual": actual_direction,
+            "actual": actual_mapped,
             "correct": is_correct,
             "current_streak": self.performance_stats['current_streak']
         }
@@ -1896,7 +1930,7 @@ def premium_candle_analysis_loop():
                         predictor.analyzer.current_candle_open is not None):
                         
                         price_change = predictor.analyzer.current_candle_close - predictor.analyzer.current_candle_open
-                        actual_direction = "ALZA" if price_change > 0.00001 else "BAJA" if price_change < -0.00001 else "LATERAL"
+                        actual_direction = "ALCISTA" if price_change > 0.00001 else "BAJISTA" if price_change < -0.00001 else "LATERAL"
                         
                         # Validar predicción
                         validation = predictor.validate_prediction(actual_direction)

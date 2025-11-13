@@ -1,6 +1,6 @@
-# main.py - V6.1 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO CON DEBUG
+# main.py - V6.2 ANÁLISIS COMPLETO DE VELA + PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO CON DEBUG
 """
-Delowyss Trading AI — V6.1 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
+Delowyss Trading AI — V6.2 ANÁLISIS COMPLETO DE VELA CON PREDICCIÓN + AUTOAPRENDIZAJE MEJORADO
 CEO: Eduardo Solis — © 2025
 Sistema de análisis completo con IA avanzada y autoaprendizaje MEJORADO
 """
@@ -40,7 +40,7 @@ IQ_PASSWORD = os.getenv("IQ_PASSWORD", "tu_password_real")
 PAR = "EURUSD"
 TIMEFRAME = 60
 PREDICTION_WINDOW = 5  # Predecir a 5 segundos del final
-MIN_TICKS_FOR_PREDICTION = 15  # 🚀 REDUCIDO: 20 → 15
+MIN_TICKS_FOR_PREDICTION = 15
 TICK_BUFFER_SIZE = 200
 PORT = int(os.getenv("PORT", "10000"))
 
@@ -55,310 +55,313 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
-# ------------------ HTML RESPONSIVE DASHBOARD MEJORADO ------------------
+# ------------------ HTML RESPONSIVE DASHBOARD SIMPLIFICADO ------------------
 HTML_RESPONSIVE = """
 <!DOCTYPE html>
 <html lang="es">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Delowyss Trading AI V6.1 MEJORADO</title>
+    <title>Delowyss Trading AI V6.2</title>
     <style>
-        * { margin: 0; padding: 0; box-sizing: border-box; }
+        * { 
+            margin: 0; 
+            padding: 0; 
+            box-sizing: border-box; 
+        }
+        
         body { 
-            font-family: 'Segoe UI', Arial, sans-serif; 
-            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: #0a0a0a;
             color: #ffffff; 
             min-height: 100vh;
-            padding: 20px;
+            padding: 0;
+            overflow-x: hidden;
         }
+        
         .container { 
-            max-width: 1400px; 
-            margin: 0 auto; 
+            max-width: 100%;
+            margin: 0 auto;
+            padding: 10px;
         }
+        
         .header { 
             text-align: center; 
-            margin-bottom: 30px; 
-            padding: 20px;
+            margin-bottom: 15px; 
+            padding: 15px;
             background: rgba(255,255,255,0.05);
-            border-radius: 15px;
+            border-radius: 12px;
             border: 1px solid rgba(255,255,255,0.1);
         }
+        
         .header h1 { 
             color: #00ff88; 
-            margin-bottom: 10px;
-            font-size: 2.5em;
+            margin-bottom: 5px;
+            font-size: 1.4em;
+            font-weight: 600;
         }
+        
         .header .subtitle {
             color: #888;
-            font-size: 1.1em;
+            font-size: 0.9em;
         }
+        
         .grid { 
             display: grid; 
-            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
-            gap: 20px; 
-            margin-bottom: 20px;
+            grid-template-columns: 1fr;
+            gap: 12px; 
+            margin-bottom: 15px;
         }
+        
+        @media (min-width: 768px) {
+            .grid {
+                grid-template-columns: 1fr 1fr;
+            }
+        }
+        
         .card {
             background: rgba(255,255,255,0.05);
-            border-radius: 15px;
-            padding: 20px;
+            border-radius: 12px;
+            padding: 15px;
             border: 1px solid rgba(255,255,255,0.1);
-            transition: all 0.3s ease;
+            transition: all 0.2s ease;
         }
+        
         .card:hover {
-            transform: translateY(-5px);
-            box-shadow: 0 10px 30px rgba(0,255,136,0.2);
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,255,136,0.1);
         }
+        
         .card h2 {
             color: #00ff88;
-            margin-bottom: 15px;
-            font-size: 1.3em;
+            margin-bottom: 12px;
+            font-size: 1.1em;
             border-bottom: 1px solid rgba(255,255,255,0.1);
-            padding-bottom: 10px;
+            padding-bottom: 8px;
+            font-weight: 600;
         }
+        
         .prediction-card {
             background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
             color: #000;
-            grid-column: span 2;
+            grid-column: 1 / -1;
         }
+        
         .prediction-card h2 {
             color: #000;
             border-bottom-color: rgba(0,0,0,0.2);
         }
-        .learning-card {
-            background: linear-gradient(135deg, #ff6b6b 0%, #ee5a52 100%);
-            color: #000;
-        }
-        .learning-card h2 {
-            color: #000;
-            border-bottom-color: rgba(0,0,0,0.2);
-        }
-        .signal-strength {
-            font-size: 1.2em;
-            font-weight: bold;
-            margin: 10px 0;
-        }
-        .confidence-bar {
-            height: 20px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 10px;
-            margin: 10px 0;
-            overflow: hidden;
-        }
-        .confidence-fill {
-            height: 100%;
-            background: #000;
-            border-radius: 10px;
-            transition: width 0.5s ease;
-        }
+        
         .metric {
             display: flex;
             justify-content: space-between;
-            margin: 8px 0;
+            margin: 6px 0;
+            font-size: 0.9em;
         }
+        
         .metric .label {
             flex: 1;
             color: #ccc;
         }
+        
         .metric .value {
-            font-weight: bold;
+            font-weight: 600;
             color: #00ff88;
         }
-        .learning-metric .value {
+        
+        .prediction-card .value {
             color: #000;
         }
-        .phase-indicator {
-            display: inline-block;
-            padding: 5px 10px;
-            border-radius: 20px;
-            background: rgba(0,255,136,0.2);
-            color: #00ff88;
-            font-size: 0.9em;
-            margin: 2px;
+        
+        .confidence-bar {
+            height: 16px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 8px;
+            margin: 8px 0;
+            overflow: hidden;
         }
+        
+        .confidence-fill {
+            height: 100%;
+            background: #000;
+            border-radius: 8px;
+            transition: width 0.3s ease;
+        }
+        
+        .countdown {
+            font-size: 1.3em;
+            font-weight: 700;
+            text-align: center;
+            color: #00ff88;
+            margin: 8px 0;
+        }
+        
+        .prediction-arrow {
+            font-size: 2em;
+            text-align: center;
+            margin: 5px 0;
+        }
+        
         .status-indicator {
             display: inline-block;
-            width: 10px;
-            height: 10px;
+            width: 8px;
+            height: 8px;
             border-radius: 50%;
-            margin-right: 8px;
+            margin-right: 6px;
         }
+        
         .status-connected { background: #00ff88; }
         .status-disconnected { background: #ff4444; }
         .status-synced { background: #00ff88; }
         .status-unsynced { background: #ffaa00; }
+        
         .pulse {
-            animation: pulse 2s infinite;
+            animation: pulse 1.5s infinite;
         }
+        
         @keyframes pulse {
             0% { opacity: 1; }
-            50% { opacity: 0.5; }
+            50% { opacity: 0.7; }
             100% { opacity: 1; }
         }
-        .flash {
-            animation: flash 1s;
+        
+        .compact-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 8px;
+            margin-top: 10px;
         }
-        @keyframes flash {
-            0% { background: #00ff88; }
-            100% { background: transparent; }
-        }
-        .countdown {
-            font-size: 1.5em;
-            font-weight: bold;
+        
+        .compact-metric {
+            font-size: 0.8em;
+            padding: 6px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 6px;
             text-align: center;
+        }
+        
+        .compact-value {
+            font-weight: 700;
             color: #00ff88;
-            margin: 10px 0;
+            display: block;
+            font-size: 1.1em;
         }
-        .feature-list {
-            font-size: 0.8em;
-            margin-top: 10px;
-        }
-        .feature-item {
-            display: flex;
-            justify-content: space-between;
-            margin: 4px 0;
-        }
-        .progress-bar {
-            height: 6px;
-            background: rgba(0,0,0,0.2);
-            border-radius: 3px;
-            margin-top: 2px;
-            overflow: hidden;
-        }
-        .progress-fill {
-            height: 100%;
-            background: #000;
-            border-radius: 3px;
-        }
-        .hot-indicator {
-            background: linear-gradient(45deg, #ff6b35, #ff8e53);
-            color: white;
-            padding: 3px 8px;
-            border-radius: 12px;
-            font-size: 0.7em;
-            margin-left: 5px;
-            animation: glow 1.5s infinite alternate;
-        }
-        @keyframes glow {
-            from { box-shadow: 0 0 5px #ff6b35; }
-            to { box-shadow: 0 0 15px #ff8e53; }
-        }
+        
         .debug-panel {
-            background: rgba(255,255,255,0.02);
-            border: 1px solid rgba(255,255,255,0.1);
-            border-radius: 10px;
-            padding: 15px;
-            margin-top: 10px;
-            font-family: monospace;
-            font-size: 0.8em;
-            max-height: 150px;
+            background: rgba(0,0,0,0.3);
+            border-radius: 6px;
+            padding: 10px;
+            margin-top: 8px;
+            font-family: 'Courier New', monospace;
+            font-size: 0.75em;
+            max-height: 80px;
             overflow-y: auto;
         }
+        
         .debug-item {
-            margin: 2px 0;
+            margin: 1px 0;
             color: #ccc;
+            line-height: 1.2;
         }
+        
         .debug-warning { color: #ffaa00; }
         .debug-error { color: #ff4444; }
         .debug-success { color: #00ff88; }
+        
+        .signal-badge {
+            background: rgba(0,255,136,0.2);
+            color: #00ff88;
+            padding: 3px 8px;
+            border-radius: 10px;
+            font-size: 0.7em;
+            font-weight: 600;
+            margin-left: 5px;
+        }
     </style>
 </head>
 <body>
     <div class="container">
         <div class="header">
-            <h1>🚀 Delowyss Trading AI V6.1 <span class="hot-indicator">DEBUG</span></h1>
-            <div class="subtitle">Sistema de Análisis Completo de Vela + Predicción + Autoaprendizaje MEJORADO</div>
+            <h1>🚀 Delowyss AI V6.2</h1>
+            <div class="subtitle">Análisis Completo + Predicción + AutoML</div>
         </div>
         
         <div class="grid">
             <div class="card prediction-card" id="predictionCard">
-                <h2>🎯 PREDICCIÓN ACTUAL <span class="hot-indicator" id="predictionStatus">ANALIZANDO</span></h2>
+                <h2>🎯 PREDICCIÓN ACTUAL <span class="signal-badge" id="predictionStatus">ANALIZANDO</span></h2>
                 <div class="countdown" id="countdown">--</div>
-                <div style="font-size: 2em; text-align: center; margin: 10px 0;" id="predictionArrow">⏳</div>
-                <div style="text-align: center; font-size: 1.3em; font-weight: bold;" id="predictionDirection">ANALIZANDO...</div>
+                <div class="prediction-arrow" id="predictionArrow">⏳</div>
+                <div style="text-align: center; font-size: 1.1em; font-weight: 700;" id="predictionDirection">ANALIZANDO...</div>
                 <div class="confidence-bar">
                     <div class="confidence-fill" id="confidenceBar" style="width: 0%"></div>
                 </div>
-                <div style="text-align: center;" id="confidenceText">Confianza: 0%</div>
-                <div class="signal-strength" id="signalStrength">Señal: NORMAL</div>
-                <div style="text-align: center; font-size: 0.9em; margin-top: 10px;" id="predictionMethod">Método: Tradicional</div>
+                <div style="text-align: center; font-size: 0.9em;" id="confidenceText">Confianza: 0%</div>
+                <div style="text-align: center; font-size: 0.8em; margin-top: 5px;" id="predictionMethod">Método: Tradicional</div>
                 <div class="debug-panel" id="predictionDebug">
-                    <div class="debug-item">Esperando datos de depuración...</div>
-                </div>
-            </div>
-            
-            <div class="card learning-card">
-                <h2>🧠 SISTEMA DE AUTOAPRENDIZAJE <span class="hot-indicator" id="learningStatus">ACTIVO</span></h2>
-                <div class="metric learning-metric">
-                    <span class="label">Accuracy Modelo:</span>
-                    <span class="value" id="modelAccuracy">0%</span>
-                </div>
-                <div class="metric learning-metric">
-                    <span class="label">Muestras Entrenamiento:</span>
-                    <span class="value" id="trainingSamples">0</span>
-                </div>
-                <div class="metric learning-metric">
-                    <span class="label">Estado Aprendizaje:</span>
-                    <span class="value" id="learningState">ACTIVO</span>
-                </div>
-                <div class="metric learning-metric">
-                    <span class="label">Último Entrenamiento:</span>
-                    <span class="value" id="lastTraining">N/A</span>
-                </div>
-                <div class="feature-list" id="featureImportance">
-                    <!-- Características importantes se cargarán aquí -->
-                </div>
-                <div class="debug-panel" id="learningDebug">
-                    <div class="debug-item">Esperando datos de aprendizaje...</div>
+                    <div class="debug-item">Esperando datos...</div>
                 </div>
             </div>
             
             <div class="card">
                 <h2>📊 VELA ACTUAL</h2>
+                <div class="compact-grid">
+                    <div class="compact-metric">
+                        <span class="label">Progreso</span>
+                        <span class="compact-value" id="candleProgress">0%</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Tiempo</span>
+                        <span class="compact-value" id="timeRemaining">60s</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Precio</span>
+                        <span class="compact-value" id="currentPrice">0.00000</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Ticks</span>
+                        <span class="compact-value" id="ticksProcessed">0</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🧠 AUTOAPRENDIZAJE</h2>
                 <div class="metric">
-                    <span class="label">Progreso:</span>
-                    <span class="value" id="candleProgress">0%</span>
+                    <span class="label">Accuracy Modelo:</span>
+                    <span class="value" id="modelAccuracy">0%</span>
                 </div>
                 <div class="metric">
-                    <span class="label">Tiempo Restante:</span>
-                    <span class="value" id="timeRemaining">60s</span>
+                    <span class="label">Muestras:</span>
+                    <span class="value" id="trainingSamples">0</span>
                 </div>
                 <div class="metric">
-                    <span class="label">Precio Actual:</span>
-                    <span class="value" id="currentPrice">0.00000</span>
+                    <span class="label">Estado:</span>
+                    <span class="value" id="learningState">ACTIVO</span>
                 </div>
-                <div class="metric">
-                    <span class="label">Ticks Procesados:</span>
-                    <span class="value" id="ticksProcessed">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Fase Actual:</span>
-                    <span class="value" id="currentPhase">INICIAL</span>
+                <div class="debug-panel" id="learningDebug">
+                    <div class="debug-item">Inicializando aprendizaje...</div>
                 </div>
             </div>
             
             <div class="card">
                 <h2>📈 MÉTRICAS</h2>
-                <div class="metric">
-                    <span class="label">Densidad:</span>
-                    <span class="value" id="density">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Velocidad:</span>
-                    <span class="value" id="velocity">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Aceleración:</span>
-                    <span class="value" id="acceleration">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Fase:</span>
-                    <span class="value" id="phase">INICIAL</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Señales Hoy:</span>
-                    <span class="value" id="signalCount">0</span>
+                <div class="compact-grid">
+                    <div class="compact-metric">
+                        <span class="label">Densidad</span>
+                        <span class="compact-value" id="density">0</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Velocidad</span>
+                        <span class="compact-value" id="velocity">0</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Aceleración</span>
+                        <span class="compact-value" id="acceleration">0</span>
+                    </div>
+                    <div class="compact-metric">
+                        <span class="label">Fase</span>
+                        <span class="compact-value" id="phase">INICIAL</span>
+                    </div>
                 </div>
             </div>
             
@@ -369,28 +372,20 @@ HTML_RESPONSIVE = """
                     <span class="value" id="todayAccuracy">0%</span>
                 </div>
                 <div class="metric">
-                    <span class="label">Beneficio Hoy:</span>
-                    <span class="value" id="todayProfit">$0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Total Señales:</span>
+                    <span class="label">Señales:</span>
                     <span class="value" id="totalSignals">0</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Racha Ganadora:</span>
-                    <span class="value" id="winStreak">0</span>
                 </div>
                 <div class="metric">
                     <span class="label">Racha Actual:</span>
                     <span class="value" id="currentStreak">0</span>
                 </div>
                 <div class="debug-panel" id="performanceDebug">
-                    <div class="debug-item">Esperando datos de performance...</div>
+                    <div class="debug-item">Esperando datos...</div>
                 </div>
             </div>
             
             <div class="card">
-                <h2>🔧 ESTADO DEL SISTEMA</h2>
+                <h2>🔧 SISTEMA</h2>
                 <div class="metric">
                     <span class="label">IQ Option:</span>
                     <span class="value">
@@ -399,15 +394,8 @@ HTML_RESPONSIVE = """
                     </span>
                 </div>
                 <div class="metric">
-                    <span class="label">IA Status:</span>
-                    <span class="value" id="aiStatus">INICIALIZANDO</span>
-                </div>
-                <div class="metric">
-                    <span class="label">Metrónomo:</span>
-                    <span class="value">
-                        <span class="status-indicator" id="metronomeStatus"></span>
-                        <span id="metronomeStatusText">SYNCING...</span>
-                    </span>
+                    <span class="label">Estado IA:</span>
+                    <span class="value" id="aiStatus">INICIANDO</span>
                 </div>
                 <div class="metric">
                     <span class="label">Última Actualización:</span>
@@ -418,13 +406,6 @@ HTML_RESPONSIVE = """
                 </div>
             </div>
         </div>
-        
-        <div class="card">
-            <h2>📋 HISTORIAL DE PREDICCIONES</h2>
-            <div id="predictionHistory" style="max-height: 200px; overflow-y: auto;">
-                <!-- Historial se cargará aquí -->
-            </div>
-        </div>
     </div>
 
     <script>
@@ -432,7 +413,6 @@ HTML_RESPONSIVE = """
         let reconnectTimeout = null;
         
         function getWebSocketUrl() {
-            // Render.com requiere wss:// para HTTPS
             if (window.location.protocol === 'https:') {
                 return `wss://${window.location.host}/ws`;
             } else {
@@ -442,7 +422,6 @@ HTML_RESPONSIVE = """
         
         function connectWebSocket() {
             const wsUrl = getWebSocketUrl();
-            console.log('🔗 Conectando a:', wsUrl);
             
             try {
                 ws = new WebSocket(wsUrl);
@@ -461,7 +440,7 @@ HTML_RESPONSIVE = """
                 };
                 
                 ws.onclose = function(event) {
-                    console.log('🔌 WebSocket cerrado:', event.code, event.reason);
+                    console.log('🔌 WebSocket cerrado');
                     updateStatus('RECONECTANDO...', '#ffaa00');
                     scheduleReconnect();
                 };
@@ -489,9 +468,9 @@ HTML_RESPONSIVE = """
         function scheduleReconnect() {
             clearTimeout(reconnectTimeout);
             reconnectTimeout = setTimeout(() => {
-                console.log('🔄 Intentando reconexión...');
+                console.log('🔄 Reconectando...');
                 connectWebSocket();
-            }, 3000);
+            }, 2000);
         }
         
         function updateDashboard(data) {
@@ -501,12 +480,10 @@ HTML_RESPONSIVE = """
             document.getElementById('predictionArrow').textContent = pred.arrow;
             document.getElementById('confidenceText').textContent = `Confianza: ${pred.confidence}%`;
             document.getElementById('confidenceBar').style.width = `${pred.confidence}%`;
-            document.getElementById('signalStrength').textContent = `Señal: ${pred.signal_strength}`;
             document.getElementById('countdown').textContent = `${Math.round(data.current_candle.time_remaining)}s`;
             document.getElementById('predictionMethod').textContent = `Método: ${pred.method || 'Tradicional'}`;
             document.getElementById('predictionStatus').textContent = pred.status || 'ANALIZANDO';
             
-            // Actualizar debug de predicción
             updateDebugPanel('predictionDebug', pred.debug_info || []);
             
             // Sistema de Aprendizaje
@@ -514,13 +491,6 @@ HTML_RESPONSIVE = """
             document.getElementById('modelAccuracy').textContent = `${learning.model_accuracy || 0}%`;
             document.getElementById('trainingSamples').textContent = learning.training_samples || 0;
             document.getElementById('learningState').textContent = learning.learning_status || 'ACTIVO';
-            document.getElementById('lastTraining').textContent = learning.last_training || 'N/A';
-            document.getElementById('learningStatus').textContent = learning.learning_status || 'ACTIVO';
-            
-            // Actualizar importancia de características
-            updateFeatureImportance(learning.top_features || []);
-            
-            // Actualizar debug de aprendizaje
             updateDebugPanel('learningDebug', learning.debug_info || []);
             
             // Efectos visuales
@@ -530,20 +500,12 @@ HTML_RESPONSIVE = """
                 document.getElementById('predictionCard').classList.remove('pulse');
             }
             
-            if (data.visual_effects.flash_signal) {
-                document.getElementById('predictionCard').classList.add('flash');
-                setTimeout(() => {
-                    document.getElementById('predictionCard').classList.remove('flash');
-                }, 1000);
-            }
-            
             // Vela Actual
             const candle = data.current_candle;
             document.getElementById('candleProgress').textContent = `${Math.round(candle.progress)}%`;
             document.getElementById('timeRemaining').textContent = `${Math.round(candle.time_remaining)}s`;
             document.getElementById('currentPrice').textContent = candle.price.toFixed(5);
             document.getElementById('ticksProcessed').textContent = candle.ticks_processed;
-            document.getElementById('currentPhase').textContent = candle.current_phase;
             
             // Métricas
             const metrics = data.metrics;
@@ -551,17 +513,12 @@ HTML_RESPONSIVE = """
             document.getElementById('velocity').textContent = metrics.velocity.toFixed(2);
             document.getElementById('acceleration').textContent = metrics.acceleration.toFixed(2);
             document.getElementById('phase').textContent = metrics.phase;
-            document.getElementById('signalCount').textContent = metrics.signal_count;
             
             // Performance
             const perf = data.performance;
             document.getElementById('todayAccuracy').textContent = `${perf.today_accuracy}%`;
-            document.getElementById('todayProfit').textContent = `$${perf.today_profit}`;
             document.getElementById('totalSignals').textContent = perf.total_signals;
-            document.getElementById('winStreak').textContent = perf.win_streak;
             document.getElementById('currentStreak').textContent = perf.current_streak;
-            
-            // Actualizar debug de performance
             updateDebugPanel('performanceDebug', perf.debug_info || []);
             
             // Estado del Sistema
@@ -569,21 +526,14 @@ HTML_RESPONSIVE = """
             document.getElementById('iqStatus').className = `status-indicator ${status.iq_connection === 'CONNECTED' ? 'status-connected' : 'status-disconnected'}`;
             document.getElementById('iqStatusText').textContent = status.iq_connection;
             document.getElementById('aiStatus').textContent = status.ai_status;
-            document.getElementById('metronomeStatus').className = `status-indicator ${status.metronome_sync === 'SYNCED' ? 'status-synced' : 'status-unsynced'}`;
-            document.getElementById('metronomeStatusText').textContent = status.metronome_sync;
             document.getElementById('lastUpdate').textContent = status.last_update;
-            
-            // Actualizar debug del sistema
             updateDebugPanel('systemDebug', status.debug_info || []);
-            
-            // Actualizar historial
-            updatePredictionHistory(pred);
         }
         
         function updateDebugPanel(panelId, debugItems) {
             const container = document.getElementById(panelId);
             if (!debugItems || debugItems.length === 0) {
-                container.innerHTML = '<div class="debug-item">Esperando datos de depuración...</div>';
+                container.innerHTML = '<div class="debug-item">Esperando datos...</div>';
                 return;
             }
             
@@ -597,62 +547,20 @@ HTML_RESPONSIVE = """
                 html += `<div class="${cssClass}">${timestamp} ${message}</div>`;
             });
             container.innerHTML = html;
-        }
-        
-        function updateFeatureImportance(features) {
-            const container = document.getElementById('featureImportance');
-            if (!features.length) {
-                container.innerHTML = '<div style="text-align: center; color: #666;">Recolectando datos...</div>';
-                return;
-            }
-            
-            let html = '<div style="font-weight: bold; margin-bottom: 8px;">Características Importantes:</div>';
-            features.forEach(feature => {
-                const name = feature.name || feature;
-                const importance = feature.importance || 50;
-                html += `
-                    <div class="feature-item">
-                        <span>${name}</span>
-                        <span>${importance.toFixed(1)}%</span>
-                    </div>
-                    <div class="progress-bar">
-                        <div class="progress-fill" style="width: ${importance}%"></div>
-                    </div>
-                `;
-            });
-            container.innerHTML = html;
-        }
-        
-        function updatePredictionHistory(prediction) {
-            if (prediction.direction !== 'N/A') {
-                const entry = document.createElement('div');
-                entry.className = 'metric';
-                entry.innerHTML = `
-                    <span class="label">${prediction.timestamp}</span>
-                    <span class="value">${prediction.direction} ${prediction.arrow} (${prediction.confidence}%) - ${prediction.method}</span>
-                `;
-                const history = document.getElementById('predictionHistory');
-                history.insertBefore(entry, history.firstChild);
-                
-                // Limitar historial a 10 entradas
-                if (history.children.length > 10) {
-                    history.removeChild(history.lastChild);
-                }
-            }
+            container.scrollTop = container.scrollHeight;
         }
         
         // Inicializar cuando cargue la página
         document.addEventListener('DOMContentLoaded', function() {
-            console.log('🚀 Iniciando Delowyss Trading AI V6.1 MEJORADO');
+            console.log('🚀 Iniciando Delowyss Trading AI V6.2');
             connectWebSocket();
             
             // Verificar conexión periódicamente
             setInterval(() => {
                 if (!ws || ws.readyState !== WebSocket.OPEN) {
-                    console.log('🔄 Verificando conexión WebSocket...');
                     connectWebSocket();
                 }
-            }, 15000);
+            }, 10000);
         });
     </script>
 </body>
@@ -700,8 +608,8 @@ class RealIQOptionConnector:
                     logging.info("✅ Conexión exitosa a IQ Option")
                     
                     try:
-                        self.api.change_balance("PRACTICE")  # 🚨 CAMBIADO A PRACTICE POR SEGURIDAD
-                        logging.info("💰 Modo: Cuenta PRACTICE (SEGURIDAD)")
+                        self.api.change_balance("PRACTICE")
+                        logging.info("💰 Modo: Cuenta PRACTICE")
                     except:
                         logging.info("💰 Modo: Cuenta PRACTICE")
                     
@@ -1365,11 +1273,11 @@ class AdvancedLearningSystem:
         self.prediction_history = deque(maxlen=500)
         self.model_accuracy_history = deque(maxlen=100)
         self.last_training_time = 0
-        self.training_interval = 300  # 🚀 REDUCIDO: 10 min → 5 min para debug
-        self.min_training_samples = 5   # 🚀 REDUCIDO: 10 → 5 para debug rápido
+        self.training_interval = 300
+        self.min_training_samples = 5
         self.model_accuracy = 0.0
         self.feature_importance = {}
-        self.debug_logs = deque(maxlen=50)  # 🆕 LOGS DE DEBUG
+        self.debug_logs = deque(maxlen=50)
         
         # Cargar modelo existente si existe
         self.load_model()
@@ -1385,6 +1293,32 @@ class AdvancedLearningSystem:
         }
         self.debug_logs.append(log_entry)
         logging.info(f"🧠 [LEARNING_DEBUG] {message}")
+    
+    def initialize_ml_system(self):
+        """Inicializa el sistema ML con datos básicos"""
+        try:
+            # Crear datos de entrenamiento sintéticos iniciales
+            if len(self.training_data) < 3:
+                self._add_debug_log("info", "Creando datos de entrenamiento iniciales...")
+                
+                # Datos sintéticos balanceados
+                synthetic_samples = [
+                    {'features': [5.0, 8.0, 0.7, 0.8, 0.6, 0.3, 0.9, 0.7, 0.2, 0.5, 0.4, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.4, 0.5, 0.6], 'label': 0, 'confidence': 70},
+                    {'features': [3.0, 5.0, 0.3, 0.2, 0.4, 0.7, 0.1, 0.3, 0.8, 0.5, 0.6, 0.4, 0.2, 0.7, 0.3, 0.5, 0.4, 0.6, 0.5, 0.4], 'label': 1, 'confidence': 65},
+                    {'features': [2.0, 3.0, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5, 0.5], 'label': 2, 'confidence': 50},
+                ]
+                
+                for sample in synthetic_samples:
+                    self.training_data.append(sample)
+                
+                # Entrenar modelo inicial
+                if self.train_model():
+                    self._add_debug_log("success", "Modelo ML inicial entrenado exitosamente")
+                else:
+                    self._add_debug_log("warning", "No se pudo entrenar modelo inicial")
+                    
+        except Exception as e:
+            self._add_debug_log("error", f"Error inicializando ML: {e}")
     
     def extract_advanced_features(self, candle_analysis, current_price, market_context):
         """Extrae características avanzadas para el modelo de ML"""
@@ -1675,7 +1609,7 @@ class AdvancedLearningSystem:
         """Obtiene estadísticas del sistema de aprendizaje"""
         top_features = []
         if self.feature_importance:
-            sorted_features = sorted(self.feature_importance.items(), key=lambda x: x[1], reverse=True)[:5]
+            sorted_features = sorted(self.feature_importance.items(), key=lambda x: x[1], reverse=True)[:3]
             top_features = [{'name': name, 'importance': importance * 100} for name, importance in sorted_features]
         
         return {
@@ -1684,8 +1618,8 @@ class AdvancedLearningSystem:
             'feature_importance': self.feature_importance,
             'top_features': top_features,
             'last_training': datetime.fromtimestamp(self.last_training_time).isoformat() if self.last_training_time > 0 else 'Nunca',
-            'accuracy_trend': list(self.model_accuracy_history)[-10:] if self.model_accuracy_history else [],
-            'debug_info': list(self.debug_logs)[-10:]  # 🆕 INFO DE DEBUG
+            'accuracy_trend': list(self.model_accuracy_history)[-5:] if self.model_accuracy_history else [],
+            'debug_info': list(self.debug_logs)[-5:]
         }
 
 # ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE MEJORADO ------------------
@@ -1699,7 +1633,7 @@ class EnhancedNextCandlePredictor:
             'current_streak': 0,
             'best_streak': 0,
             'today_signals': 0,
-            'total_signals': 0,  # 🆕 CORRECCIÓN: VARIABLE FALTANTE AGREGADA
+            'total_signals': 0,
             'prediction_history': [],
             'bias_tracking': {
                 'alza_count': 0,
@@ -1718,6 +1652,9 @@ class EnhancedNextCandlePredictor:
         self.last_prediction_features = None
         self.auto_learning_active = True
         self.debug_logs = deque(maxlen=50)
+        
+        # Inicializar sistema ML
+        self.learning_system.initialize_ml_system()
         
         self._add_debug_log("info", "Predictor mejorado inicializado")
     
@@ -1797,7 +1734,6 @@ class EnhancedNextCandlePredictor:
                 self.market_context
             )
             
-            # 🆕 DEBUG DETALLADO DE CARACTERÍSTICAS
             if features:
                 feature_summary = {k: round(v, 4) for k, v in features.items()}
                 self._add_debug_log("info", f"Características ML: {len(features)} extraídas")
@@ -1805,13 +1741,13 @@ class EnhancedNextCandlePredictor:
             else:
                 self._add_debug_log("warning", "No se pudieron extraer características para ML")
                 traditional_prediction['method'] = 'TRADICIONAL'
-                traditional_prediction['debug_info'] = list(self.debug_logs)[-5:]
+                traditional_prediction['debug_info'] = list(self.debug_logs)[-3:]
                 return traditional_prediction
             
             # 4. Obtener predicción de ML
             ml_direction, ml_confidence = self.learning_system.predict_with_ml(features)
             
-            # 🆕 VERIFICAR ACTIVACIÓN DE ML
+            # VERIFICAR ACTIVACIÓN DE ML
             if ml_direction and ml_confidence > 55:
                 self._add_debug_log("success", 
                     f"ML ACTIVADO: {ml_direction} {ml_confidence:.1f}%")
@@ -1849,7 +1785,7 @@ class EnhancedNextCandlePredictor:
                 else:
                     self._add_debug_log("warning", "ML no disponible")
             
-            # 🆕 ACTUALIZAR SEGUIMIENTO DE SESGO
+            # ACTUALIZAR SEGUIMIENTO DE SESGO
             self._update_bias_tracking(traditional_prediction['direction'])
             
             # 6. Entrenamiento automático periódico MEJORADO
@@ -1867,13 +1803,13 @@ class EnhancedNextCandlePredictor:
                     else:
                         self._add_debug_log("error", "Error en entrenamiento")
             
-            # 🆕 CORRECCIÓN: Actualizar ambos contadores
+            # Actualizar contadores
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['today_signals'] += 1
             self.performance_stats['total_signals'] += 1
             
-            # 🆕 AGREGAR DEBUG INFO A LA PREDICCIÓN
-            traditional_prediction['debug_info'] = list(self.debug_logs)[-5:]
+            # AGREGAR DEBUG INFO A LA PREDICCIÓN
+            traditional_prediction['debug_info'] = list(self.debug_logs)[-3:]
             traditional_prediction['status'] = 'PREDICTION_READY'
             
             return traditional_prediction
@@ -1892,13 +1828,13 @@ class EnhancedNextCandlePredictor:
             self.performance_stats['bias_tracking']['lateral_count'] += 1
         
         total = sum(self.performance_stats['bias_tracking'].values())
-        if total >= 10:  # Analizar sesgo cada 10 predicciones
+        if total >= 8:  # Analizar sesgo cada 8 predicciones
             alza_pct = (self.performance_stats['bias_tracking']['alza_count'] / total) * 100
             baja_pct = (self.performance_stats['bias_tracking']['baja_count'] / total) * 100
             
-            if alza_pct > 70:
+            if alza_pct > 75:
                 self._add_debug_log("warning", f"🚨 SESGO ALCISTA DETECTADO: {alza_pct:.1f}%")
-            elif baja_pct > 70:
+            elif baja_pct > 75:
                 self._add_debug_log("warning", f"🚨 SESGO BAJISTA DETECTADO: {baja_pct:.1f}%")
     
     def _get_base_prediction(self, analysis):
@@ -1912,7 +1848,7 @@ class EnhancedNextCandlePredictor:
             "timestamp": now_iso(),
             "status": "ANALYZING",
             "method": "TRADICIONAL",
-            "debug_info": list(self.debug_logs)[-3:] if self.debug_logs else []
+            "debug_info": list(self.debug_logs)[-2:] if self.debug_logs else []
         }
     
     def _get_traditional_prediction(self, analysis):
@@ -1936,7 +1872,7 @@ class EnhancedNextCandlePredictor:
             candle_stats = analysis.get('candle_stats', {})
             candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
             
-            # 🆕 DETECCIÓN MEJORADA DE SESGO
+            # DETECCIÓN MEJORADA DE SESGO
             self._detect_prediction_bias(phase_trends, momentum_analysis, segment_prediction, candle_pattern)
             
             # Combinar predicciones
@@ -1980,17 +1916,17 @@ class EnhancedNextCandlePredictor:
             baja_count = directions.count('BAJA')
             alza_count = directions.count('ALZA')
             
-            # 🆕 CORRECCIÓN MEJORADA DE SESGO
+            # CORRECCIÓN MEJORADA DE SESGO
             if baja_count >= 3 and alza_count == 0:
                 self._add_debug_log("warning", "🚨 SESGO BAJISTA DETECTADO en análisis tradicional")
                 # Aplicar corrección: reducir confianza en dirección bajista
                 if phase_trends['direction'] == 'BAJA':
-                    phase_trends['strength'] *= 0.7
+                    phase_trends['strength'] *= 0.8
             elif alza_count >= 3 and baja_count == 0:
                 self._add_debug_log("warning", "🚨 SESGO ALCISTA DETECTADO en análisis tradicional")
                 # Aplicar corrección: reducir confianza en dirección alcista
                 if phase_trends['direction'] == 'ALZA':
-                    phase_trends['strength'] *= 0.7
+                    phase_trends['strength'] *= 0.8
                     
         except Exception as e:
             self._add_debug_log("error", f"Error detectando sesgo: {e}")
@@ -2149,36 +2085,39 @@ class EnhancedNextCandlePredictor:
         
         final_direction = max(direction_scores, key=direction_scores.get)
         
-        # 🆕 CÁLCULO MEJORADO DE CONFIANZA
+        # CÁLCULO MEJORADO DE CONFIANZA
         base_confidence = min(90, int(total_confidence))
         
         # Bonus por consistencia
         consistency_bonus = 0
         if phase_trends.get('consistency', False):
-            consistency_bonus += 10
-        if momentum_analysis.get('alignment', False):
             consistency_bonus += 8
+        if momentum_analysis.get('alignment', False):
+            consistency_bonus += 6
         if segment_prediction.get('recent_alignment', False):
-            consistency_bonus += 7
-        if candle_pattern.get('continuation_bias', False):
             consistency_bonus += 5
+        if candle_pattern.get('continuation_bias', False):
+            consistency_bonus += 4
         
-        # 🆕 CORRECCIÓN MEJORADA DE SESGO
+        # CORRECCIÓN MEJORADA DE SESGO
         bias_penalty = 0
         total_predictions = self.performance_stats['total_predictions']
-        if total_predictions > 10:
+        
+        if total_predictions > 5:
             bias_stats = self.performance_stats['bias_tracking']
             total_recent = sum(bias_stats.values())
+            
             if total_recent > 0:
                 recent_alza_pct = bias_stats['alza_count'] / total_recent
                 recent_baja_pct = bias_stats['baja_count'] / total_recent
                 
-                if final_direction == 'ALZA' and recent_alza_pct > 0.7:
-                    bias_penalty = -15
-                    self._add_debug_log("warning", "Aplicando penalización por sesgo alcista")
-                elif final_direction == 'BAJA' and recent_baja_pct > 0.7:
-                    bias_penalty = -15
-                    self._add_debug_log("warning", "Aplicando penalización por sesgo bajista")
+                # SOLO aplicar penalización si el sesgo es muy fuerte (>75%)
+                if final_direction == 'ALZA' and recent_alza_pct > 0.75:
+                    bias_penalty = -8
+                    self._add_debug_log("warning", f"Aplicando penalización suave por sesgo alcista: {recent_alza_pct:.1%}")
+                elif final_direction == 'BAJA' and recent_baja_pct > 0.75:
+                    bias_penalty = -8
+                    self._add_debug_log("warning", f"Aplicando penalización suave por sesgo bajista: {recent_baja_pct:.1%}")
         
         final_confidence = min(95, max(40, base_confidence + consistency_bonus + bias_penalty))
         
@@ -2263,7 +2202,7 @@ class EnhancedNextCandlePredictor:
                      predicted_direction != "LATERAL" and 
                      actual_mapped != "LATERAL")
         
-        # 🆕 REGISTRO DETALLADO DE VALIDACIÓN
+        # REGISTRO DETALLADO DE VALIDACIÓN
         validation_entry = {
             'timestamp': datetime.now().isoformat(),
             'predicted': predicted_direction,
@@ -2290,7 +2229,7 @@ class EnhancedNextCandlePredictor:
             current_samples = len(self.learning_system.training_data)
             min_samples = self.learning_system.min_training_samples
             
-            if current_samples >= min_samples and current_samples % 5 == 0:
+            if current_samples >= min_samples and current_samples % 3 == 0:
                 self._add_debug_log("info", f"Entrenamiento incremental ({current_samples} muestras)")
                 self.learning_system.train_model()
         
@@ -2319,7 +2258,7 @@ class EnhancedNextCandlePredictor:
     def get_performance_stats(self):
         """Obtiene estadísticas de rendimiento - VERSIÓN CORREGIDA"""
         try:
-            # 🆕 CORRECCIÓN: Calcular accuracy de forma segura
+            # Calcular accuracy de forma segura
             total_predictions = self.performance_stats['total_predictions']
             correct_predictions = self.performance_stats['correct_predictions']
             
@@ -2327,7 +2266,7 @@ class EnhancedNextCandlePredictor:
             if total_predictions > 0:
                 accuracy = (correct_predictions / total_predictions) * 100
             
-            # 🆕 CORRECCIÓN: Calcular sesgo de forma segura
+            # Calcular sesgo de forma segura
             bias_stats = self.performance_stats['bias_tracking']
             total_bias = sum(bias_stats.values())
             
@@ -2345,7 +2284,7 @@ class EnhancedNextCandlePredictor:
                 }
             ]
             
-            # 🆕 CORRECCIÓN: Retornar estructura completa y consistente
+            # Retornar estructura completa y consistente
             return {
                 "accuracy": round(accuracy, 1),
                 "total_predictions": total_predictions,
@@ -2353,14 +2292,14 @@ class EnhancedNextCandlePredictor:
                 "current_streak": self.performance_stats['current_streak'],
                 "best_streak": self.performance_stats['best_streak'],
                 "today_signals": self.performance_stats['today_signals'],
-                "total_signals": self.performance_stats['total_signals'],  # 🆕 AGREGADO
+                "total_signals": self.performance_stats['total_signals'],
                 "bias_tracking": bias_stats,
-                "debug_info": debug_info + list(self.debug_logs)[-3:]
+                "debug_info": debug_info + list(self.debug_logs)[-2:]
             }
             
         except Exception as e:
             self._add_debug_log("error", f"Error en get_performance_stats: {e}")
-            # 🆕 CORRECCIÓN: Retornar estructura por defecto en caso de error
+            # Retornar estructura por defecto en caso de error
             return {
                 "accuracy": 0,
                 "total_predictions": 0,
@@ -2484,14 +2423,22 @@ class EnhancedResponsiveDashboard:
             "method": method
         })
         
-        if len(self.prediction_history) > 20:
+        if len(self.prediction_history) > 10:
             self.prediction_history.pop(0)
             
         self.last_prediction = self.dashboard_data["current_prediction"].copy()
         
+        # CORRECCIÓN: Manejo correcto de corrutinas
         try:
-            asyncio.ensure_future(self._reset_visual_effect("prediction_change", 2))
-            asyncio.ensure_future(self._reset_visual_effect("flash_signal", 1))
+            # Obtener el loop de eventos actual
+            loop = asyncio.get_event_loop()
+            
+            # Programar reset de efectos visuales
+            if loop.is_running():
+                if self.dashboard_data["visual_effects"]["prediction_change"]:
+                    asyncio.create_task(self._reset_visual_effect("prediction_change", 2))
+                if self.dashboard_data["visual_effects"]["flash_signal"]:
+                    asyncio.create_task(self._reset_visual_effect("flash_signal", 1))
         except Exception as e:
             logging.debug(f"🔧 Error programando tareas asyncio: {e}")
 
@@ -2520,7 +2467,9 @@ class EnhancedResponsiveDashboard:
         if is_last_5 and not self.dashboard_data["current_candle"]["is_last_5_seconds"]:
             self.dashboard_data["visual_effects"]["pulse_animation"] = True
             try:
-                asyncio.ensure_future(self._reset_visual_effect("pulse_animation", 5))
+                loop = asyncio.get_event_loop()
+                if loop.is_running():
+                    asyncio.create_task(self._reset_visual_effect("pulse_animation", 5))
             except Exception as e:
                 logging.debug(f"🔧 Error programando tarea pulse: {e}")
         
@@ -2594,7 +2543,7 @@ class EnhancedResponsiveDashboard:
         else:
             return "═", "yellow"
 
-# ------------------ WEBSOCKET MANAGER ------------------
+# ------------------ WEBSOCKET MANAGER CORREGIDO ------------------
 class AdvancedConnectionManager:
     def __init__(self):
         self.active_connections = set()
@@ -2632,8 +2581,11 @@ class AdvancedConnectionManager:
             "data": self.dashboard.dashboard_data
         }
         
+        # CORRECCIÓN: Crear copia del conjunto para evitar modificación durante iteración
+        connections = list(self.active_connections)
         disconnected = []
-        for connection in self.active_connections:
+        
+        for connection in connections:
             try:
                 await connection.send_json(message)
             except Exception as e:
@@ -2656,9 +2608,9 @@ _last_price = None
 
 # ------------------ FASTAPI APP ------------------
 app = FastAPI(
-    title="Delowyss Trading AI V6.1 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
+    title="Delowyss Trading AI V6.2 MEJORADO - Análisis Completo de Vela + Autoaprendizaje MEJORADO",
     description="Sistema de IA con análisis completo de vela actual para predecir siguiente vela con autoaprendizaje MEJORADO",
-    version="6.1.0"
+    version="6.2.0"
 )
 
 # SOLUCIÓN DEFINITIVA: Configuración CORS para Render.com
@@ -2736,15 +2688,6 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
             "timestamp": now_iso()
         }
 
-    @app.get("/api/feature-importance")
-    async def get_feature_importance():
-        importance = predictor.learning_system.feature_importance
-        sorted_importance = dict(sorted(importance.items(), key=lambda x: x[1], reverse=True)[:10])
-        return {
-            "feature_importance": sorted_importance,
-            "timestamp": now_iso()
-        }
-
     @app.get("/api/analysis")
     async def get_analysis():
         analysis = predictor.analyzer.get_candle_analysis()
@@ -2756,8 +2699,8 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
     @app.get("/api/status")
     async def get_status():
         return {
-            "status": "operational_mejorado_v6.1",
-            "version": "6.1.0",
+            "status": "operational_mejorado_v6.2",
+            "version": "6.2.0",
             "pair": PAR,
             "timeframe": "1min",
             "iq_connected": iq_connector.connected,
@@ -2781,7 +2724,7 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                     await manager.metronome.sync_with_iqoption(iq_connector)
                     manager.dashboard.update_system_status(
                         "CONNECTED" if iq_connector.connected else "DISCONNECTED",
-                        "OPERATIONAL_MEJORADO_V6.1",
+                        "OPERATIONAL_MEJORADO_V6.2",
                         "SYNCED" if manager.metronome.last_sync_time > 0 else "UNSYNCED"
                     )
                 except Exception as e:
@@ -2799,7 +2742,7 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
             # Actualizar estadísticas de aprendizaje más frecuentemente
             current_time = time.time()
             if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
-                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:  # 10 segundos
+                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 8:  # 8 segundos
                     stats = predictor.get_performance_stats()
                     learning_stats = stats.get('learning_system', {})
                     
@@ -2819,7 +2762,7 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                     manager.dashboard.update_performance(
                         stats.get('accuracy', 0),
                         0,
-                        stats.get('total_signals', 0),  # 🆕 CORRECCIÓN: Usar get() para acceso seguro
+                        stats.get('total_signals', 0),
                         stats.get('best_streak', 0),
                         stats.get('current_streak', 0),
                         stats.get('debug_info', [])
@@ -2842,7 +2785,7 @@ setup_enhanced_routes(app, dashboard_manager, iq_connector)
 # ------------------ INICIALIZACIÓN MEJORADA ------------------
 def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V6.1 MEJORADO - DEBUG ACTIVADO")
+        logging.info("🔧 INICIANDO SISTEMA V6.2 MEJORADO - DEBUG ACTIVADO")
         logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML)")
         logging.info("🐛 MODO DEBUG: Activado con seguimiento de sesgo y logs detallados")
         
@@ -2864,7 +2807,7 @@ def start_enhanced_system():
         
         if connection_result:
             logging.info("✅ Conexión IQ Option exitosa al inicio")
-            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.1", "SYNCED")
+            dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.2", "SYNCED")
         else:
             logging.error("❌ Conexión IQ Option falló al inicio")
             dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
@@ -2875,7 +2818,7 @@ def start_enhanced_system():
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V6.1 MEJORADA INICIADA - DEBUG ACTIVADO")
+        logging.info(f"⭐ DELOWYSS AI V6.2 MEJORADA INICIADA - DEBUG ACTIVADO")
         logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML MEJORADO")
         logging.info("🐛 SEGUIMIENTO DE SESGO: Activado")
         logging.info("📊 VALIDACIÓN: Sistema de tracking implementado")
@@ -2906,7 +2849,7 @@ def premium_candle_analysis_loop():
                 logging.warning("🔌 IQ Option desconectado, intentando reconectar...")
                 if iq_connector.connect():
                     logging.info("✅ Reconexión exitosa a IQ Option")
-                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.1", "SYNCED")
+                    dashboard_manager.dashboard.update_system_status("CONNECTED", "OPERATIONAL_MEJORADO_V6.2", "SYNCED")
                 else:
                     logging.error("❌ No se pudo reconectar a IQ Option")
                     dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
@@ -2948,7 +2891,7 @@ def premium_candle_analysis_loop():
                     dashboard_manager.dashboard.update_performance(
                         stats.get('accuracy', 0),
                         0,
-                        stats.get('total_signals', 0),  # 🆕 CORRECCIÓN: Usar get() para acceso seguro
+                        stats.get('total_signals', 0),
                         stats.get('best_streak', 0),
                         stats.get('current_streak', 0),
                         stats.get('debug_info', [])
@@ -2967,13 +2910,13 @@ def premium_candle_analysis_loop():
                         price_change = predictor.analyzer.current_candle_close - predictor.analyzer.current_candle_open
                         actual_direction = "ALCISTA" if price_change > 0.00001 else "BAJISTA" if price_change < -0.00001 else "LATERAL"
                         
-                        # 🆕 VALIDAR PREDICCIÓN CON DEBUG MEJORADO
+                        # VALIDAR PREDICCIÓN CON DEBUG MEJORADO
                         validation = predictor.validate_prediction(actual_direction)
                         if validation:
                             result_icon = '✅' if validation['correct'] else '❌'
                             logging.info(f"📊 VALIDACIÓN MEJORADA: Predicho {validation['predicted']} vs Real {validation['actual']} - {result_icon}")
                 
-                # 🆕 REINICIO MEJORADO
+                # REINICIO MEJORADO
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
                 predictor.analyzer.reset()

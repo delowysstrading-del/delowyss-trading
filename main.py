@@ -41,6 +41,377 @@ logging.basicConfig(
 def now_iso():
     return datetime.utcnow().isoformat() + 'Z'
 
+# ------------------ HTML RESPONSIVE DASHBOARD ------------------
+HTML_RESPONSIVE = """
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Delowyss Trading AI V5.10</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: 'Segoe UI', Arial, sans-serif; 
+            background: linear-gradient(135deg, #0f0f23 0%, #1a1a2e 100%);
+            color: #ffffff; 
+            min-height: 100vh;
+            padding: 20px;
+        }
+        .container { 
+            max-width: 1200px; 
+            margin: 0 auto; 
+        }
+        .header { 
+            text-align: center; 
+            margin-bottom: 30px; 
+            padding: 20px;
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .header h1 { 
+            color: #00ff88; 
+            margin-bottom: 10px;
+            font-size: 2.5em;
+        }
+        .header .subtitle {
+            color: #888;
+            font-size: 1.1em;
+        }
+        .grid { 
+            display: grid; 
+            grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); 
+            gap: 20px; 
+            margin-bottom: 20px;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 15px;
+            padding: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+            transition: all 0.3s ease;
+        }
+        .card:hover {
+            transform: translateY(-5px);
+            box-shadow: 0 10px 30px rgba(0,255,136,0.2);
+        }
+        .card h2 {
+            color: #00ff88;
+            margin-bottom: 15px;
+            font-size: 1.3em;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+            padding-bottom: 10px;
+        }
+        .prediction-card {
+            background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+            color: #000;
+            grid-column: span 2;
+        }
+        .prediction-card h2 {
+            color: #000;
+            border-bottom-color: rgba(0,0,0,0.2);
+        }
+        .signal-strength {
+            font-size: 1.2em;
+            font-weight: bold;
+            margin: 10px 0;
+        }
+        .confidence-bar {
+            height: 20px;
+            background: rgba(0,0,0,0.2);
+            border-radius: 10px;
+            margin: 10px 0;
+            overflow: hidden;
+        }
+        .confidence-fill {
+            height: 100%;
+            background: #000;
+            border-radius: 10px;
+            transition: width 0.5s ease;
+        }
+        .metric {
+            display: flex;
+            justify-content: between;
+            margin: 8px 0;
+        }
+        .metric .label {
+            flex: 1;
+            color: #ccc;
+        }
+        .metric .value {
+            font-weight: bold;
+            color: #00ff88;
+        }
+        .phase-indicator {
+            display: inline-block;
+            padding: 5px 10px;
+            border-radius: 20px;
+            background: rgba(0,255,136,0.2);
+            color: #00ff88;
+            font-size: 0.9em;
+            margin: 2px;
+        }
+        .status-indicator {
+            display: inline-block;
+            width: 10px;
+            height: 10px;
+            border-radius: 50%;
+            margin-right: 8px;
+        }
+        .status-connected { background: #00ff88; }
+        .status-disconnected { background: #ff4444; }
+        .status-synced { background: #00ff88; }
+        .status-unsynced { background: #ffaa00; }
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        @keyframes pulse {
+            0% { opacity: 1; }
+            50% { opacity: 0.5; }
+            100% { opacity: 1; }
+        }
+        .flash {
+            animation: flash 1s;
+        }
+        @keyframes flash {
+            0% { background: #00ff88; }
+            100% { background: transparent; }
+        }
+        .countdown {
+            font-size: 1.5em;
+            font-weight: bold;
+            text-align: center;
+            color: #00ff88;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🚀 Delowyss Trading AI V5.10</h1>
+            <div class="subtitle">Sistema de Análisis Completo de Vela + Predicción en Tiempo Real</div>
+        </div>
+        
+        <div class="grid">
+            <div class="card prediction-card" id="predictionCard">
+                <h2>🎯 PREDICCIÓN ACTUAL</h2>
+                <div class="countdown" id="countdown">--</div>
+                <div style="font-size: 2em; text-align: center; margin: 10px 0;" id="predictionArrow">⏳</div>
+                <div style="text-align: center; font-size: 1.3em; font-weight: bold;" id="predictionDirection">ANALIZANDO...</div>
+                <div class="confidence-bar">
+                    <div class="confidence-fill" id="confidenceBar" style="width: 0%"></div>
+                </div>
+                <div style="text-align: center;" id="confidenceText">Confianza: 0%</div>
+                <div class="signal-strength" id="signalStrength">Señal: NORMAL</div>
+            </div>
+            
+            <div class="card">
+                <h2>📊 VELA ACTUAL</h2>
+                <div class="metric">
+                    <span class="label">Progreso:</span>
+                    <span class="value" id="candleProgress">0%</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Tiempo Restante:</span>
+                    <span class="value" id="timeRemaining">60s</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Precio Actual:</span>
+                    <span class="value" id="currentPrice">0.00000</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Ticks Procesados:</span>
+                    <span class="value" id="ticksProcessed">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Fase Actual:</span>
+                    <span class="value" id="currentPhase">INICIAL</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>📈 MÉTRICAS</h2>
+                <div class="metric">
+                    <span class="label">Densidad:</span>
+                    <span class="value" id="density">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Velocidad:</span>
+                    <span class="value" id="velocity">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Aceleración:</span>
+                    <span class="value" id="acceleration">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Fase:</span>
+                    <span class="value" id="phase">INICIAL</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Señales Hoy:</span>
+                    <span class="value" id="signalCount">0</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🏆 PERFORMANCE</h2>
+                <div class="metric">
+                    <span class="label">Precisión Hoy:</span>
+                    <span class="value" id="todayAccuracy">0%</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Beneficio Hoy:</span>
+                    <span class="value" id="todayProfit">$0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Total Señales:</span>
+                    <span class="value" id="totalSignals">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Racha Ganadora:</span>
+                    <span class="value" id="winStreak">0</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Racha Actual:</span>
+                    <span class="value" id="currentStreak">0</span>
+                </div>
+            </div>
+            
+            <div class="card">
+                <h2>🔧 ESTADO DEL SISTEMA</h2>
+                <div class="metric">
+                    <span class="label">IQ Option:</span>
+                    <span class="value">
+                        <span class="status-indicator" id="iqStatus"></span>
+                        <span id="iqStatusText">CONECTANDO...</span>
+                    </span>
+                </div>
+                <div class="metric">
+                    <span class="label">IA Status:</span>
+                    <span class="value" id="aiStatus">INICIALIZANDO</span>
+                </div>
+                <div class="metric">
+                    <span class="label">Metrónomo:</span>
+                    <span class="value">
+                        <span class="status-indicator" id="metronomeStatus"></span>
+                        <span id="metronomeStatusText">SYNCING...</span>
+                    </span>
+                </div>
+                <div class="metric">
+                    <span class="label">Última Actualización:</span>
+                    <span class="value" id="lastUpdate">--:--:--</span>
+                </div>
+            </div>
+        </div>
+        
+        <div class="card">
+            <h2>📋 HISTORIAL DE PREDICCIONES</h2>
+            <div id="predictionHistory" style="max-height: 200px; overflow-y: auto;">
+                <!-- Historial se cargará aquí -->
+            </div>
+        </div>
+    </div>
+
+    <script>
+        const ws = new WebSocket(`ws://${window.location.host}/ws`);
+        const predictionHistory = document.getElementById('predictionHistory');
+        
+        ws.onmessage = function(event) {
+            const data = JSON.parse(event.data);
+            if (data.type === 'dashboard_update') {
+                updateDashboard(data.data);
+            }
+        };
+        
+        function updateDashboard(data) {
+            // Predicción Actual
+            const pred = data.current_prediction;
+            document.getElementById('predictionDirection').textContent = pred.direction;
+            document.getElementById('predictionArrow').textContent = pred.arrow;
+            document.getElementById('confidenceText').textContent = `Confianza: ${pred.confidence}%`;
+            document.getElementById('confidenceBar').style.width = `${pred.confidence}%`;
+            document.getElementById('signalStrength').textContent = `Señal: ${pred.signal_strength}`;
+            document.getElementById('countdown').textContent = `${Math.round(data.current_candle.time_remaining)}s`;
+            
+            // Efectos visuales
+            if (data.visual_effects.pulse_animation) {
+                document.getElementById('predictionCard').classList.add('pulse');
+            } else {
+                document.getElementById('predictionCard').classList.remove('pulse');
+            }
+            
+            if (data.visual_effects.flash_signal) {
+                document.getElementById('predictionCard').classList.add('flash');
+                setTimeout(() => {
+                    document.getElementById('predictionCard').classList.remove('flash');
+                }, 1000);
+            }
+            
+            // Vela Actual
+            const candle = data.current_candle;
+            document.getElementById('candleProgress').textContent = `${Math.round(candle.progress)}%`;
+            document.getElementById('timeRemaining').textContent = `${Math.round(candle.time_remaining)}s`;
+            document.getElementById('currentPrice').textContent = candle.price.toFixed(5);
+            document.getElementById('ticksProcessed').textContent = candle.ticks_processed;
+            document.getElementById('currentPhase').textContent = candle.current_phase;
+            
+            // Métricas
+            const metrics = data.metrics;
+            document.getElementById('density').textContent = Math.round(metrics.density);
+            document.getElementById('velocity').textContent = metrics.velocity.toFixed(2);
+            document.getElementById('acceleration').textContent = metrics.acceleration.toFixed(2);
+            document.getElementById('phase').textContent = metrics.phase;
+            document.getElementById('signalCount').textContent = metrics.signal_count;
+            
+            // Performance
+            const perf = data.performance;
+            document.getElementById('todayAccuracy').textContent = `${perf.today_accuracy}%`;
+            document.getElementById('todayProfit').textContent = `$${perf.today_profit}`;
+            document.getElementById('totalSignals').textContent = perf.total_signals;
+            document.getElementById('winStreak').textContent = perf.win_streak;
+            document.getElementById('currentStreak').textContent = perf.current_streak;
+            
+            // Estado del Sistema
+            const status = data.system_status;
+            document.getElementById('iqStatus').className = `status-indicator ${status.iq_connection === 'CONNECTED' ? 'status-connected' : 'status-disconnected'}`;
+            document.getElementById('iqStatusText').textContent = status.iq_connection;
+            document.getElementById('aiStatus').textContent = status.ai_status;
+            document.getElementById('metronomeStatus').className = `status-indicator ${status.metronome_sync === 'SYNCED' ? 'status-synced' : 'status-unsynced'}`;
+            document.getElementById('metronomeStatusText').textContent = status.metronome_sync;
+            document.getElementById('lastUpdate').textContent = status.last_update;
+            
+            // Actualizar historial
+            updatePredictionHistory(pred);
+        }
+        
+        function updatePredictionHistory(prediction) {
+            if (prediction.direction !== 'N/A') {
+                const entry = document.createElement('div');
+                entry.className = 'metric';
+                entry.innerHTML = `
+                    <span class="label">${prediction.timestamp}</span>
+                    <span class="value">${prediction.direction} ${prediction.arrow} (${prediction.confidence}%)</span>
+                `;
+                predictionHistory.insertBefore(entry, predictionHistory.firstChild);
+                
+                // Limitar historial a 10 entradas
+                if (predictionHistory.children.length > 10) {
+                    predictionHistory.removeChild(predictionHistory.lastChild);
+                }
+            }
+        }
+        
+        ws.onclose = function() {
+            document.getElementById('aiStatus').textContent = 'DESCONECTADO';
+            document.getElementById('aiStatus').style.color = '#ff4444';
+        };
+    </script>
+</body>
+</html>
+"""
+
 # ------------------ CONEXIÓN REAL IQ OPTION ------------------
 try:
     from iqoptionapi.stable_api import IQ_Option
@@ -1082,7 +1453,8 @@ class ResponsiveDashboard:
                 "confidence": 0,
                 "arrow": "⏳",
                 "color": "gray",
-                "signal_strength": "NORMAL"
+                "signal_strength": "NORMAL",
+                "timestamp": "00:00:00"
             },
             "current_candle": {
                 "progress": 0,
@@ -1153,11 +1525,12 @@ class ResponsiveDashboard:
             
         self.last_prediction = self.dashboard_data["current_prediction"].copy()
         
+        # Corregido: usar asyncio.ensure_future en lugar de create_task
         try:
-            asyncio.create_task(self._reset_visual_effect("prediction_change", 2))
-            asyncio.create_task(self._reset_visual_effect("flash_signal", 1))
+            asyncio.ensure_future(self._reset_visual_effect("prediction_change", 2))
+            asyncio.ensure_future(self._reset_visual_effect("flash_signal", 1))
         except Exception as e:
-            logging.debug(f"🔧 Error creando tareas asyncio: {e}")
+            logging.debug(f"🔧 Error programando tareas asyncio: {e}")
 
     async def _reset_visual_effect(self, effect: str, delay: float):
         try:
@@ -1184,9 +1557,9 @@ class ResponsiveDashboard:
         if is_last_5 and not self.dashboard_data["current_candle"]["is_last_5_seconds"]:
             self.dashboard_data["visual_effects"]["pulse_animation"] = True
             try:
-                asyncio.create_task(self._reset_visual_effect("pulse_animation", 5))
+                asyncio.ensure_future(self._reset_visual_effect("pulse_animation", 5))
             except Exception as e:
-                logging.debug(f"🔧 Error creando tarea pulse: {e}")
+                logging.debug(f"🔧 Error programando tarea pulse: {e}")
         
         self.dashboard_data["current_candle"] = {
             "progress": progress,

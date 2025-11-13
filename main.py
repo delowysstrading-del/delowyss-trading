@@ -1699,7 +1699,7 @@ class EnhancedNextCandlePredictor:
             'current_streak': 0,
             'best_streak': 0,
             'today_signals': 0,
-            'total_signals': 0,  # 🆕 VARIABLE FALTANTE AGREGADA
+            'total_signals': 0,  # 🆕 CORRECCIÓN: VARIABLE FALTANTE AGREGADA
             'prediction_history': [],
             'bias_tracking': {
                 'alza_count': 0,
@@ -1719,7 +1719,7 @@ class EnhancedNextCandlePredictor:
         self.auto_learning_active = True
         self.debug_logs = deque(maxlen=50)
         
-        self._add_debug_log("info", "Predictor mejorado inicializado - Stats completos")
+        self._add_debug_log("info", "Predictor mejorado inicializado")
     
     def _add_debug_log(self, level: str, message: str):
         """Agrega log de debug"""
@@ -2649,7 +2649,7 @@ iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
 predictor = EnhancedNextCandlePredictor()
 dashboard_manager = AdvancedConnectionManager()
 
-# 🆕 CORRECCIÓN: Variables globales explícitas
+# Variables globales
 _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
 _prediction_made_this_candle = False
 _last_price = None
@@ -2774,10 +2774,8 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
         asyncio.create_task(enhanced_continuous_dashboard_updates(manager, iq_connector))
 
 async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_connector):
-    """Loop de actualización del dashboard - VERSIÓN CORREGIDA"""
     while True:
         try:
-            # Sincronizar metrónomo periódicamente
             if time.time() - manager.metronome.last_sync_time > 30:
                 try:
                     await manager.metronome.sync_with_iqoption(iq_connector)
@@ -2789,42 +2787,25 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                 except Exception as e:
                     logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
             
-            # Obtener datos actuales
             current_price = iq_connector.current_price or 0.0
             ticks_processed = iq_connector.tick_count
             
-            # Actualizar progreso de vela
             manager.dashboard.update_candle_progress(
                 manager.metronome, 
                 current_price, 
                 ticks_processed
             )
             
-            # 🆕 CORRECCIÓN: Actualizar estadísticas de aprendizaje y performance
+            # Actualizar estadísticas de aprendizaje más frecuentemente
             current_time = time.time()
-            if not hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
-                enhanced_continuous_dashboard_updates.last_learning_update = current_time
-            
-            if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:
-                try:
+            if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
+                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:  # 10 segundos
                     stats = predictor.get_performance_stats()
-                    learning_stats = predictor.learning_system.get_learning_stats()
+                    learning_stats = stats.get('learning_system', {})
                     
-                    # 🆕 CORRECCIÓN: Verificar que stats tenga total_signals
-                    total_signals = stats.get('total_signals', stats.get('today_signals', 0))
-                    
-                    # Actualizar dashboard con estadísticas corregidas
-                    manager.dashboard.update_performance(
-                        stats.get('accuracy', 0),
-                        0,  # profit
-                        total_signals,  # 🆕 USAR VARIABLE CORREGIDA
-                        stats.get('best_streak', 0),
-                        stats.get('current_streak', 0),
-                        stats.get('debug_info', [])
-                    )
-                    
-                    # Actualizar estadísticas de aprendizaje
+                    # Actualizar dashboard con estadísticas de aprendizaje
                     top_features = learning_stats.get('top_features', [])
+                    
                     manager.dashboard.update_learning_stats(
                         learning_stats.get('model_accuracy', 0),
                         learning_stats.get('training_samples', 0),
@@ -2834,19 +2815,25 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                         learning_stats.get('debug_info', [])
                     )
                     
-                    enhanced_continuous_dashboard_updates.last_learning_update = current_time
+                    # Actualizar performance con debug info
+                    manager.dashboard.update_performance(
+                        stats.get('accuracy', 0),
+                        0,
+                        stats.get('total_signals', 0),  # 🆕 CORRECCIÓN: Usar get() para acceso seguro
+                        stats.get('best_streak', 0),
+                        stats.get('current_streak', 0),
+                        stats.get('debug_info', [])
+                    )
                     
-                except Exception as e:
-                    logging.error(f"❌ Error actualizando estadísticas: {e}")
-                    # 🆕 CORRECCIÓN: Actualizar con valores por defecto en caso de error
-                    manager.dashboard.update_performance(0, 0, 0, 0, 0, [])
+                    enhanced_continuous_dashboard_updates.last_learning_update = current_time
+            else:
+                enhanced_continuous_dashboard_updates.last_learning_update = current_time
             
-            # Broadcast de actualización
             await manager.broadcast_dashboard_update()
             await asyncio.sleep(0.1)
             
         except Exception as e:
-            logging.error(f"❌ Error en actualización mejorada: {e}")
+            logging.error(f"Error en actualización mejorada: {e}")
             await asyncio.sleep(1)
 
 # Configurar rutas
@@ -2956,23 +2943,16 @@ def premium_candle_analysis_loop():
                         status=prediction.get('status', 'PREDICTION_READY')
                     )
                     
-                    # 🆕 CORRECCIÓN: Manejo seguro de la actualización de performance
-                    try:
-                        stats = predictor.get_performance_stats()
-                        # 🆕 USAR get() para acceso seguro
-                        total_signals = stats.get('total_signals', 0)
-                        dashboard_manager.dashboard.update_performance(
-                            stats.get('accuracy', 0),
-                            0,
-                            total_signals,
-                            stats.get('best_streak', 0),
-                            stats.get('current_streak', 0),
-                            stats.get('debug_info', [])
-                        )
-                    except Exception as e:
-                        logging.error(f"❌ Error actualizando performance: {e}")
-                        # Actualizar con valores por defecto
-                        dashboard_manager.dashboard.update_performance(0, 0, 0, 0, 0, [])
+                    # Actualizar métricas de performance
+                    stats = predictor.get_performance_stats()
+                    dashboard_manager.dashboard.update_performance(
+                        stats.get('accuracy', 0),
+                        0,
+                        stats.get('total_signals', 0),  # 🆕 CORRECCIÓN: Usar get() para acceso seguro
+                        stats.get('best_streak', 0),
+                        stats.get('current_streak', 0),
+                        stats.get('debug_info', [])
+                    )
                     
                     _prediction_made_this_candle = True
                     logging.info(f"✅ PREDICCIÓN MEJORADA: {prediction['direction']} {prediction['confidence']}% - Método: {prediction.get('method', 'TRADICIONAL')}")

@@ -472,7 +472,7 @@ HTML_RESPONSIVE = """
                 };
                 
             } catch (error) {
-                console.error('❌ Error creando WebSocket:', error);
+                console.error('❌ Error creando WebSocket:', error)
                 updateStatus('ERROR', '#ff4444');
                 scheduleReconnect();
             }
@@ -1699,8 +1699,9 @@ class EnhancedNextCandlePredictor:
             'current_streak': 0,
             'best_streak': 0,
             'today_signals': 0,
-            'prediction_history': [],  # 🆕 HISTORIAL DETALLADO
-            'bias_tracking': {  # 🆕 SEGUIMIENTO DE SESGO
+            'total_signals': 0,  # 🆕 VARIABLE FALTANTE AGREGADA
+            'prediction_history': [],
+            'bias_tracking': {
                 'alza_count': 0,
                 'baja_count': 0,
                 'lateral_count': 0
@@ -1716,8 +1717,10 @@ class EnhancedNextCandlePredictor:
         }
         self.last_prediction_features = None
         self.auto_learning_active = True
-        self.debug_logs = deque(maxlen=50)  # 🆕 LOGS DE DEBUG
+        self.debug_logs = deque(maxlen=50)
         
+        self._add_debug_log("info", "Predictor mejorado inicializado - Stats completos")
+    
     def _add_debug_log(self, level: str, message: str):
         """Agrega log de debug"""
         log_entry = {
@@ -1864,8 +1867,10 @@ class EnhancedNextCandlePredictor:
                     else:
                         self._add_debug_log("error", "Error en entrenamiento")
             
+            # 🆕 CORRECCIÓN: Actualizar ambos contadores
             self.performance_stats['total_predictions'] += 1
             self.performance_stats['today_signals'] += 1
+            self.performance_stats['total_signals'] += 1
             
             # 🆕 AGREGAR DEBUG INFO A LA PREDICCIÓN
             traditional_prediction['debug_info'] = list(self.debug_logs)[-5:]
@@ -2312,35 +2317,61 @@ class EnhancedNextCandlePredictor:
         }
     
     def get_performance_stats(self):
-        accuracy = 0
-        if self.performance_stats['total_predictions'] > 0:
-            accuracy = (self.performance_stats['correct_predictions'] / 
-                       self.performance_stats['total_predictions']) * 100
-        
-        # 🆕 CÁLCULO DE SESGO ACTUAL
-        bias_stats = self.performance_stats['bias_tracking']
-        total_bias = sum(bias_stats.values())
-        bias_alza_pct = (bias_stats['alza_count'] / total_bias * 100) if total_bias > 0 else 0
-        bias_baja_pct = (bias_stats['baja_count'] / total_bias * 100) if total_bias > 0 else 0
-        
-        debug_info = [
-            {
-                'level': 'info',
-                'timestamp': datetime.now().strftime("%H:%M:%S"),
-                'message': f"Sesgo: ALZA {bias_alza_pct:.1f}%, BAJA {bias_baja_pct:.1f}%"
+        """Obtiene estadísticas de rendimiento - VERSIÓN CORREGIDA"""
+        try:
+            # 🆕 CORRECCIÓN: Calcular accuracy de forma segura
+            total_predictions = self.performance_stats['total_predictions']
+            correct_predictions = self.performance_stats['correct_predictions']
+            
+            accuracy = 0
+            if total_predictions > 0:
+                accuracy = (correct_predictions / total_predictions) * 100
+            
+            # 🆕 CORRECCIÓN: Calcular sesgo de forma segura
+            bias_stats = self.performance_stats['bias_tracking']
+            total_bias = sum(bias_stats.values())
+            
+            bias_alza_pct = 0
+            bias_baja_pct = 0
+            if total_bias > 0:
+                bias_alza_pct = (bias_stats['alza_count'] / total_bias) * 100
+                bias_baja_pct = (bias_stats['baja_count'] / total_bias) * 100
+            
+            debug_info = [
+                {
+                    'level': 'info',
+                    'timestamp': datetime.now().strftime("%H:%M:%S"),
+                    'message': f"Sesgo: ALZA {bias_alza_pct:.1f}%, BAJA {bias_baja_pct:.1f}%"
+                }
+            ]
+            
+            # 🆕 CORRECCIÓN: Retornar estructura completa y consistente
+            return {
+                "accuracy": round(accuracy, 1),
+                "total_predictions": total_predictions,
+                "correct_predictions": correct_predictions,
+                "current_streak": self.performance_stats['current_streak'],
+                "best_streak": self.performance_stats['best_streak'],
+                "today_signals": self.performance_stats['today_signals'],
+                "total_signals": self.performance_stats['total_signals'],  # 🆕 AGREGADO
+                "bias_tracking": bias_stats,
+                "debug_info": debug_info + list(self.debug_logs)[-3:]
             }
-        ]
-        
-        return {
-            "accuracy": round(accuracy, 1),
-            "total_predictions": self.performance_stats['total_predictions'],
-            "correct_predictions": self.performance_stats['correct_predictions'],
-            "current_streak": self.performance_stats['current_streak'],
-            "best_streak": self.performance_stats['best_streak'],
-            "today_signals": self.performance_stats['today_signals'],
-            "bias_tracking": self.performance_stats['bias_tracking'],
-            "debug_info": debug_info + list(self.debug_logs)[-3:]
-        }
+            
+        except Exception as e:
+            self._add_debug_log("error", f"Error en get_performance_stats: {e}")
+            # 🆕 CORRECCIÓN: Retornar estructura por defecto en caso de error
+            return {
+                "accuracy": 0,
+                "total_predictions": 0,
+                "correct_predictions": 0,
+                "current_streak": 0,
+                "best_streak": 0,
+                "today_signals": 0,
+                "total_signals": 0,
+                "bias_tracking": {'alza_count': 0, 'baja_count': 0, 'lateral_count': 0},
+                "debug_info": [{'level': 'error', 'timestamp': datetime.now().strftime("%H:%M:%S"), 'message': f"Error: {e}"}]
+            }
     
     def get_enhanced_performance_stats(self):
         """Obtiene estadísticas extendidas incluyendo aprendizaje"""
@@ -2618,7 +2649,7 @@ iq_connector = RealIQOptionConnector(IQ_EMAIL, IQ_PASSWORD, PAR)
 predictor = EnhancedNextCandlePredictor()
 dashboard_manager = AdvancedConnectionManager()
 
-# Variables globales
+# 🆕 CORRECCIÓN: Variables globales explícitas
 _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
 _prediction_made_this_candle = False
 _last_price = None
@@ -2743,8 +2774,10 @@ def setup_enhanced_routes(app: FastAPI, manager: AdvancedConnectionManager, iq_c
         asyncio.create_task(enhanced_continuous_dashboard_updates(manager, iq_connector))
 
 async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManager, iq_connector):
+    """Loop de actualización del dashboard - VERSIÓN CORREGIDA"""
     while True:
         try:
+            # Sincronizar metrónomo periódicamente
             if time.time() - manager.metronome.last_sync_time > 30:
                 try:
                     await manager.metronome.sync_with_iqoption(iq_connector)
@@ -2756,25 +2789,42 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                 except Exception as e:
                     logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
             
+            # Obtener datos actuales
             current_price = iq_connector.current_price or 0.0
             ticks_processed = iq_connector.tick_count
             
+            # Actualizar progreso de vela
             manager.dashboard.update_candle_progress(
                 manager.metronome, 
                 current_price, 
                 ticks_processed
             )
             
-            # Actualizar estadísticas de aprendizaje más frecuentemente
+            # 🆕 CORRECCIÓN: Actualizar estadísticas de aprendizaje y performance
             current_time = time.time()
-            if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
-                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:  # 10 segundos
-                    stats = predictor.get_enhanced_performance_stats()
-                    learning_stats = stats.get('learning_system', {})
+            if not hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
+                enhanced_continuous_dashboard_updates.last_learning_update = current_time
+            
+            if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 10:
+                try:
+                    stats = predictor.get_performance_stats()
+                    learning_stats = predictor.learning_system.get_learning_stats()
                     
-                    # Actualizar dashboard con estadísticas de aprendizaje
+                    # 🆕 CORRECCIÓN: Verificar que stats tenga total_signals
+                    total_signals = stats.get('total_signals', stats.get('today_signals', 0))
+                    
+                    # Actualizar dashboard con estadísticas corregidas
+                    manager.dashboard.update_performance(
+                        stats.get('accuracy', 0),
+                        0,  # profit
+                        total_signals,  # 🆕 USAR VARIABLE CORREGIDA
+                        stats.get('best_streak', 0),
+                        stats.get('current_streak', 0),
+                        stats.get('debug_info', [])
+                    )
+                    
+                    # Actualizar estadísticas de aprendizaje
                     top_features = learning_stats.get('top_features', [])
-                    
                     manager.dashboard.update_learning_stats(
                         learning_stats.get('model_accuracy', 0),
                         learning_stats.get('training_samples', 0),
@@ -2784,25 +2834,19 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                         learning_stats.get('debug_info', [])
                     )
                     
-                    # Actualizar performance con debug info
-                    manager.dashboard.update_performance(
-                        stats['accuracy'],
-                        0,
-                        stats['total_signals'],
-                        stats['best_streak'],
-                        stats['current_streak'],
-                        stats.get('debug_info', [])
-                    )
-                    
                     enhanced_continuous_dashboard_updates.last_learning_update = current_time
-            else:
-                enhanced_continuous_dashboard_updates.last_learning_update = current_time
+                    
+                except Exception as e:
+                    logging.error(f"❌ Error actualizando estadísticas: {e}")
+                    # 🆕 CORRECCIÓN: Actualizar con valores por defecto en caso de error
+                    manager.dashboard.update_performance(0, 0, 0, 0, 0, [])
             
+            # Broadcast de actualización
             await manager.broadcast_dashboard_update()
             await asyncio.sleep(0.1)
             
         except Exception as e:
-            logging.error(f"Error en actualización mejorada: {e}")
+            logging.error(f"❌ Error en actualización mejorada: {e}")
             await asyncio.sleep(1)
 
 # Configurar rutas
@@ -2864,16 +2908,10 @@ def premium_candle_analysis_loop():
     
     logging.info(f"🚀 LOOP DE ANÁLISIS DE VELA COMPLETA MEJORADO INICIADO")
     
-    # ✅ SINCRONIZAR METRÓNOMO
-    try:
-        logging.info("🔧 Sincronizando metrónomo...")
-        loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(loop)
-        loop.run_until_complete(dashboard_manager.metronome.sync_with_iqoption(iq_connector))
-        loop.close()
-        logging.info("✅ Metrónomo sincronizado en loop de análisis")
-    except Exception as e:
-        logging.warning(f"⚠️ Error sincronizando metrónomo: {e}")
+    # Variables locales para evitar problemas de scope
+    _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
+    _prediction_made_this_candle = False
+    _last_price = None
     
     while True:
         try:
@@ -2918,16 +2956,23 @@ def premium_candle_analysis_loop():
                         status=prediction.get('status', 'PREDICTION_READY')
                     )
                     
-                    # Actualizar métricas de performance
-                    stats = predictor.get_performance_stats()
-                    dashboard_manager.dashboard.update_performance(
-                        stats['accuracy'],
-                        0,
-                        stats['total_signals'],
-                        stats['best_streak'],
-                        stats['current_streak'],
-                        stats.get('debug_info', [])
-                    )
+                    # 🆕 CORRECCIÓN: Manejo seguro de la actualización de performance
+                    try:
+                        stats = predictor.get_performance_stats()
+                        # 🆕 USAR get() para acceso seguro
+                        total_signals = stats.get('total_signals', 0)
+                        dashboard_manager.dashboard.update_performance(
+                            stats.get('accuracy', 0),
+                            0,
+                            total_signals,
+                            stats.get('best_streak', 0),
+                            stats.get('current_streak', 0),
+                            stats.get('debug_info', [])
+                        )
+                    except Exception as e:
+                        logging.error(f"❌ Error actualizando performance: {e}")
+                        # Actualizar con valores por defecto
+                        dashboard_manager.dashboard.update_performance(0, 0, 0, 0, 0, [])
                     
                     _prediction_made_this_candle = True
                     logging.info(f"✅ PREDICCIÓN MEJORADA: {prediction['direction']} {prediction['confidence']}% - Método: {prediction.get('method', 'TRADICIONAL')}")

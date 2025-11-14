@@ -20,6 +20,7 @@ from typing import Dict, Any, List, Optional, Tuple
 from dataclasses import dataclass
 from enum import Enum
 
+# ------------------ CONFIGURACIÓN INICIAL ------------------
 # Configuración mejorada de logging
 logging.basicConfig(
     level=logging.INFO,
@@ -1063,137 +1064,367 @@ class TradingAISystem:
             'timestamp': DateTimeUtils.now_iso()
         }
 
-# ------------------ API WEB OPTIMIZADA ------------------
-class TradingAPI:
-    """API web para el sistema de trading"""
-    
-    def __init__(self, trading_system: TradingAISystem):
-        self.trading_system = trading_system
-        self.app = self._create_app()
-        self._setup_routes()
-    
-    def _create_app(self) -> FastAPI:
-        """Crea la aplicación FastAPI"""
-        app = FastAPI(
-            title="Delowyss Trading AI V7.0",
-            description="Sistema de trading con IA avanzada - Versión Optimizada",
-            version="7.0.0"
-        )
-        
-        # Configuración CORS
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=["*"],
-            allow_credentials=True,
-            allow_methods=["*"],
-            allow_headers=["*"],
-        )
-        
-        return app
-    
-    def _setup_routes(self):
-        """Configura las rutas de la API"""
-        
-        @self.app.get("/", response_class=HTMLResponse)
-        async def get_dashboard():
-            # HTML simplificado para el dashboard
-            return """
-            <!DOCTYPE html>
-            <html>
-            <head>
-                <title>Delowyss Trading AI V7.0</title>
-                <style>
-                    body { font-family: Arial, sans-serif; margin: 40px; }
-                    .card { border: 1px solid #ddd; padding: 20px; margin: 10px; border-radius: 5px; }
-                    .success { color: green; }
-                    .error { color: red; }
-                </style>
-            </head>
-            <body>
-                <h1>Delowyss Trading AI V7.0</h1>
-                <div id="status"></div>
-                <script>
-                    async function updateStatus() {
-                        const response = await fetch('/api/status');
-                        const data = await response.json();
-                        document.getElementById('status').innerHTML = `
-                            <div class="card">
-                                <h3>Estado del Sistema</h3>
-                                <p>Versión: ${data.version}</p>
-                                <p>Estado: ${data.status}</p>
-                                <p>IQ Connected: ${data.iq_connected}</p>
-                                <p>Precio Actual: ${data.current_price}</p>
-                                <p>Progreso Vela: ${data.candle_progress.toFixed(1)}%</p>
-                            </div>
-                            <div class="card">
-                                <h3>Rendimiento</h3>
-                                <p>Precisión: ${data.performance.overall_accuracy}%</p>
-                                <p>Precisión Hoy: ${data.performance.today_accuracy}%</p>
-                                <p>Racha Actual: ${data.performance.current_streak}</p>
-                                <p>Mejor Racha: ${data.performance.best_streak}</p>
-                            </div>
-                        `;
+# ------------------ CREACIÓN DE LA APLICACIÓN FASTAPI ------------------
+# Crear la aplicación FastAPI
+app = FastAPI(
+    title="Delowyss Trading AI V7.0",
+    description="Sistema de trading con IA avanzada - Versión Optimizada",
+    version="7.0.0"
+)
+
+# Configuración CORS para Render.com
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# Instancia global del sistema de trading
+trading_system = TradingAISystem()
+
+# ------------------ RUTAS DE LA API ------------------
+@app.get("/", response_class=HTMLResponse)
+async def get_dashboard():
+    """Dashboard principal"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="es">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Delowyss Trading AI V7.0</title>
+        <style>
+            body {
+                font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+                margin: 0;
+                padding: 20px;
+                background: linear-gradient(135deg, #0a0a0a 0%, #1a1a2e 100%);
+                color: #ffffff;
+                min-height: 100vh;
+            }
+            .container {
+                max-width: 1200px;
+                margin: 0 auto;
+            }
+            .header {
+                text-align: center;
+                margin-bottom: 30px;
+                padding: 20px;
+                background: rgba(255,255,255,0.05);
+                border-radius: 15px;
+                border: 1px solid rgba(255,255,255,0.1);
+            }
+            .header h1 {
+                color: #00ff88;
+                margin: 0;
+                font-size: 2.5em;
+            }
+            .header .subtitle {
+                color: #888;
+                font-size: 1.1em;
+            }
+            .grid {
+                display: grid;
+                grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+                gap: 20px;
+                margin-bottom: 30px;
+            }
+            .card {
+                background: rgba(255,255,255,0.05);
+                border-radius: 15px;
+                padding: 20px;
+                border: 1px solid rgba(255,255,255,0.1);
+                transition: transform 0.3s ease, box-shadow 0.3s ease;
+            }
+            .card:hover {
+                transform: translateY(-5px);
+                box-shadow: 0 10px 30px rgba(0,255,136,0.1);
+            }
+            .card h2 {
+                color: #00ff88;
+                margin-top: 0;
+                border-bottom: 1px solid rgba(255,255,255,0.1);
+                padding-bottom: 10px;
+            }
+            .stat {
+                display: flex;
+                justify-content: space-between;
+                margin: 10px 0;
+                padding: 8px 0;
+                border-bottom: 1px solid rgba(255,255,255,0.05);
+            }
+            .stat .value {
+                font-weight: bold;
+                color: #00ff88;
+            }
+            .prediction-card {
+                background: linear-gradient(135deg, #00ff88 0%, #00cc6a 100%);
+                color: #000;
+                grid-column: 1 / -1;
+            }
+            .prediction-card h2 {
+                color: #000;
+            }
+            .prediction-card .value {
+                color: #000;
+                font-weight: 800;
+            }
+            .countdown {
+                font-size: 2em;
+                text-align: center;
+                font-weight: bold;
+                margin: 20px 0;
+                color: #000;
+            }
+            .status-indicator {
+                display: inline-block;
+                width: 10px;
+                height: 10px;
+                border-radius: 50%;
+                margin-right: 8px;
+            }
+            .status-connected { background: #00ff88; }
+            .status-disconnected { background: #ff4444; }
+            .status-synced { background: #00ff88; }
+            .status-unsynced { background: #ffaa00; }
+            @keyframes pulse {
+                0% { opacity: 1; }
+                50% { opacity: 0.7; }
+                100% { opacity: 1; }
+            }
+            .pulse {
+                animation: pulse 2s infinite;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <h1>🚀 Delowyss Trading AI V7.0</h1>
+                <div class="subtitle">Sistema de Trading con IA Avanzada - Versión Optimizada</div>
+            </div>
+            
+            <div class="grid">
+                <div class="card prediction-card" id="predictionCard">
+                    <h2>🎯 PREDICCIÓN ACTUAL</h2>
+                    <div class="countdown" id="countdown">--</div>
+                    <div class="stat">
+                        <span>Dirección:</span>
+                        <span class="value" id="predictionDirection">ANALIZANDO...</span>
+                    </div>
+                    <div class="stat">
+                        <span>Confianza:</span>
+                        <span class="value" id="predictionConfidence">0%</span>
+                    </div>
+                    <div class="stat">
+                        <span>Método:</span>
+                        <span class="value" id="predictionMethod">TRADICIONAL</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>📊 ESTADO DEL SISTEMA</h2>
+                    <div class="stat">
+                        <span>IQ Option:</span>
+                        <span class="value">
+                            <span class="status-indicator" id="iqStatus"></span>
+                            <span id="iqStatusText">CONECTANDO...</span>
+                        </span>
+                    </div>
+                    <div class="stat">
+                        <span>Precio Actual:</span>
+                        <span class="value" id="currentPrice">0.00000</span>
+                    </div>
+                    <div class="stat">
+                        <span>Progreso Vela:</span>
+                        <span class="value" id="candleProgress">0%</span>
+                    </div>
+                    <div class="stat">
+                        <span>Tiempo Restante:</span>
+                        <span class="value" id="timeRemaining">60s</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>🏆 RENDIMIENTO</h2>
+                    <div class="stat">
+                        <span>Precisión Total:</span>
+                        <span class="value" id="overallAccuracy">0%</span>
+                    </div>
+                    <div class="stat">
+                        <span>Precisión Hoy:</span>
+                        <span class="value" id="todayAccuracy">0%</span>
+                    </div>
+                    <div class="stat">
+                        <span>Racha Actual:</span>
+                        <span class="value" id="currentStreak">0</span>
+                    </div>
+                    <div class="stat">
+                        <span>Mejor Racha:</span>
+                        <span class="value" id="bestStreak">0</span>
+                    </div>
+                </div>
+                
+                <div class="card">
+                    <h2>🧠 AUTOAPRENDIZAJE</h2>
+                    <div class="stat">
+                        <span>Modelo Entrenado:</span>
+                        <span class="value" id="modelTrained">NO</span>
+                    </div>
+                    <div class="stat">
+                        <span>Accuracy Modelo:</span>
+                        <span class="value" id="modelAccuracy">0%</span>
+                    </div>
+                    <div class="stat">
+                        <span>Muestras:</span>
+                        <span class="value" id="trainingSamples">0</span>
+                    </div>
+                    <div class="stat">
+                        <span>Último Entrenamiento:</span>
+                        <span class="value" id="lastTraining">NUNCA</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <script>
+            async function updateDashboard() {
+                try {
+                    const response = await fetch('/api/status');
+                    const data = await response.json();
+                    
+                    // Actualizar predicción
+                    document.getElementById('predictionDirection').textContent = 
+                        data.last_prediction?.direction || 'ANALIZANDO';
+                    document.getElementById('predictionConfidence').textContent = 
+                        data.last_prediction ? data.last_prediction.confidence + '%' : '0%';
+                    document.getElementById('predictionMethod').textContent = 
+                        data.last_prediction?.method || 'TRADICIONAL';
+                    
+                    // Actualizar estado del sistema
+                    document.getElementById('iqStatus').className = 
+                        `status-indicator ${data.iq_connected ? 'status-connected' : 'status-disconnected'}`;
+                    document.getElementById('iqStatusText').textContent = 
+                        data.iq_connected ? 'CONECTADO' : 'DESCONECTADO';
+                    document.getElementById('currentPrice').textContent = 
+                        data.current_price ? data.current_price.toFixed(5) : '0.00000';
+                    document.getElementById('candleProgress').textContent = 
+                        data.candle_progress ? data.candle_progress.toFixed(1) + '%' : '0%';
+                    document.getElementById('timeRemaining').textContent = 
+                        data.time_remaining ? Math.round(data.time_remaining) + 's' : '60s';
+                    
+                    // Actualizar rendimiento
+                    document.getElementById('overallAccuracy').textContent = 
+                        data.performance.overall_accuracy + '%';
+                    document.getElementById('todayAccuracy').textContent = 
+                        data.performance.today_accuracy + '%';
+                    document.getElementById('currentStreak').textContent = 
+                        data.performance.current_streak;
+                    document.getElementById('bestStreak').textContent = 
+                        data.performance.best_streak;
+                    
+                    // Actualizar autoaprendizaje
+                    document.getElementById('modelTrained').textContent = 
+                        data.ml_status.is_trained ? 'SI' : 'NO';
+                    document.getElementById('modelAccuracy').textContent = 
+                        (data.ml_status.accuracy * 100).toFixed(1) + '%';
+                    document.getElementById('trainingSamples').textContent = 
+                        data.ml_status.training_samples;
+                    document.getElementById('lastTraining').textContent = 
+                        data.ml_status.last_training;
+                    
+                    // Efectos visuales
+                    const predictionCard = document.getElementById('predictionCard');
+                    if (data.last_prediction?.confidence > 70) {
+                        predictionCard.classList.add('pulse');
+                    } else {
+                        predictionCard.classList.remove('pulse');
                     }
-                    setInterval(updateStatus, 2000);
-                    updateStatus();
-                </script>
-            </body>
-            </html>
-            """
-        
-        @self.app.get("/api/status")
-        async def get_status():
-            return JSONResponse(self.trading_system.get_system_status())
-        
-        @self.app.get("/api/prediction")
-        async def get_prediction():
-            prediction = self.trading_system.predictor.predict()
-            return JSONResponse({
-                'direction': prediction.direction.value,
-                'confidence': prediction.confidence,
-                'method': prediction.method,
-                'timestamp': prediction.timestamp.isoformat()
-            })
-        
-        @self.app.get("/api/performance")
-        async def get_performance():
-            return JSONResponse(self.trading_system.predictor.get_performance_stats())
-        
-        @self.app.post("/api/retrain")
-        async def retrain_model():
-            success = self.trading_system.predictor.ml_system.train()
-            return JSONResponse({
-                'success': success,
-                'message': 'Modelo reentrenado' if success else 'Error en reentrenamiento'
-            })
+                    
+                } catch (error) {
+                    console.error('Error actualizando dashboard:', error);
+                }
+            }
+            
+            // Actualizar cada 2 segundos
+            setInterval(updateDashboard, 2000);
+            updateDashboard();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.get("/api/status")
+async def get_status():
+    """Obtiene el estado completo del sistema"""
+    status = trading_system.get_system_status()
     
-    def run(self, host: str = "0.0.0.0", port: int = 10000):
-        """Ejecuta el servidor API"""
-        import uvicorn
-        uvicorn.run(self.app, host=host, port=port)
+    # Agregar última predicción si existe
+    if trading_system.predictor.last_prediction:
+        status['last_prediction'] = {
+            'direction': trading_system.predictor.last_prediction.direction.value,
+            'confidence': trading_system.predictor.last_prediction.confidence,
+            'method': trading_system.predictor.last_prediction.method,
+            'timestamp': trading_system.predictor.last_prediction.timestamp.isoformat()
+        }
+    
+    return JSONResponse(status)
 
-# ------------------ INICIALIZACIÓN Y EJECUCIÓN ------------------
-def main():
-    """Función principal de la aplicación"""
-    try:
-        # Inicializar sistema de trading
-        trading_system = TradingAISystem()
-        trading_system.start()
-        
-        # Inicializar API
-        api = TradingAPI(trading_system)
-        
-        logger.info(f"🚀 Delowyss Trading AI V7.0 iniciada en puerto {Config.PORT}")
-        logger.info("🌐 Dashboard disponible en: http://localhost:10000")
-        
-        # Ejecutar API (esto bloquea el hilo principal)
-        api.run(Config.HOST, Config.PORT)
-        
-    except KeyboardInterrupt:
-        logger.info("Sistema detenido por el usuario")
-    except Exception as e:
-        logger.error(f"Error fatal: {e}")
-        raise
+@app.get("/api/prediction")
+async def get_prediction():
+    """Obtiene una nueva predicción"""
+    prediction = trading_system.predictor.predict()
+    return JSONResponse({
+        'direction': prediction.direction.value,
+        'confidence': prediction.confidence,
+        'method': prediction.method,
+        'timestamp': prediction.timestamp.isoformat()
+    })
 
+@app.get("/api/performance")
+async def get_performance():
+    """Obtiene estadísticas de rendimiento"""
+    return JSONResponse(trading_system.predictor.get_performance_stats())
+
+@app.get("/api/ml-status")
+async def get_ml_status():
+    """Obtiene estado del sistema ML"""
+    return JSONResponse(trading_system.predictor.get_ml_status())
+
+@app.post("/api/retrain")
+async def retrain_model():
+    """Fuerza el reentrenamiento del modelo ML"""
+    success = trading_system.predictor.ml_system.train()
+    return JSONResponse({
+        'success': success,
+        'message': 'Modelo reentrenado exitosamente' if success else 'Error en el reentrenamiento'
+    })
+
+@app.get("/api/analysis")
+async def get_analysis():
+    """Obtiene análisis completo de la vela actual"""
+    analysis = trading_system.predictor.analyzer.get_comprehensive_analysis()
+    return JSONResponse(analysis)
+
+# ------------------ INICIALIZACIÓN DEL SISTEMA ------------------
+@app.on_event("startup")
+async def startup_event():
+    """Inicia el sistema cuando la aplicación FastAPI arranca"""
+    logger.info("Iniciando Delowyss Trading AI V7.0 en el evento startup...")
+    trading_system.start()
+
+# ------------------ EJECUCIÓN PRINCIPAL ------------------
 if __name__ == "__main__":
-    main()
+    import uvicorn
+    
+    # Iniciar el servidor
+    uvicorn.run(
+        "main:app",
+        host=Config.HOST,
+        port=Config.PORT,
+        reload=False,  # Desactivar reload en producción
+        log_level="info"
+    )

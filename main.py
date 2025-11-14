@@ -1274,7 +1274,7 @@ class AdvancedLearningSystem:
         self.model_accuracy_history = deque(maxlen=100)
         self.last_training_time = 0
         self.training_interval = 300
-        self.min_training_samples = 10  # 🚀 AUMENTADO para tener suficientes datos
+        self.min_training_samples = 10
         self.model_accuracy = 0.0
         self.feature_importance = {}
         self.debug_logs = deque(maxlen=50)
@@ -1284,7 +1284,6 @@ class AdvancedLearningSystem:
         
         self._add_debug_log("info", "Sistema de aprendizaje inicializado - VERSIÓN DEFINITIVA")
         
-        # 🚀 INICIALIZACIÓN MEJORADA - SIN ENTRENAMIENTO INMEDIATO
         self.initialize_ml_system()
 
     def _add_debug_log(self, level: str, message: str):
@@ -1300,11 +1299,9 @@ class AdvancedLearningSystem:
     def initialize_ml_system(self):
         """Inicializa el sistema ML SIN entrenamiento inmediato - VERSIÓN DEFINITIVA"""
         try:
-            # 🚀 SOLO crear datos sintéticos, NO entrenar inmediatamente
             if len(self.training_data) < 10:
                 self._add_debug_log("info", "Preparando datos de entrenamiento iniciales...")
                 
-                # Datos sintéticos balanceados PERO NO entrenar hasta tener suficientes
                 synthetic_samples = [
                     # Muestras ALCISTAS (4 muestras)
                     {'features': [5.0, 8.0, 0.7, 0.8, 0.6, 0.3, 0.9, 0.7, 0.2, 0.5, 0.4, 0.6, 0.8, 0.3, 0.7, 0.5, 0.6, 0.4, 0.5, 0.6], 'label': 0, 'confidence': 70},
@@ -1327,7 +1324,6 @@ class AdvancedLearningSystem:
                     self.training_data.append(sample)
                 
                 self._add_debug_log("success", f"Datos sintéticos preparados: {len(self.training_data)} muestras")
-                # 🚀 NO entrenar aquí - esperar a tener datos reales
                     
         except Exception as e:
             self._add_debug_log("error", f"Error inicializando ML: {e}")
@@ -1357,7 +1353,7 @@ class AdvancedLearningSystem:
             
             features['phase_direction_std'] = np.std(phase_directions) if phase_directions else 0
             features['phase_strength_avg'] = np.mean(phase_strengths) if phase_strengths else 0
-            features['phase_consistency'] = 1 - features['phase_direction_std']  # 1 = máxima consistencia
+            features['phase_consistency'] = 1 - features['phase_direction_std']
             
             # 3. Características de momentum y presión
             general_analysis = candle_analysis.get('general_analysis', {})
@@ -1375,7 +1371,6 @@ class AdvancedLearningSystem:
                     dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
                     segment_directions.append(dir_map.get(data['direction'], 0))
                     
-                # Dar más peso a segmentos recientes
                 if segment in ['35-55s', '55-60s']:
                     recent_segment_strength += data.get('volatility', 0)
             
@@ -1413,7 +1408,6 @@ class AdvancedLearningSystem:
                 self._add_debug_log("warning", "Datos insuficientes para muestra de entrenamiento")
                 return
             
-            # Mapear dirección a label numérico
             direction_map = {'ALZA': 0, 'BAJA': 1, 'LATERAL': 2}
             label = direction_map.get(actual_direction, 2)
             
@@ -1449,11 +1443,9 @@ class AdvancedLearningSystem:
             X = np.array([sample['features'] for sample in self.training_data])
             y = np.array([sample['label'] for sample in self.training_data])
             
-            # 🚀 VERIFICACIÓN CRÍTICA MEJORADA
             unique_classes, counts = np.unique(y, return_counts=True)
             self._add_debug_log("info", f"Clases: {unique_classes}, Conteos: {counts}")
             
-            # Verificar que tenemos al menos 2 muestras por clase
             if len(unique_classes) < 2:
                 self._add_debug_log("warning", f"Se necesitan al menos 2 clases. Clases disponibles: {len(unique_classes)}")
                 return False
@@ -1462,51 +1454,43 @@ class AdvancedLearningSystem:
                 self._add_debug_log("warning", f"Clases con menos de 2 muestras: {dict(zip(unique_classes, counts))}")
                 return False
             
-            # 🚀 AJUSTE DINÁMICO DEL test_size
             n_samples = len(y)
             n_classes = len(unique_classes)
             
-            # Calcular test_size que funcione para nuestras clases
-            min_test_size = n_classes * 2  # Mínimo 2 por clase en test
-            if n_samples < min_test_size + 5:  # Si no hay suficientes datos
-                test_size = 0.1  # Usar 10% para test
+            min_test_size = n_classes * 2
+            if n_samples < min_test_size + 5:
+                test_size = 0.1
             else:
-                test_size = 0.2  # Usar 20% para test
+                test_size = 0.2
                 
             self._add_debug_log("info", f"n_samples: {n_samples}, n_classes: {n_classes}, test_size: {test_size}")
             
-            # Dividir datos con manejo de errores
             try:
                 X_train, X_test, y_train, y_test = train_test_split(
                     X, y, test_size=test_size, random_state=42, stratify=y
                 )
             except ValueError as e:
                 self._add_debug_log("warning", f"Error en train_test_split: {e}. Usando división manual.")
-                # División manual simple
                 split_idx = int(0.8 * len(X))
                 X_train, X_test = X[:split_idx], X[split_idx:]
                 y_train, y_test = y[:split_idx], y[split_idx:]
             
-            # Verificar que tenemos datos en train y test
             if len(X_train) == 0 or len(X_test) == 0:
                 self._add_debug_log("warning", "No hay suficientes datos para entrenamiento y prueba")
                 return False
             
-            # Escalar características
             X_train_scaled = self.scaler.fit_transform(X_train)
             X_test_scaled = self.scaler.transform(X_test)
             
-            # 🚀 ENTRENAR SOLO UN MODELO SIMPLE INICIALMENTE
-            if len(self.training_data) < 20:  # Pocos datos → modelo simple
+            if len(self.training_data) < 20:
                 self.model = RandomForestClassifier(
-                    n_estimators=20,  # Menos estimadores
-                    max_depth=5,      # Menos profundidad
+                    n_estimators=20,
+                    max_depth=5,
                     min_samples_split=3,
                     random_state=42
                 )
                 self._add_debug_log("info", "Usando modelo simple (pocos datos)")
             else:
-                # Muchos datos → modelo más complejo
                 self.model = RandomForestClassifier(
                     n_estimators=50,
                     max_depth=8,
@@ -1517,14 +1501,12 @@ class AdvancedLearningSystem:
             
             self.model.fit(X_train_scaled, y_train)
             
-            # Evaluar modelo
             y_pred = self.model.predict(X_test_scaled)
             accuracy = accuracy_score(y_test, y_pred)
             
             self.model_accuracy = accuracy
             self._add_debug_log("success", f"Modelo entrenado - Accuracy: {accuracy:.3f}")
             
-            # Guardar importancia de características
             if hasattr(self.model, 'feature_importances_'):
                 self.feature_importance = dict(zip(self.feature_names, self.model.feature_importances_))
                 top_features = sorted(self.feature_importance.items(), key=lambda x: x[1], reverse=True)[:3]
@@ -1533,7 +1515,6 @@ class AdvancedLearningSystem:
             self.model_accuracy_history.append(self.model_accuracy)
             self.last_training_time = time.time()
             
-            # Guardar modelo
             self.save_model()
             
             return True
@@ -1561,7 +1542,6 @@ class AdvancedLearningSystem:
             prediction = self.model.predict(X_scaled)[0]
             probability = np.max(self.model.predict_proba(X_scaled))
             
-            # Mapear de vuelta a dirección
             direction_map = {0: 'ALZA', 1: 'BAJA', 2: 'LATERAL'}
             predicted_direction = direction_map.get(prediction, 'LATERAL')
             
@@ -1579,11 +1559,9 @@ class AdvancedLearningSystem:
         try:
             base_confidence = (ml_confidence * 0.6 + traditional_confidence * 0.4)
             
-            # Ajustar confianza basado en consistencia de características
             consistency = features.get('phase_consistency', 0.5)
             volatility = features.get('recent_volatility', 0)
             
-            # Reducir confianza en condiciones volátiles o inconsistentes
             if consistency < 0.3:
                 base_confidence *= 0.7
             elif volatility > 50:
@@ -1663,7 +1641,7 @@ class AdvancedLearningSystem:
             'debug_info': list(self.debug_logs)[-5:]
         }
 
-# ------------------ PREDICTOR MEJORADO CON AUTOAPRENDIZAJE MEJORADO - VERSIÓN DEFINITIVA ------------------
+# ------------------ PREDICTOR MEJORADO CON ANÁLISIS TÉCNICO FORTALECIDO ------------------
 class EnhancedNextCandlePredictor:
     def __init__(self):
         self.analyzer = CompleteCandleAnalyzer()
@@ -1677,9 +1655,9 @@ class EnhancedNextCandlePredictor:
             'total_signals': 0,
             'prediction_history': [],
             'bias_tracking': {
-                'alza_count': 1,  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero
-                'baja_count': 1,  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero  
-                'lateral_count': 1  # 🚀 CORRECCIÓN: Inicializado en 1 para evitar división por cero
+                'alza_count': 1,
+                'baja_count': 1, 
+                'lateral_count': 1
             }
         }
         self.prediction_history = deque(maxlen=50)
@@ -1693,9 +1671,11 @@ class EnhancedNextCandlePredictor:
         self.last_prediction_features = None
         self.auto_learning_active = True
         self.debug_logs = deque(maxlen=50)
+        self.price_levels = deque(maxlen=50)
+        self.volume_profile = deque(maxlen=30)
         
-        self._add_debug_log("info", "Predictor mejorado inicializado - VERSIÓN DEFINITIVA")
-    
+        self._add_debug_log("info", "Predictor mejorado inicializado - ANÁLISIS TÉCNICO FORTALECIDO")
+
     def _add_debug_log(self, level: str, message: str):
         """Agrega log de debug"""
         log_entry = {
@@ -1705,14 +1685,480 @@ class EnhancedNextCandlePredictor:
         }
         self.debug_logs.append(log_entry)
         logging.info(f"🎯 [PREDICTION_DEBUG] {message}")
-    
+
+    def _analyze_volume_profile(self, current_price, tick_data):
+        """🆕 Análisis avanzado de volumen y perfiles de precio"""
+        try:
+            self.volume_profile.append({
+                'price': current_price,
+                'timestamp': time.time(),
+                'tick_velocity': len(self.analyzer.ticks) / 60.0
+            })
+            
+            if len(self.volume_profile) >= 10:
+                prices = [v['price'] for v in self.volume_profile]
+                price_std = np.std(prices)
+                current_density = sum(1 for p in prices if abs(p - current_price) <= price_std * 0.5)
+                
+                return {
+                    'volume_density': current_density / len(prices),
+                    'price_clustering': 1 - (price_std / (max(prices) - min(prices)) if max(prices) != min(prices) else 1),
+                    'tick_velocity': np.mean([v['tick_velocity'] for v in self.volume_profile])
+                }
+        except:
+            return {'volume_density': 0.5, 'price_clustering': 0.5, 'tick_velocity': 1.0}
+
+    def _detect_reversal_patterns(self, candle_stats, phase_analysis):
+        """🆕 Detección avanzada de patrones de reversión"""
+        reversal_signals = []
+        
+        try:
+            body_size = candle_stats.get('body_size', 0)
+            range_size = candle_stats.get('range', 0)
+            
+            if range_size > 0:
+                body_ratio = body_size / range_size
+                lower_wick_ratio = (candle_stats.get('close', 0) - candle_stats.get('low', 0)) / range_size
+                upper_wick_ratio = (candle_stats.get('high', 0) - candle_stats.get('close', 0)) / range_size
+                
+                if body_ratio < 0.3 and lower_wick_ratio > 0.6:
+                    reversal_signals.append(('HAMMER_BULLISH', 65))
+                
+                if body_ratio < 0.3 and upper_wick_ratio > 0.6:
+                    reversal_signals.append(('SHOOTING_STAR_BEARISH', 65))
+            
+            phase_directions = []
+            for phase, analysis in phase_analysis.items():
+                if analysis.get('trend_direction'):
+                    dir_map = {'ALCISTA': 1, 'BAJISTA': -1, 'LATERAL': 0}
+                    phase_directions.append(dir_map.get(analysis['trend_direction'], 0))
+            
+            if len(phase_directions) >= 3:
+                early_phases = phase_directions[:2]
+                late_phases = phase_directions[-2:]
+                
+                if (sum(early_phases) > 1 and sum(late_phases) < -1):
+                    reversal_signals.append(('BEARISH_REVERSAL', 70))
+                elif (sum(early_phases) < -1 and sum(late_phases) > 1):
+                    reversal_signals.append(('BULLISH_REVERSAL', 70))
+            
+            return reversal_signals
+            
+        except Exception as e:
+            self._add_debug_log("error", f"Error detección reversión: {e}")
+            return []
+
+    def _calculate_support_resistance(self, current_price):
+        """🆕 Cálculo dinámico de soporte y resistencia"""
+        try:
+            if len(self.price_levels) < 10:
+                return {'support': current_price * 0.999, 'resistance': current_price * 1.001, 'strength': 0}
+            
+            prices = list(self.price_levels)
+            price_bins = {}
+            bin_size = (max(prices) - min(prices)) * 0.002
+            
+            for price in prices:
+                bin_key = round(price / bin_size) * bin_size
+                price_bins[bin_key] = price_bins.get(bin_key, 0) + 1
+            
+            if price_bins:
+                sorted_levels = sorted(price_bins.items(), key=lambda x: x[1], reverse=True)
+                support_levels = [level for level in sorted_levels if level[0] < current_price][:2]
+                resistance_levels = [level for level in sorted_levels if level[0] > current_price][:2]
+                
+                support = support_levels[0][0] if support_levels else current_price * 0.998
+                resistance = resistance_levels[0][0] if resistance_levels else current_price * 1.002
+                
+                support_strength = support_levels[0][1] / len(prices) if support_levels else 0
+                resistance_strength = resistance_levels[0][1] / len(prices) if resistance_levels else 0
+                
+                return {
+                    'support': support,
+                    'resistance': resistance, 
+                    'support_strength': support_strength,
+                    'resistance_strength': resistance_strength,
+                    'current_vs_support': (current_price - support) / current_price * 10000,
+                    'current_vs_resistance': (resistance - current_price) / current_price * 10000
+                }
+                
+        except Exception as e:
+            self._add_debug_log("error", f"Error soporte/resistencia: {e}")
+        
+        return {'support': current_price * 0.999, 'resistance': current_price * 1.001, 'strength': 0}
+
+    def _enhanced_trend_analysis(self, phase_analysis):
+        """🚀 Análisis de tendencia mejorado"""
+        trends = []
+        strengths = []
+        weights = []
+        
+        for i, (phase, analysis_data) in enumerate(phase_analysis.items()):
+            if analysis_data.get('trend_direction'):
+                weight = 0.1 + (i * 0.1)
+                weight = min(0.4, weight)
+                
+                original_direction = analysis_data['trend_direction']
+                mapped_direction = 'ALZA' if original_direction == 'ALCISTA' else 'BAJA' if original_direction == 'BAJISTA' else 'LATERAL'
+                
+                strength = analysis_data.get('trend_strength', 0)
+                
+                if strength > 2.0:
+                    strength *= 1.3
+                elif strength > 1.0:
+                    strength *= 1.15
+                
+                trends.append(mapped_direction)
+                strengths.append(strength)
+                weights.append(weight)
+        
+        if not trends:
+            return {'direction': 'LATERAL', 'strength': 0, 'consistency': False, 'weighted_score': 0}
+        
+        direction_scores = {"ALZA": 0, "BAJA": 0, "LATERAL": 0}
+        total_weighted_strength = 0
+        
+        for trend, strength, weight in zip(trends, strengths, weights):
+            direction_scores[trend] += strength * weight
+            total_weighted_strength += strength * weight
+        
+        dominant_trend = max(direction_scores, key=direction_scores.get)
+        consistency = len(set(trends)) == 1
+        
+        consistency_bonus = 1.2 if consistency else 1.0
+        
+        return {
+            'direction': dominant_trend,
+            'strength': min(100, total_weighted_strength * consistency_bonus * 8),
+            'consistency': consistency,
+            'weighted_score': direction_scores[dominant_trend],
+            'all_scores': direction_scores
+        }
+
+    def _enhanced_momentum_analysis(self, general_analysis, volume_analysis):
+        """🚀 Análisis de momentum mejorado con volumen"""
+        momentum = general_analysis.get('current_momentum', 0)
+        pressure = general_analysis.get('pressure_balance', 0.5)
+        
+        volume_density = volume_analysis.get('volume_density', 0.5)
+        tick_velocity = volume_analysis.get('tick_velocity', 1.0)
+        
+        direction = "ALZA" if momentum > 1.5 else "BAJA" if momentum < -1.5 else "LATERAL"
+        base_strength = min(80, abs(momentum) * 25)
+        
+        volume_adjustment = 1.0 + (volume_density - 0.5) * 0.4
+        velocity_adjustment = 1.0 + (tick_velocity - 1.0) * 0.2
+        
+        final_strength = base_strength * volume_adjustment * velocity_adjustment
+        
+        pressure_signal = "ALZA" if pressure > 0.65 else "BAJA" if pressure < 0.35 else "LATERAL"
+        pressure_strength = abs(pressure - 0.5) * 200
+        
+        return {
+            'momentum_direction': direction,
+            'momentum_strength': final_strength,
+            'pressure_direction': pressure_signal,
+            'pressure_strength': pressure_strength,
+            'volume_boost': volume_adjustment,
+            'velocity_boost': velocity_adjustment,
+            'alignment': direction == pressure_signal
+        }
+
+    def _enhanced_candle_analysis(self, candle_stats, reversal_patterns):
+        """🚀 Análisis de vela mejorado"""
+        direction = candle_stats.get('direction', 'LATERAL')
+        if direction == 'ALCISTA':
+            mapped_direction = 'ALZA'
+        elif direction == 'BAJISTA':
+            mapped_direction = 'BAJA'
+        else:
+            mapped_direction = 'LATERAL'
+        
+        body_size = candle_stats.get('body_size', 0)
+        range_size = candle_stats.get('range', 0)
+        
+        if body_size > range_size * 0.7:
+            pattern_strength = 80
+            pattern_type = "FUERTE"
+        elif body_size > range_size * 0.4:
+            pattern_strength = 65
+            pattern_type = "MODERADO"
+        else:
+            pattern_strength = 50
+            pattern_type = "LIGERO"
+        
+        reversal_boost = 0
+        for pattern, strength in reversal_patterns:
+            if "BULLISH" in pattern and mapped_direction == "ALZA":
+                reversal_boost += 10
+            elif "BEARISH" in pattern and mapped_direction == "BAJA":
+                reversal_boost += 10
+        
+        final_strength = min(95, pattern_strength + reversal_boost)
+        
+        return {
+            'direction': mapped_direction,
+            'strength': final_strength,
+            'type': pattern_type,
+            'reversal_boost': reversal_boost,
+            'continuation_bias': pattern_strength > 60
+        }
+
+    def _analyze_support_resistance_prediction(self, sr_analysis, current_price, trend_analysis):
+        """🚀 Predicción basada en soporte/resistencia"""
+        try:
+            support = sr_analysis.get('support', current_price)
+            resistance = sr_analysis.get('resistance', current_price)
+            support_strength = sr_analysis.get('support_strength', 0)
+            resistance_strength = sr_analysis.get('resistance_strength', 0)
+            
+            distance_to_support = abs(current_price - support) / current_price * 10000
+            distance_to_resistance = abs(current_price - resistance) / current_price * 10000
+            
+            proximity_threshold = 5.0
+            
+            if distance_to_support <= proximity_threshold and support_strength > 0.1:
+                return {'direction': 'ALZA', 'strength': min(75, support_strength * 100), 'reason': 'REBOTE_SOPORTE'}
+            elif distance_to_resistance <= proximity_threshold and resistance_strength > 0.1:
+                return {'direction': 'BAJA', 'strength': min(75, resistance_strength * 100), 'reason': 'RESISTENCIA_FUERTE'}
+            else:
+                return {'direction': trend_analysis['direction'], 'strength': 50, 'reason': 'SIN_NIVEL_CLAVE'}
+                
+        except Exception as e:
+            return {'direction': 'LATERAL', 'strength': 50, 'reason': 'ERROR_ANALISIS'}
+
+    def _advanced_bias_correction(self, prediction):
+        """🚀 CORRECCIÓN DE SESGO AVANZADA"""
+        try:
+            direction = prediction['direction']
+            confidence = prediction['confidence']
+            
+            bias_stats = self.performance_stats['bias_tracking']
+            total = sum(bias_stats.values())
+            
+            if total >= 10:
+                current_bias_pct = bias_stats.get(f"{direction.lower()}_count", 1) / total
+                
+                if current_bias_pct > 0.75:
+                    correction_factor = 0.85
+                    new_confidence = confidence * correction_factor
+                    self._add_debug_log("warning", 
+                        f"🔧 Corrección sesgo {direction}: {current_bias_pct:.1%} → confianza {confidence}→{new_confidence:.0f}")
+                    
+                    if current_bias_pct > 0.85 and confidence < 60:
+                        alternative_dir = "LATERAL" if direction != "LATERAL" else "ALZA"
+                        self._add_debug_log("warning", f"🔄 Cambio dirección por sesgo extremo: {direction}→{alternative_dir}")
+                        return {'direction': alternative_dir, 'confidence': 55}
+                    
+                    return {'direction': direction, 'confidence': new_confidence}
+            
+            return prediction
+            
+        except Exception as e:
+            self._add_debug_log("error", f"Error corrección sesgo: {e}")
+            return prediction
+
+    def _intelligent_combination(self, trend, momentum, candle, sr, reversals, volume):
+        """🚀 COMBINACIÓN INTELIGENTE MEJORADA"""
+        components = [
+            (trend['direction'], trend['strength'], 0.30),
+            (momentum['momentum_direction'], momentum['momentum_strength'], 0.25),
+            (candle['direction'], candle['strength'], 0.20),
+            (sr['direction'], sr['strength'], 0.25)
+        ]
+        
+        direction_scores = {"ALZA": 0, "BAJA": 0, "LATERAL": 0}
+        total_confidence = 0
+        
+        for direction, confidence, weight in components:
+            direction_scores[direction] += confidence * weight
+            total_confidence += confidence * weight
+        
+        final_direction = max(direction_scores, key=direction_scores.get)
+        
+        base_confidence = min(90, int(total_confidence))
+        
+        consistency_bonus = 0
+        if trend.get('consistency', False):
+            consistency_bonus += 8
+        if momentum.get('alignment', False):
+            consistency_bonus += 7
+        if len(reversals) > 0:
+            consistency_bonus += 5
+        
+        volume_boost = volume.get('volume_density', 0.5) * 10
+        
+        final_confidence = min(95, max(45, base_confidence + consistency_bonus + volume_boost))
+        
+        return {
+            'direction': final_direction,
+            'confidence': final_confidence,
+            'base_confidence': base_confidence,
+            'consistency_bonus': consistency_bonus,
+            'volume_boost': volume_boost
+        }
+
+    def _generate_enhanced_reasons(self, trend, momentum, candle, sr, reversals, volume):
+        """🚀 Razones detalladas mejoradas"""
+        reasons = []
+        
+        if trend['strength'] > 60:
+            reasons.append(f"Tendencia {trend['direction']} fuerte ({trend['strength']:.0f}%)")
+        
+        if momentum['momentum_strength'] > 55:
+            reasons.append(f"Momentum {momentum['momentum_direction']} acelerado")
+        
+        if momentum['pressure_strength'] > 65:
+            reasons.append(f"Presión {momentum['pressure_direction']} dominante")
+        
+        if candle['type'] != "LIGERO":
+            reasons.append(f"Patrón {candle['type']} {candle['direction']}")
+        
+        if sr['reason'] != 'SIN_NIVEL_CLAVE':
+            reasons.append(f"{sr['reason']}")
+        
+        if len(reversals) > 0:
+            reasons.append(f"Patrón reversión detectado")
+        
+        if volume['volume_density'] > 0.7:
+            reasons.append("Alta densidad de volumen")
+        
+        if not reasons:
+            reasons.append("Señales equilibradas - análisis conservador")
+        
+        return reasons
+
+    def _get_traditional_prediction(self, analysis):
+        """🚀 PREDICCIÓN TRADICIONAL MEJORADA"""
+        try:
+            self._add_debug_log("info", "🎯 CALCULANDO PREDICCIÓN MEJORADA")
+            
+            candle_stats = analysis.get('candle_stats', {})
+            phase_analysis = analysis.get('phase_analysis', {})
+            general_analysis = analysis.get('general_analysis', {})
+            current_price = analysis.get('current_price', 0)
+            
+            self.price_levels.append(current_price)
+            
+            volume_analysis = self._analyze_volume_profile(current_price, analysis)
+            reversal_patterns = self._detect_reversal_patterns(candle_stats, phase_analysis)
+            sr_analysis = self._calculate_support_resistance(current_price)
+            
+            trend_analysis = self._enhanced_trend_analysis(phase_analysis)
+            momentum_analysis = self._enhanced_momentum_analysis(general_analysis, volume_analysis)
+            candle_analysis = self._enhanced_candle_analysis(candle_stats, reversal_patterns)
+            sr_prediction = self._analyze_support_resistance_prediction(sr_analysis, current_price, trend_analysis)
+            
+            final_prediction = self._intelligent_combination(
+                trend_analysis, momentum_analysis, candle_analysis, sr_prediction,
+                reversal_patterns, volume_analysis
+            )
+            
+            final_prediction = self._advanced_bias_correction(final_prediction)
+            
+            reasons = self._generate_enhanced_reasons(
+                trend_analysis, momentum_analysis, candle_analysis, sr_prediction,
+                reversal_patterns, volume_analysis
+            )
+            
+            self._add_debug_log("success", 
+                f"🎯 PREDICCIÓN MEJORADA: {final_prediction['direction']} {final_prediction['confidence']}%")
+            
+            return {
+                "direction": final_prediction['direction'],
+                "confidence": final_prediction['confidence'],
+                "tick_count": self.analyzer.tick_count,
+                "current_price": current_price,
+                "reasons": reasons,
+                "timestamp": now_iso(),
+                "status": "PREDICTION_READY",
+                "method": "TRADICIONAL_MEJORADO",
+                "debug_info": list(self.debug_logs)[-3:]
+            }
+            
+        except Exception as e:
+            self._add_debug_log("error", f"❌ Error predicción mejorada: {e}")
+            return self._get_base_prediction(analysis)
+
     def process_tick(self, price: float, seconds_remaining: float = None):
         return self.analyzer.add_tick(price, seconds_remaining)
-    
-    def update_market_context(self, candle_analysis):
-        """Actualiza el contexto del mercado para el aprendizaje"""
+
+    def predict_next_candle(self):
+        analysis = self.analyzer.get_candle_analysis()
+        
+        if analysis.get('status') != 'COMPLETE_ANALYSIS':
+            return self._get_base_prediction(analysis)
+        
+        if not self.analyzer.is_ready_for_prediction():
+            return self._get_base_prediction(analysis)
+        
         try:
-            # Calcular alineación con vela anterior
+            self._add_debug_log("info", "Iniciando predicción mejorada")
+            
+            traditional_prediction = self._get_traditional_prediction(analysis)
+            
+            self.update_market_context(analysis)
+            
+            features = self.learning_system.extract_advanced_features(
+                analysis, 
+                self.analyzer.current_candle_close, 
+                self.market_context
+            )
+            
+            if features:
+                self.last_prediction_features = features
+            
+            self._update_bias_tracking(traditional_prediction['direction'])
+            
+            if self.auto_learning_active:
+                current_time = time.time()
+                training_interval = self.learning_system.training_interval
+                current_samples = len(self.learning_system.training_data)
+                has_new_data = current_samples > 15
+                
+                if (has_new_data and 
+                    current_time - self.learning_system.last_training_time > training_interval):
+                    
+                    self._add_debug_log("info", f"Ejecutando entrenamiento automático con {current_samples} muestras...")
+                    if self.learning_system.train_model():
+                        self._add_debug_log("success", "✅ Entrenamiento automático completado")
+            
+            self.performance_stats['total_predictions'] += 1
+            self.performance_stats['today_signals'] += 1
+            self.performance_stats['total_signals'] += 1
+            
+            traditional_prediction['debug_info'] = list(self.debug_logs)[-3:]
+            traditional_prediction['status'] = 'PREDICTION_READY'
+            
+            return traditional_prediction
+            
+        except Exception as e:
+            self._add_debug_log("error", f"Error en predicción mejorada: {e}")
+            return self._get_base_prediction(analysis)
+
+    def _update_bias_tracking(self, direction: str):
+        if direction == 'ALZA':
+            self.performance_stats['bias_tracking']['alza_count'] += 1
+        elif direction == 'BAJA':
+            self.performance_stats['bias_tracking']['baja_count'] += 1
+        else:
+            self.performance_stats['bias_tracking']['lateral_count'] += 1
+
+    def _get_base_prediction(self, analysis):
+        return {
+            "direction": "LATERAL",
+            "confidence": 50,
+            "tick_count": self.analyzer.tick_count,
+            "current_price": self.analyzer.current_candle_close or 0.0,
+            "reasons": ["Análisis de vela en curso"],
+            "timestamp": now_iso(),
+            "status": "ANALYZING",
+            "method": "TRADICIONAL_MEJORADO",
+            "debug_info": list(self.debug_logs)[-2:] if self.debug_logs else []
+        }
+
+    def update_market_context(self, candle_analysis):
+        try:
             if hasattr(self.analyzer, 'previous_candle'):
                 prev_candle = self.analyzer.previous_candle
                 current_direction = candle_analysis.get('candle_stats', {}).get('direction', 'LATERAL')
@@ -1724,527 +2170,29 @@ class EnhancedNextCandlePredictor:
                     
                     self.market_context['previous_candle_alignment'] = 1 if prev_dir == curr_dir else -1
             
-            # Calcular aceleración del precio
             if len(self.analyzer.velocity_metrics) >= 3:
                 recent_velocities = [v['velocity'] for v in list(self.analyzer.velocity_metrics)[-3:]]
                 if len(recent_velocities) >= 2:
                     self.market_context['price_acceleration'] = recent_velocities[-1] - recent_velocities[0]
             
-            # Determinar régimen de mercado basado en volatilidad
             volatility = candle_analysis.get('candle_stats', {}).get('range', 0)
             if volatility > 15:
-                self.market_context['market_regime'] = 1  # Volátil
+                self.market_context['market_regime'] = 1
             elif volatility < 5:
-                self.market_context['market_regime'] = 2  # Tranquilo
+                self.market_context['market_regime'] = 2
             else:
-                self.market_context['market_regime'] = 0  # Normal
+                self.market_context['market_regime'] = 0
                 
         except Exception as e:
             self._add_debug_log("error", f"Error actualizando contexto: {e}")
-    
-    def predict_next_candle(self):
-        """Predice usando el sistema combinado tradicional + ML - VERSIÓN DEFINITIVA"""
-        analysis = self.analyzer.get_candle_analysis()
-        
-        if analysis.get('status') != 'COMPLETE_ANALYSIS':
-            self._add_debug_log("warning", "Análisis incompleto, usando predicción base")
-            return self._get_base_prediction(analysis)
-        
-        if not self.analyzer.is_ready_for_prediction():
-            self._add_debug_log("warning", "Sistema no listo para predicción")
-            return self._get_base_prediction(analysis)
-        
-        try:
-            self._add_debug_log("info", "Iniciando predicción mejorada")
-            
-            # 1. Obtener predicción tradicional
-            traditional_prediction = self._get_traditional_prediction(analysis)
-            self._add_debug_log("info", 
-                f"Predicción tradicional: {traditional_prediction['direction']} {traditional_prediction['confidence']}%")
-            
-            # 2. Actualizar contexto de mercado
-            self.update_market_context(analysis)
-            
-            # 3. Extraer características para ML
-            features = self.learning_system.extract_advanced_features(
-                analysis, 
-                self.analyzer.current_candle_close, 
-                self.market_context
-            )
-            
-            if features:
-                feature_summary = {k: round(v, 4) for k, v in features.items()}
-                self._add_debug_log("info", f"Características ML: {len(features)} extraídas")
-                self.last_prediction_features = features
-            else:
-                self._add_debug_log("warning", "No se pudieron extraer características para ML")
-                traditional_prediction['method'] = 'TRADICIONAL'
-                traditional_prediction['debug_info'] = list(self.debug_logs)[-3:]
-                return traditional_prediction
-            
-            # 4. Obtener predicción de ML
-            ml_direction, ml_confidence = self.learning_system.predict_with_ml(features)
-            
-            # VERIFICAR ACTIVACIÓN DE ML - VERSIÓN DEFINITIVA
-            if ml_direction and ml_confidence > 55 and self.learning_system.model is not None:
-                self._add_debug_log("success", 
-                    f"ML ACTIVADO: {ml_direction} {ml_confidence:.1f}%")
-                
-                # 5. Combinar predicciones de manera inteligente
-                combined_confidence = self.learning_system.get_adaptive_confidence(
-                    ml_confidence, 
-                    traditional_prediction['confidence'],
-                    features
-                )
-                
-                # Decidir dirección final (favorecer ML si es consistente)
-                final_direction = self._combine_predictions(
-                    traditional_prediction['direction'], 
-                    ml_direction, 
-                    traditional_prediction['confidence'],
-                    ml_confidence
-                )
-                
-                # Actualizar predicción con resultados combinados
-                traditional_prediction['direction'] = final_direction
-                traditional_prediction['confidence'] = combined_confidence
-                traditional_prediction['ml_confidence'] = ml_confidence
-                traditional_prediction['traditional_confidence'] = traditional_prediction['confidence']
-                traditional_prediction['method'] = 'HÍBRIDO_ML'
-                
-                self._add_debug_log("success", 
-                    f"Predicción combinada: {final_direction} {combined_confidence:.1f}%")
-                
-            else:
-                traditional_prediction['method'] = 'TRADICIONAL'
-                if ml_direction:
-                    self._add_debug_log("warning", 
-                        f"ML no activado: confianza {ml_confidence:.1f}% < 55% o modelo no disponible")
-                else:
-                    self._add_debug_log("warning", "ML no disponible para esta predicción")
-            
-            # ACTUALIZAR SEGUIMIENTO DE SESGO
-            self._update_bias_tracking(traditional_prediction['direction'])
-            
-            # 6. Entrenamiento automático periódico MEJORADO - VERSIÓN DEFINITIVA
-            if self.auto_learning_active:
-                current_time = time.time()
-                training_interval = self.learning_system.training_interval
-                
-                # 🚀 SOLO entrenar si tenemos suficientes datos NUEVOS
-                current_samples = len(self.learning_system.training_data)
-                has_new_data = current_samples > 15  # Solo si tenemos datos significativos
-                
-                if (has_new_data and 
-                    current_time - self.learning_system.last_training_time > training_interval):
-                    
-                    self._add_debug_log("info", f"Ejecutando entrenamiento automático con {current_samples} muestras...")
-                    if self.learning_system.train_model():
-                        self._add_debug_log("success", "✅ Entrenamiento automático completado")
-                    else:
-                        self._add_debug_log("warning", "⚠️ Entrenamiento automático falló - continuando en modo tradicional")
-            
-            # Actualizar contadores
-            self.performance_stats['total_predictions'] += 1
-            self.performance_stats['today_signals'] += 1
-            self.performance_stats['total_signals'] += 1
-            
-            # AGREGAR DEBUG INFO A LA PREDICCIÓN
-            traditional_prediction['debug_info'] = list(self.debug_logs)[-3:]
-            traditional_prediction['status'] = 'PREDICTION_READY'
-            
-            return traditional_prediction
-            
-        except Exception as e:
-            self._add_debug_log("error", f"Error en predicción mejorada: {e}")
-            return self._get_base_prediction(analysis)
-    
-    def _update_bias_tracking(self, direction: str):
-        """Actualiza el seguimiento de sesgo predictivo"""
-        if direction == 'ALZA':
-            self.performance_stats['bias_tracking']['alza_count'] += 1
-        elif direction == 'BAJA':
-            self.performance_stats['bias_tracking']['baja_count'] += 1
-        else:
-            self.performance_stats['bias_tracking']['lateral_count'] += 1
-        
-        total = sum(self.performance_stats['bias_tracking'].values())
-        if total >= 15:  # 🚀 CORRECCIÓN: Aumentado a 15 para análisis más robusto
-            alza_pct = (self.performance_stats['bias_tracking']['alza_count'] / total) * 100
-            baja_pct = (self.performance_stats['bias_tracking']['baja_count'] / total) * 100
-            
-            if alza_pct > 90:  # 🚀 CORRECCIÓN: Umbral aumentado a 90%
-                self._add_debug_log("warning", f"🚨 SESGO ALCISTA DETECTADO: {alza_pct:.1f}%")
-            elif baja_pct > 90:  # 🚀 CORRECCIÓN: Umbral aumentado a 90%
-                self._add_debug_log("warning", f"🚨 SESGO BAJISTA DETECTADO: {baja_pct:.1f}%")
-    
-    def _get_base_prediction(self, analysis):
-        """Predicción base cuando el análisis no está completo"""
-        return {
-            "direction": "LATERAL",
-            "confidence": 50,
-            "tick_count": self.analyzer.tick_count,
-            "current_price": self.analyzer.current_candle_close or 0.0,
-            "reasons": ["Análisis de vela en curso"],
-            "timestamp": now_iso(),
-            "status": "ANALYZING",
-            "method": "TRADICIONAL",
-            "debug_info": list(self.debug_logs)[-2:] if self.debug_logs else []
-        }
-    
-    def _get_traditional_prediction(self, analysis):
-        """Predicción tradicional basada en análisis técnico - VERSIÓN DEFINITIVA"""
-        try:
-            self._add_debug_log("info", "Calculando predicción tradicional")
-            
-            # Análisis de fases
-            phase_analysis = analysis.get('phase_analysis', {})
-            phase_trends = self._analyze_phase_trends(phase_analysis)
-            
-            # Análisis de momentum
-            general_analysis = analysis.get('general_analysis', {})
-            momentum_analysis = self._analyze_momentum_pressure(general_analysis)
-            
-            # Análisis de segmentos
-            segment_analysis = analysis.get('segment_analysis', {})
-            segment_prediction = self._analyze_segment_behavior(segment_analysis)
-            
-            # Análisis de patrón de vela
-            candle_stats = analysis.get('candle_stats', {})
-            candle_pattern = self._analyze_candle_pattern(candle_stats, general_analysis)
-            
-            # DETECCIÓN MEJORADA DE SESGO - VERSIÓN DEFINITIVA
-            self._detect_prediction_bias(phase_trends, momentum_analysis, segment_prediction, candle_pattern)
-            
-            # Combinar predicciones
-            final_prediction = self._combine_traditional_predictions(
-                phase_trends, momentum_analysis, segment_prediction, candle_pattern
-            )
-            
-            reasons = self._generate_prediction_reasons(
-                phase_trends, momentum_analysis, segment_prediction, candle_pattern
-            )
-            
-            self._add_debug_log("info", 
-                f"Predicción tradicional final: {final_prediction['direction']} {final_prediction['confidence']}%")
-            
-            return {
-                "direction": final_prediction['direction'],
-                "confidence": final_prediction['confidence'],
-                "tick_count": self.analyzer.tick_count,
-                "current_price": analysis['current_price'],
-                "reasons": reasons,
-                "timestamp": now_iso(),
-                "status": "PREDICTION_READY",
-                "method": "TRADICIONAL"
-            }
-            
-        except Exception as e:
-            self._add_debug_log("error", f"Error en predicción tradicional: {e}")
-            return self._get_base_prediction(analysis)
-    
-    def _detect_prediction_bias(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Detecta y corrige sesgos en las predicciones - VERSIÓN DEFINITIVA"""
-        try:
-            # Contar direcciones
-            directions = [
-                phase_trends['direction'],
-                momentum_analysis['momentum_direction'],
-                segment_prediction['direction'],
-                candle_pattern['direction']
-            ]
-            
-            baja_count = directions.count('BAJA')
-            alza_count = directions.count('ALZA')
-            
-            # CORRECCIÓN MEJORADA DE SESGO - Solo aplicar si hay sesgo extremo
-            if baja_count >= 3 and alza_count == 0:
-                self._add_debug_log("warning", "🚨 SESGO BAJISTA DETECTADO en análisis tradicional")
-                # Aplicar corrección suave: reducir confianza en dirección bajista
-                if phase_trends['direction'] == 'BAJA':
-                    phase_trends['strength'] *= 0.95  # 🚀 CORRECCIÓN: Penalización mínima
-            elif alza_count >= 3 and baja_count == 0:
-                self._add_debug_log("warning", "🚨 SESGO ALCISTA DETECTADO en análisis tradicional")
-                # Aplicar corrección suave: reducir confianza en dirección alcista
-                if phase_trends['direction'] == 'ALZA':
-                    phase_trends['strength'] *= 0.95  # 🚀 CORRECCIÓN: Penalización mínima
-                    
-        except Exception as e:
-            self._add_debug_log("error", f"Error detectando sesgo: {e}")
-    
-    def _analyze_phase_trends(self, phase_analysis):
-        """Analiza las tendencias por fases de la vela"""
-        trends = []
-        strengths = []
-        
-        for phase, analysis in phase_analysis.items():
-            if analysis.get('trend_direction'):
-                original_direction = analysis['trend_direction']
-                if original_direction == 'ALCISTA':
-                    mapped_direction = 'ALZA'
-                elif original_direction == 'BAJISTA':
-                    mapped_direction = 'BAJA'
-                else:
-                    mapped_direction = 'LATERAL'
-                
-                if analysis.get('trend_strength', 0) > 0.5:
-                    trends.append(mapped_direction)
-                    strengths.append(analysis['trend_strength'])
-        
-        if not trends:
-            return {'direction': 'LATERAL', 'strength': 0, 'consistency': False}
-        
-        # Ponderar más las fases finales
-        weights = [0.1, 0.2, 0.3, 0.4]
-        weighted_trends = {}
-        
-        for i, trend in enumerate(trends):
-            weight = weights[i] if i < len(weights) else 0.1
-            if trend in weighted_trends:
-                weighted_trends[trend] += weight
-            else:
-                weighted_trends[trend] = weight
-        
-        dominant_trend = max(weighted_trends, key=weighted_trends.get)
-        avg_strength = np.mean(strengths) if strengths else 0
-        
-        return {
-            'direction': dominant_trend,
-            'strength': min(100, avg_strength * 10),
-            'consistency': len(set(trends)) == 1
-        }
-    
-    def _analyze_momentum_pressure(self, general_analysis):
-        """Analiza momentum y presión de la vela"""
-        momentum = general_analysis.get('current_momentum', 0)
-        pressure = general_analysis.get('pressure_balance', 0.5)
-        
-        direction = "ALZA" if momentum > 1.0 else "BAJA" if momentum < -1.0 else "LATERAL"
-        strength = min(100, abs(momentum) * 20)
-        
-        pressure_signal = "ALZA" if pressure > 0.6 else "BAJA" if pressure < 0.4 else "LATERAL"
-        pressure_strength = abs(pressure - 0.5) * 200
-        
-        return {
-            'momentum_direction': direction,
-            'momentum_strength': strength,
-            'pressure_direction': pressure_signal,
-            'pressure_strength': pressure_strength,
-            'alignment': direction == pressure_signal
-        }
-    
-    def _analyze_segment_behavior(self, segment_analysis):
-        """Analiza el comportamiento por segmentos de tiempo"""
-        segments = list(segment_analysis.keys())
-        directions = []
-        
-        for segment in segments:
-            if segment_analysis[segment].get('direction'):
-                original_direction = segment_analysis[segment]['direction']
-                if original_direction == 'ALCISTA':
-                    mapped_direction = 'ALZA'
-                elif original_direction == 'BAJISTA':
-                    mapped_direction = 'BAJA'
-                else:
-                    mapped_direction = 'LATERAL'
-                directions.append(mapped_direction)
-        
-        if not directions:
-            return {'direction': 'LATERAL', 'confidence': 50, 'recent_alignment': False}
-        
-        # Los segmentos finales tienen más peso
-        recent_directions = directions[-2:] if len(directions) >= 2 else directions
-        alcista_count = recent_directions.count('ALZA')
-        bajista_count = recent_directions.count('BAJA')
-        
-        if alcista_count > bajista_count:
-            direction = "ALZA"
-            confidence = (alcista_count / len(recent_directions)) * 80
-        elif bajista_count > alcista_count:
-            direction = "BAJA"
-            confidence = (bajista_count / len(recent_directions)) * 80
-        else:
-            direction = "LATERAL"
-            confidence = 50
-            
-        return {
-            'direction': direction,
-            'confidence': confidence,
-            'recent_alignment': alcista_count == len(recent_directions) or bajista_count == len(recent_directions)
-        }
-    
-    def _analyze_candle_pattern(self, candle_stats, general_analysis):
-        """Analiza el patrón de la vela actual"""
-        direction = candle_stats.get('direction', 'LATERAL')
-        body_size = candle_stats.get('body_size', 0)
-        range_size = candle_stats.get('range', 0)
-        
-        # Mapear dirección de la vela
-        if direction == 'ALCISTA':
-            mapped_direction = 'ALZA'
-        elif direction == 'BAJISTA':
-            mapped_direction = 'BAJA'
-        else:
-            mapped_direction = 'LATERAL'
-        
-        # Vela con cuerpo grande → continuación probable
-        if body_size > range_size * 0.7:
-            pattern_strength = 80
-            pattern_type = "FUERTE"
-        elif body_size > range_size * 0.4:
-            pattern_strength = 65
-            pattern_type = "MODERADO"
-        else:
-            pattern_strength = 50
-            pattern_type = "LIGERO"
-        
-        consistency = general_analysis.get('consistency_score', 50)
-        
-        return {
-            'direction': mapped_direction,
-            'strength': pattern_strength,
-            'type': pattern_type,
-            'consistency': consistency,
-            'continuation_bias': pattern_strength > 60
-        }
-    
-    def _combine_traditional_predictions(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Combina todas las predicciones tradicionales en una final - VERSIÓN ANTI-SESGO"""
-        predictions = [
-            (phase_trends['direction'], phase_trends['strength'], 0.30),
-            (momentum_analysis['momentum_direction'], momentum_analysis['momentum_strength'], 0.25),
-            (segment_prediction['direction'], segment_prediction['confidence'], 0.25),
-            (candle_pattern['direction'], candle_pattern['strength'], 0.20)
-        ]
-        
-        direction_scores = {"ALZA": 0, "BAJA": 0, "LATERAL": 0}
-        total_confidence = 0
-        
-        for direction, confidence, weight in predictions:
-            direction_scores[direction] += confidence * weight
-            total_confidence += confidence * weight
-        
-        final_direction = max(direction_scores, key=direction_scores.get)
-        
-        # 🚀 CÁLCULO MEJORADO SIN PENALIZACIONES EXCESIVAS
-        base_confidence = min(90, int(total_confidence))
-        
-        # Bonus por consistencia (más conservador)
-        consistency_bonus = 0
-        if phase_trends.get('consistency', False):
-            consistency_bonus += 5  # Reducido
-        if momentum_analysis.get('alignment', False):
-            consistency_bonus += 4  # Reducido
-        if segment_prediction.get('recent_alignment', False):
-            consistency_bonus += 3  # Reducido
-        
-        # 🚀 CORRECCIÓN DEFINITIVA DE SESGO - MÁS CONSERVADORA
-        bias_correction = 0
-        total_predictions = self.performance_stats['total_predictions']
-        
-        if total_predictions > 15:  # 🚀 Solo después de suficientes predicciones
-            bias_stats = self.performance_stats['bias_tracking']
-            total_recent = sum(bias_stats.values())
-            
-            if total_recent > 0:
-                recent_alza_pct = bias_stats['alza_count'] / total_recent
-                recent_baja_pct = bias_stats['baja_count'] / total_recent
-                
-                # 🚀 CORRECCIÓN: Solo aplicar corrección si sesgo > 90% Y dirección coincide
-                if final_direction == 'ALZA' and recent_alza_pct > 0.90:
-                    bias_correction = -3  # 🚀 Mínima penalización
-                    self._add_debug_log("warning", f"Corrección mínima por sesgo alcista: {recent_alza_pct:.1%}")
-                elif final_direction == 'BAJA' and recent_baja_pct > 0.90:
-                    bias_correction = -3  # 🚀 Mínima penalización  
-                    self._add_debug_log("warning", f"Corrección mínima por sesgo bajista: {recent_baja_pct:.1%}")
-                else:
-                    # 🚀 BONUS por diversificación si no hay sesgo extremo
-                    if final_direction == 'ALZA' and recent_alza_pct < 0.5:
-                        bias_correction = +2
-                    elif final_direction == 'BAJA' and recent_baja_pct < 0.5:
-                        bias_correction = +2
-        
-        final_confidence = min(95, max(45, base_confidence + consistency_bonus + bias_correction))
-        
-        # 🚀 FORZAR DIVERSIFICACIÓN si confianza es muy baja
-        if final_confidence < 50 and total_predictions > 10:
-            alternative_directions = [d for d in direction_scores.keys() if d != final_direction]
-            if alternative_directions:
-                # Elegir la segunda mejor dirección
-                final_direction = max(alternative_directions, key=lambda d: direction_scores[d])
-                final_confidence = 55  # Confianza base para dirección alternativa
-                self._add_debug_log("info", f"Forzando diversificación: {final_direction}")
-        
-        return {
-            'direction': final_direction,
-            'confidence': final_confidence,
-            'base_confidence': base_confidence,
-            'consistency_bonus': consistency_bonus,
-            'bias_correction': bias_correction
-        }
-    
-    def _combine_predictions(self, trad_direction, ml_direction, trad_confidence, ml_confidence):
-        """Combina predicciones tradicionales y de ML"""
-        # Si las direcciones coinciden, usar esa dirección
-        if trad_direction == ml_direction:
-            self._add_debug_log("info", "Coincidencia ML-Tradicional")
-            return trad_direction
-        
-        # Si ML tiene alta confianza y tradicional baja, favorecer ML
-        if ml_confidence > 70 and trad_confidence < 60:
-            self._add_debug_log("info", "Favoreciendo ML (alta confianza)")
-            return ml_direction
-        
-        # Si tradicional tiene alta confianza y ML baja, favorecer tradicional
-        if trad_confidence > 70 and ml_confidence < 60:
-            self._add_debug_log("info", "Favoreciendo Tradicional (alta confianza)")
-            return trad_direction
-        
-        # En caso de empate, usar tradicional (más conservador)
-        self._add_debug_log("info", "Usando Tradicional (conservador)")
-        return trad_direction
-    
-    def _generate_prediction_reasons(self, phase_trends, momentum_analysis, segment_prediction, candle_pattern):
-        """Genera razones detalladas para la predicción"""
-        reasons = []
-        
-        # Razones de fase
-        if phase_trends['strength'] > 60:
-            reasons.append(f"Tendencia {phase_trends['direction']} en fases ({phase_trends['strength']:.0f}%)")
-        
-        # Razones de momentum
-        if momentum_analysis['momentum_strength'] > 50:
-            reasons.append(f"Momentum {momentum_analysis['momentum_direction']} fuerte")
-        
-        if momentum_analysis['pressure_strength'] > 60:
-            reasons.append(f"Presión {momentum_analysis['pressure_direction']} dominante")
-        
-        # Razones de segmentos
-        if segment_prediction['recent_alignment']:
-            reasons.append("Alineación consistente en segmentos finales")
-        
-        # Razones de patrón
-        if candle_pattern['type'] != "LIGERO":
-            reasons.append(f"Patrón {candle_pattern['type']} {candle_pattern['direction']}")
-        
-        # Razón de consistencia
-        if len([r for r in reasons if 'consist' in r.lower() or 'aline' in r.lower()]) >= 2:
-            reasons.append("Alta consistencia en señales")
-        
-        if not reasons:
-            reasons.append("Señales equilibradas - análisis conservador")
-        
-        return reasons
-    
+
     def validate_prediction(self, actual_direction: str):
-        """Valida la predicción contra el resultado real"""
         if not self.prediction_history:
             return None
             
         last_prediction = self.prediction_history[-1]
         predicted_direction = last_prediction['direction']
         
-        # Mapear direcciones de forma consistente
         if actual_direction == 'ALCISTA':
             actual_mapped = 'ALZA'
         elif actual_direction == 'BAJISTA':
@@ -2256,34 +2204,30 @@ class EnhancedNextCandlePredictor:
                      predicted_direction != "LATERAL" and 
                      actual_mapped != "LATERAL")
         
-        # REGISTRO DETALLADO DE VALIDACIÓN
         validation_entry = {
             'timestamp': datetime.now().isoformat(),
             'predicted': predicted_direction,
             'actual': actual_mapped,
             'correct': is_correct,
             'confidence': last_prediction.get('confidence', 0),
-            'method': last_prediction.get('method', 'TRADICIONAL')
+            'method': last_prediction.get('method', 'TRADICIONAL_MEJORADO')
         }
         self.performance_stats['prediction_history'].append(validation_entry)
         
-        # Aprendizaje automático MEJORADO - VERSIÓN DEFINITIVA
         if (self.auto_learning_active and 
             self.last_prediction_features is not None and 
             actual_direction is not None):
             
-            # Siempre agregar muestra para aprendizaje
             self.learning_system.add_training_sample(
                 self.last_prediction_features,
                 actual_mapped,
                 last_prediction.get('confidence', 50)
             )
             
-            # Entrenamiento incremental más frecuente
             current_samples = len(self.learning_system.training_data)
             min_samples = self.learning_system.min_training_samples
             
-            if current_samples >= min_samples and current_samples % 5 == 0:  # 🚀 Cada 5 muestras nuevas
+            if current_samples >= min_samples and current_samples % 5 == 0:
                 self._add_debug_log("info", f"Entrenamiento incremental ({current_samples} muestras)")
                 self.learning_system.train_model()
         
@@ -2308,11 +2252,9 @@ class EnhancedNextCandlePredictor:
             "current_streak": self.performance_stats['current_streak'],
             "validation_entry": validation_entry
         }
-    
+
     def get_performance_stats(self):
-        """Obtiene estadísticas de rendimiento - VERSIÓN DEFINITIVA"""
         try:
-            # Calcular accuracy de forma segura
             total_predictions = self.performance_stats['total_predictions']
             correct_predictions = self.performance_stats['correct_predictions']
             
@@ -2320,7 +2262,6 @@ class EnhancedNextCandlePredictor:
             if total_predictions > 0:
                 accuracy = (correct_predictions / total_predictions) * 100
             
-            # Calcular sesgo de forma segura
             bias_stats = self.performance_stats['bias_tracking']
             total_bias = sum(bias_stats.values())
             
@@ -2338,7 +2279,6 @@ class EnhancedNextCandlePredictor:
                 }
             ]
             
-            # Retornar estructura completa y consistente
             return {
                 "accuracy": round(accuracy, 1),
                 "total_predictions": total_predictions,
@@ -2353,7 +2293,6 @@ class EnhancedNextCandlePredictor:
             
         except Exception as e:
             self._add_debug_log("error", f"Error en get_performance_stats: {e}")
-            # Retornar estructura por defecto en caso de error
             return {
                 "accuracy": 0,
                 "total_predictions": 0,
@@ -2365,9 +2304,8 @@ class EnhancedNextCandlePredictor:
                 "bias_tracking": {'alza_count': 1, 'baja_count': 1, 'lateral_count': 1},
                 "debug_info": [{'level': 'error', 'timestamp': datetime.now().strftime("%H:%M:%S"), 'message': f"Error: {e}"}]
             }
-    
+
     def get_enhanced_performance_stats(self):
-        """Obtiene estadísticas extendidas incluyendo aprendizaje"""
         base_stats = self.get_performance_stats()
         learning_stats = self.learning_system.get_learning_stats()
         
@@ -2377,11 +2315,9 @@ class EnhancedNextCandlePredictor:
             'auto_learning_active': self.auto_learning_active,
             'market_context': self.market_context
         }
-    
+
     def reset(self):
-        """Reinicia el predictor manteniendo el aprendizaje"""
         self.analyzer.reset()
-        # No reiniciamos el sistema de aprendizaje
 
 # ------------------ DASHBOARD MEJORADO CON ESTADÍSTICAS DE APRENDIZAJE ------------------
 class EnhancedResponsiveDashboard:
@@ -2482,12 +2418,9 @@ class EnhancedResponsiveDashboard:
             
         self.last_prediction = self.dashboard_data["current_prediction"].copy()
         
-        # CORRECCIÓN: Manejo correcto de corrutinas
         try:
-            # Obtener el loop de eventos actual
             loop = asyncio.get_event_loop()
             
-            # Programar reset de efectos visuales
             if loop.is_running():
                 if self.dashboard_data["visual_effects"]["prediction_change"]:
                     asyncio.create_task(self._reset_visual_effect("prediction_change", 2))
@@ -2508,7 +2441,6 @@ class EnhancedResponsiveDashboard:
         progress = ((60 - remaining_time) / 60) * 100
         is_last_5 = metronome.is_last_5_seconds()
         
-        # Determinar fase actual
         if remaining_time > 45:
             current_phase = "FASE 1 (0-15s)"
         elif remaining_time > 25:
@@ -2635,7 +2567,6 @@ class AdvancedConnectionManager:
             "data": self.dashboard.dashboard_data
         }
         
-        # CORRECCIÓN: Crear copia del conjunto para evitar modificación durante iteración
         connections = list(self.active_connections)
         disconnected = []
         
@@ -2793,14 +2724,12 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                 ticks_processed
             )
             
-            # Actualizar estadísticas de aprendizaje más frecuentemente
             current_time = time.time()
             if hasattr(enhanced_continuous_dashboard_updates, 'last_learning_update'):
-                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 8:  # 8 segundos
+                if current_time - enhanced_continuous_dashboard_updates.last_learning_update > 8:
                     stats = predictor.get_performance_stats()
                     learning_stats = stats.get('learning_system', {})
                     
-                    # Actualizar dashboard con estadísticas de aprendizaje
                     top_features = learning_stats.get('top_features', [])
                     
                     manager.dashboard.update_learning_stats(
@@ -2812,7 +2741,6 @@ async def enhanced_continuous_dashboard_updates(manager: AdvancedConnectionManag
                         learning_stats.get('debug_info', [])
                     )
                     
-                    # Actualizar performance con debug info
                     manager.dashboard.update_performance(
                         stats.get('accuracy', 0),
                         0,
@@ -2839,11 +2767,10 @@ setup_enhanced_routes(app, dashboard_manager, iq_connector)
 # ------------------ INICIALIZACIÓN MEJORADA - VERSIÓN DEFINITIVA ------------------
 def start_enhanced_system():
     try:
-        logging.info("🔧 INICIANDO SISTEMA V6.3 MEJORADO DEFINITIVO - DEBUG ACTIVADO")
-        logging.info("🎯 SISTEMA DE PREDICCIÓN HÍBRIDO MEJORADO (TRADICIONAL + ML) - VERSIÓN DEFINITIVA")
-        logging.info("🐛 CORRECCIONES DEFINITIVAS: ML estable, sesgo controlado, entrenamiento robusto")
+        logging.info("🔧 INICIANDO SISTEMA V6.3 MEJORADO DEFINITIVO - ANÁLISIS TÉCNICO FORTALECIDO")
+        logging.info("🎯 SISTEMA DE PREDICCIÓN MEJORADO CON ANÁLISIS TÉCNICO AVANZADO")
+        logging.info("🆕 NUEVAS CARACTERÍSTICAS: Volumen, Reversiones, Soporte/Resistencia")
         
-        # Verificar sistema de aprendizaje MEJORADO
         if hasattr(predictor, 'learning_system'):
             learning_status = "ACTIVO"
             model_status = "CARGADO" if predictor.learning_system.model is not None else "PREPARADO"
@@ -2854,7 +2781,6 @@ def start_enhanced_system():
             else:
                 logging.info("📊 Sistema preparado - ML se activará con datos suficientes")
         
-        # ✅ INICIAR CONEXIÓN IQ OPTION
         logging.info("🔄 Iniciando conexión a IQ Option...")
         connection_result = iq_connector.connect()
         logging.info(f"🔧 Resultado conexión IQ Option: {connection_result}")
@@ -2866,16 +2792,14 @@ def start_enhanced_system():
             logging.error("❌ Conexión IQ Option falló al inicio")
             dashboard_manager.dashboard.update_system_status("DISCONNECTED", "ERROR", "SYNCED")
         
-        # ✅ INICIAR THREAD DE ANÁLISIS
         logging.info("🔧 Iniciando thread de análisis de vela...")
         trading_thread = threading.Thread(target=premium_candle_analysis_loop, daemon=True)
         trading_thread.start()
         logging.info("🔧 Thread de análisis de vela iniciado")
         
-        logging.info(f"⭐ DELOWYSS AI V6.3 MEJORADA DEFINITIVA INICIADA - DEBUG ACTIVADO")
-        logging.info("🎯 PREDICCIÓN A 5s - SISTEMA HÍBRIDO TRADICIONAL + ML MEJORADO")
-        logging.info("🐛 SEGUIMIENTO DE SESGO: Controlado con correcciones definitivas")
-        logging.info("📊 VALIDACIÓN: Sistema de tracking robusto implementado")
+        logging.info(f"⭐ DELOWYSS AI V6.3 MEJORADA DEFINITIVA INICIADA - ANÁLISIS TÉCNICO FORTALECIDO")
+        logging.info("🎯 PREDICCIÓN A 5s - SISTEMA MEJORADO CON ANÁLISIS AVANZADO")
+        logging.info("🆕 CARACTERÍSTICAS: Volumen, Reversiones, Soportes/Resistencias")
         logging.info("🌐 DASHBOARD DISPONIBLE EN: http://0.0.0.0:10000")
         
         time.sleep(2)
@@ -2892,7 +2816,6 @@ def premium_candle_analysis_loop():
     
     logging.info(f"🚀 LOOP DE ANÁLISIS DE VELA COMPLETA MEJORADO INICIADO")
     
-    # Variables locales para evitar problemas de scope
     _last_candle_start = int(time.time() // TIMEFRAME * TIMEFRAME)
     _prediction_made_this_candle = False
     _last_price = None
@@ -2914,15 +2837,12 @@ def premium_candle_analysis_loop():
             current_candle_start = int(current_time // TIMEFRAME * TIMEFRAME)
             seconds_remaining = iq_connector.get_remaining_time()
             
-            # Obtener precio actual
             price = iq_connector.get_realtime_price()
             if price and price > 0:
                 _last_price = price
                 
-                # Procesar tick para análisis
                 predictor.process_tick(price, seconds_remaining)
                 
-                # Hacer predicción en los últimos 5 segundos si no se ha hecho
                 if (dashboard_manager.metronome.is_prediction_time() and 
                     not _prediction_made_this_candle and
                     predictor.analyzer.is_ready_for_prediction()):
@@ -2931,16 +2851,14 @@ def premium_candle_analysis_loop():
                     
                     prediction = predictor.predict_next_candle()
                     
-                    # Actualizar dashboard
                     dashboard_manager.dashboard.update_prediction(
                         prediction['direction'],
                         prediction['confidence'],
-                        method=prediction.get('method', 'TRADICIONAL'),
+                        method=prediction.get('method', 'TRADICIONAL_MEJORADO'),
                         debug_info=prediction.get('debug_info', []),
                         status=prediction.get('status', 'PREDICTION_READY')
                     )
                     
-                    # Actualizar métricas de performance
                     stats = predictor.get_performance_stats()
                     dashboard_manager.dashboard.update_performance(
                         stats.get('accuracy', 0),
@@ -2952,25 +2870,21 @@ def premium_candle_analysis_loop():
                     )
                     
                     _prediction_made_this_candle = True
-                    logging.info(f"✅ PREDICCIÓN MEJORADA: {prediction['direction']} {prediction['confidence']}% - Método: {prediction.get('method', 'TRADICIONAL')}")
+                    logging.info(f"✅ PREDICCIÓN MEJORADA: {prediction['direction']} {prediction['confidence']}% - Método: {prediction.get('method', 'TRADICIONAL_MEJORADO')}")
             
-            # Detectar nueva vela MEJORADO
             if current_candle_start > _last_candle_start:
                 if _last_price is not None:
-                    # Determinar dirección real de la vela que acaba de cerrar
                     if (predictor.analyzer.current_candle_close is not None and 
                         predictor.analyzer.current_candle_open is not None):
                         
                         price_change = predictor.analyzer.current_candle_close - predictor.analyzer.current_candle_open
                         actual_direction = "ALCISTA" if price_change > 0.00001 else "BAJISTA" if price_change < -0.00001 else "LATERAL"
                         
-                        # VALIDAR PREDICCIÓN CON DEBUG MEJORADO
                         validation = predictor.validate_prediction(actual_direction)
                         if validation:
                             result_icon = '✅' if validation['correct'] else '❌'
                             logging.info(f"📊 VALIDACIÓN MEJORADA: Predicho {validation['predicted']} vs Real {validation['actual']} - {result_icon}")
                 
-                # REINICIO MEJORADO
                 _last_candle_start = current_candle_start
                 _prediction_made_this_candle = False
                 predictor.analyzer.reset()

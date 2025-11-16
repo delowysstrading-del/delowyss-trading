@@ -9,6 +9,7 @@ import os
 import asyncio
 import threading
 import logging
+import time
 from contextvars import ContextVar
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
@@ -22,11 +23,14 @@ from app.schemas import InferPayload, PredictionOut
 from app.auth import require_api_key, verify_master, gen_api_key, hash_password
 from app.db import init_db, get_session, Tick, Prediction, User
 from app.ml_pipeline import load_model, extract_features_from_ticks, predict_from_features, train_from_dataset
-from app.fxcm_streamer import start_streaming, current_window_ticks
+from app.fxcm_streamer import start_streaming
 
+# ================================
+# LOGGING
+# ================================
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format="%(asctime)s — %(name)s — %(levelname)s — %(message)s"
 )
 logger = logging.getLogger(__name__)
 
@@ -39,14 +43,14 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 # ================================
-# BASE DE DATOS
+# DATABASE
 # ================================
 init_db()
 
 # ================================
 # MODELO EN MEMORIA
 # ================================
-MODEL: ContextVar = ContextVar('model')
+MODEL: ContextVar = ContextVar("model")
 model_lock = threading.Lock()
 MIN_TRAINING_SAMPLES = 1000
 
@@ -71,42 +75,45 @@ except Exception as e:
     update_model(None)
 
 # ================================
-# FXCM STREAMER
+# STREAMING FXCM
 # ================================
+current_window_ticks = []
+
 async def start_streaming_async():
+    """
+    Ejecuta el streamer FXCM en hilo separado.
+    """
     try:
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, start_streaming)
+        await loop.run_in_executor(None, start_streaming, current_window_ticks)
         logger.info("Streamer FXCM iniciado exitosamente")
     except Exception as e:
         logger.error(f"Error iniciando streamer FXCM: {e}")
 
-# ================================
-# INFERENCIA TICK A TICK
-# ================================
-async def infer_tick_loop():
+def infer_tick_loop(symbol: str):
     """
-    Loop que revisa cada tick nuevo en memoria y hace predicciones.
+    Predicción 3-5 segundos antes de cerrar la vela.
     """
-    while True:
-        if len(current_window_ticks) >= 5:  # mínimo de ticks para extraer features
-            try:
-                features = extract_features_from_ticks(current_window_ticks)
-                model = get_current_model()
-                if model and features:
-                    p_up, p_down = predict_from_features(model, features)
-                    conf = max(p_up, p_down)
-                    signal = "CALL" if p_up > p_down else "PUT"
-                    if conf < 0.7:
-                        signal = "NONE"
-                    logger.info(f"Predicción tick a tick: {signal} (conf: {conf:.2f})")
-            except Exception as e:
-                logger.error(f"Error inferencia tick a tick: {e}")
+    global current_window_ticks
+    model = get_current_model()
+    if not model or len(current_window_ticks) < 5:
+        return
 
-        await asyncio.sleep(0.5)  # medio segundo entre checks
+    features = extract_features_from_ticks(current_window_ticks)
+    if not features:
+        return
+
+    p_up, p_down = predict_from_features(model, features)
+    conf = max(p_up, p_down)
+    signal = "CALL" if p_up > p_down else "PUT"
+    if conf < 0.7:
+        signal = "NONE"
+
+    logger.info(f"🎯 PREDICCIÓN ({symbol}) {signal} - Conf: {conf:.2f}")
+    current_window_ticks = []  # reinicia ventana
 
 # ================================
-# LOOP DE RETRAIN
+# RETRAIN LOOP
 # ================================
 async def retrain_loop():
     while True:
@@ -115,13 +122,14 @@ async def retrain_loop():
             with get_session() as session:
                 ticks = session.query(Tick).order_by(Tick.t_ms).all()
             logger.info(f"Recolectados {len(ticks)} ticks para entrenamiento")
-            
+
             if len(ticks) >= MIN_TRAINING_SAMPLES:
                 dataset = []
                 labels = []
                 window_size_ms = 60_000
                 start_time = ticks[0].t_ms
                 window_ticks = []
+
                 for t in ticks:
                     if t.t_ms < start_time + window_size_ms:
                         window_ticks.append({"mid": t.mid})
@@ -130,11 +138,11 @@ async def retrain_loop():
                             features = extract_features_from_ticks(window_ticks)
                             if features:
                                 dataset.append(features)
-                                next_tick = t
-                                label = 1 if next_tick.mid > window_ticks[-1]["mid"] else 0
+                                label = 1 if t.mid > window_ticks[-1]["mid"] else 0
                                 labels.append(label)
                         start_time += window_size_ms
                         window_ticks = [{"mid": t.mid}]
+
                 if dataset and labels:
                     new_model = train_from_dataset(dataset, labels)
                     update_model(new_model)
@@ -143,7 +151,8 @@ async def retrain_loop():
                     logger.warning("No se generó dataset válido para entrenamiento")
             else:
                 logger.warning(f"Insuficientes datos: {len(ticks)} < {MIN_TRAINING_SAMPLES}")
-            await asyncio.sleep(86400)  # 24 horas
+
+            await asyncio.sleep(86400)
         except asyncio.CancelledError:
             logger.info("Loop de retreinado cancelado")
             break
@@ -159,7 +168,6 @@ async def startup_event():
     logger.info("Iniciando Delowyss Trading API")
     asyncio.create_task(start_streaming_async())
     asyncio.create_task(retrain_loop())
-    asyncio.create_task(infer_tick_loop())
     logger.info("Aplicación iniciada exitosamente")
 
 # ================================
@@ -178,7 +186,7 @@ async def health_check():
     return {"status": "healthy", "model": model_status, "database": db_status}
 
 # ================================
-# INFERENCIA ENDPOINT
+# INFERENCIA
 # ================================
 @app.post("/api/infer", response_model=PredictionOut)
 @limiter.limit("10/minute")
@@ -222,7 +230,7 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
         raise HTTPException(status_code=500, detail="Error interno")
 
 # ================================
-# ADMIN ENDPOINTS
+# ADMIN
 # ================================
 @app.post("/admin/create_user")
 @limiter.limit("5/minute")
@@ -256,20 +264,16 @@ async def admin_stats(request: Request, x_master: str = Header(None)):
             tot_preds = session.query(Prediction).count()
             tot_users = session.query(User).count()
             user_stats = session.query(
-                User.username,
-                User.plan,
-                User.active,
-                Prediction.signal,
-                func.count(Prediction.id).label('pred_count')
+                User.username, User.plan, User.active, Prediction.signal,
+                func.count(Prediction.id).label("pred_count")
             ).join(Prediction, User.id==Prediction.user_id, isouter=True).group_by(
                 User.username, User.plan, User.active, Prediction.signal
             ).all()
-        model_status = "loaded" if get_current_model() else "not_loaded"
         return {
             "ticks": tot_ticks,
             "predictions": tot_preds,
             "users": tot_users,
-            "model_status": model_status,
+            "model_status": "loaded" if get_current_model() else "not_loaded",
             "user_stats": [{"username": s.username,"plan":s.plan,"active":s.active,"signal":s.signal,"prediction_count":s.pred_count} for s in user_stats]
         }
     except Exception as e:
@@ -287,6 +291,9 @@ async def model_status(x_master: str = Header(None)):
     model = get_current_model()
     return {"model_loaded": model is not None, "model_type": type(model).__name__ if model else None, "last_retrain": "TODO"}
 
+# ================================
+# GLOBAL EXCEPTION
+# ================================
 @app.exception_handler(Exception)
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Excepción no manejada en {request.url}: {exc}")

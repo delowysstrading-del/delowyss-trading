@@ -46,7 +46,7 @@ logger = logging.getLogger(__name__)
 
 
 # ================================
-# RATE LIMITER (con soporte X-Forwarded-For)
+# RATE LIMITER
 # ================================
 def _key_func(req: Request):
     xff = req.headers.get("x-forwarded-for")
@@ -68,7 +68,7 @@ init_db()
 
 
 # ================================
-# MODELO EN MEMORIA (Seguro)
+# MODELO EN MEMORIA
 # ================================
 MODEL: ContextVar = ContextVar("model")
 model_lock = threading.Lock()
@@ -88,7 +88,7 @@ def get_current_model():
         return None
 
 
-# Cargar modelo inicial
+# Cargar modelo inicial de forma segura
 try:
     initial_model = load_model()
     update_model(initial_model)
@@ -101,7 +101,7 @@ except Exception as e:
 # ================================
 # STREAMING FXCM
 # ================================
-async def start_streaming_async():
+async def start_streaming_worker():
     try:
         await asyncio.to_thread(start_streaming)
         logger.info("Streamer FXCM finalizó correctamente")
@@ -166,10 +166,8 @@ async def retrain_loop():
                         logger.info("save_model no disponible")
 
                     logger.info("Modelo retreinado exitosamente")
-
                 else:
                     logger.warning("Dataset insuficiente para entrenamiento")
-
             else:
                 logger.warning(f"No hay datos suficientes ({len(ticks)} < {MIN_TRAINING_SAMPLES})")
 
@@ -179,7 +177,6 @@ async def retrain_loop():
         except asyncio.CancelledError:
             logger.info("Retrain loop cancelado")
             break
-
         except Exception as e:
             logger.error(f"Error retreinado: {e}")
             await asyncio.sleep(300)
@@ -193,7 +190,7 @@ async def startup_event():
     logger.info("Iniciando Delowyss Trading API...")
 
     if os.environ.get("RUN_WORKERS", "1") == "1":
-        asyncio.create_task(start_streaming_async())
+        asyncio.create_task(start_streaming_worker())
         asyncio.create_task(retrain_loop())
     else:
         logger.warning("RUN_WORKERS=0 → No se ejecutan workers en segundo plano")
@@ -214,11 +211,7 @@ async def health_check():
     except Exception as e:
         db_status = f"error: {e}"
 
-    return {
-        "status": "healthy",
-        "model": model_status,
-        "database": db_status
-    }
+    return {"status": "healthy", "model": model_status, "database": db_status}
 
 
 # ================================
@@ -250,7 +243,6 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
 
         conf = max(p_up, p_down)
         signal = "CALL" if p_up > p_down else "PUT"
-
         if conf < 0.7:
             signal = "NONE"
 
@@ -269,17 +261,10 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
 
         logger.info(f"Predicción {signal} (conf: {conf:.3f}) — {payload.symbol}")
 
-        return {
-            "signal": signal,
-            "p_up": p_up,
-            "p_down": p_down,
-            "confidence": conf,
-            "time": payload.time_now
-        }
+        return {"signal": signal, "p_up": p_up, "p_down": p_down, "confidence": conf, "time": payload.time_now}
 
     except HTTPException:
         raise
-
     except Exception as e:
         logger.error(f"Error en inferencia ({user.username}): {e}")
         raise HTTPException(500, "Error interno")
@@ -295,13 +280,11 @@ async def create_user(request: Request, username: str, password: str, plan: str 
 
     if plan not in ["weekly", "monthly", "premium"]:
         raise HTTPException(400, "Plan inválido")
-
     if len(password) < 8:
         raise HTTPException(400, "Contraseña muy corta")
 
     try:
         api_key = gen_api_key()
-
         with get_session() as session:
             if session.query(User).filter(User.username == username).first():
                 raise HTTPException(400, "Usuario ya existe")
@@ -317,7 +300,6 @@ async def create_user(request: Request, username: str, password: str, plan: str 
 
         logger.info(f"Usuario creado: {username}")
         return {"username": username, "api_key": api_key, "plan": plan}
-
     except Exception as e:
         logger.error(f"Error creando usuario {username}: {e}")
         raise HTTPException(500, "Error interno")
@@ -330,7 +312,6 @@ async def create_user(request: Request, username: str, password: str, plan: str 
 @limiter.limit("30/minute")
 async def admin_stats(request: Request, x_master: str = Header(None)):
     verify_master(x_master)
-
     try:
         with get_session() as session:
             tot_ticks = session.query(Tick).count()
@@ -353,17 +334,10 @@ async def admin_stats(request: Request, x_master: str = Header(None)):
             "users": tot_users,
             "model_status": "loaded" if get_current_model() else "not_loaded",
             "user_stats": [
-                {
-                    "username": s.username,
-                    "plan": s.plan,
-                    "active": s.active,
-                    "signal": s.signal,
-                    "prediction_count": s.pred_count
-                }
+                {"username": s.username, "plan": s.plan, "active": s.active, "signal": s.signal, "prediction_count": s.pred_count}
                 for s in user_stats
             ]
         }
-
     except Exception as e:
         logger.error(f"Error stats admin: {e}")
         raise HTTPException(500, "Error interno")
@@ -390,11 +364,7 @@ async def me(request: Request, user=Depends(require_api_key)):
 async def model_status(x_master: str = Header(None)):
     verify_master(x_master)
     model = get_current_model()
-    return {
-        "model_loaded": model is not None,
-        "model_type": type(model).__name__ if model else None,
-        "last_retrain": "TODO"
-    }
+    return {"model_loaded": model is not None, "model_type": type(model).__name__ if model else None, "last_retrain": "TODO"}
 
 
 # ================================

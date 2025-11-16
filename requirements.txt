@@ -1,29 +1,10 @@
-fastapi==0.115.0
-uvicorn==0.30.1
-python-multipart==0.0.9
-pydantic==2.9.2
-pydantic-core==2.23.4
-
-# WebSockets
-websockets==12.0
-
-# ML básico (estructura ligera y rápida)
-numpy==1.26.4
-scikit-learn==1.5.1
-joblib==1.4.2
-
-# Base de datos (elige el que uses)
-sqlalchemy==2.0.32
-pymysql==1.1.1
-psycopg2-binary==2.9.9
-
-# Autenticación y seguridad
-python-jose==3.3.0
-passlib[bcrypt]==1.7.4
-
-# Utilidades
-requests==2.32.3
-python-dotenv==1.0.1
-
-# Para sincronización asíncrona estable
-aiofiles==24.1.0
+fastapi==0.109.0
+uvicorn[standard]==0.23.2
+sqlalchemy==2.0.23
+pydantic==1.10.12
+slowapi==0.1.5
+requests==2.32.0
+python-dotenv==1.0.0
+numpy==1.26.0
+scikit-learn==1.3.2
+pandas==2.1.1

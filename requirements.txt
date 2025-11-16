@@ -13,3 +13,4 @@ uvicorn[standard]
 websockets
 wsproto
 sqlalchemy
+slowapi

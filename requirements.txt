@@ -12,3 +12,4 @@ pytz==2024.2
 uvicorn[standard]
 websockets
 wsproto
+sqlalchemy

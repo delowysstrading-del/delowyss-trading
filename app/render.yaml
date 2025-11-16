@@ -1,0 +1,29 @@
+services:
+  - type: web
+    name: delowyss-trading
+    env: docker
+    dockerfilePath: ./Dockerfile
+    plan: free
+    envVars:
+      - key: RUN_WORKERS
+        value: "1"
+      - key: RETRAIN_INTERVAL_SECONDS
+        value: "86400"
+      - key: MIN_TRAINING_SAMPLES
+        value: "1000"
+      - key: DATABASE_URL
+        scope: secret
+      - key: FXCM_SENDER
+        scope: secret
+      - key: FXCM_HOST
+        scope: secret
+      - key: FXCM_PORT
+        scope: secret
+      - key: FXCM_TARGET
+        scope: secret
+      - key: FXCM_FIX_XML_URL
+        value: "https://raw.githubusercontent.com/fxcm/FIXAPI/master/ezapi/FIXFXCM.xml"
+      - key: API_MASTER_KEY
+        scope: secret
+      - key: MODEL_PATH
+        value: "/app/models/lgb_model.pkl"

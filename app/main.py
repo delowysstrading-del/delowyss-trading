@@ -15,7 +15,6 @@ from typing import Optional
 
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
-
 from sqlalchemy import func
 from sqlalchemy.sql import text
 
@@ -34,7 +33,6 @@ from app.ml_pipeline import (
 )
 from app.fxcm_streamer import start_streaming
 
-
 # ================================
 # LOGGING
 # ================================
@@ -42,11 +40,10 @@ logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s — %(name)s — %(levelname)s — %(message)s"
 )
-logger = logging.getLogger(__name__)
-
+logger = logging.getLogger("DelowyssAI")
 
 # ================================
-# RATE LIMITER
+# RATE LIMITER (X-Forwarded-For)
 # ================================
 def _key_func(req: Request):
     xff = req.headers.get("x-forwarded-for")
@@ -54,32 +51,27 @@ def _key_func(req: Request):
         return xff.split(",")[0].strip()
     return get_remote_address(req)
 
-
 limiter = Limiter(key_func=_key_func)
 app = FastAPI(title="Delowyss Trading API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
-
 # ================================
-# BASE DE DATOS
+# DATABASE INIT
 # ================================
 init_db()
 
-
 # ================================
-# MODELO EN MEMORIA
+# MODEL IN MEMORY
 # ================================
 MODEL: ContextVar = ContextVar("model")
 model_lock = threading.Lock()
 MIN_TRAINING_SAMPLES = 1000
 
-
 def update_model(new_model):
     with model_lock:
         MODEL.set(new_model)
         logger.info("Modelo actualizado exitosamente")
-
 
 def get_current_model():
     try:
@@ -87,8 +79,7 @@ def get_current_model():
     except LookupError:
         return None
 
-
-# Cargar modelo inicial de forma segura
+# Load initial model
 try:
     initial_model = load_model()
     update_model(initial_model)
@@ -97,20 +88,18 @@ except Exception as e:
     logger.error(f"Error cargando modelo: {e}")
     update_model(None)
 
-
 # ================================
-# STREAMING FXCM
+# FXCM STREAMING
 # ================================
-async def start_streaming_worker():
+async def start_streaming_async():
     try:
         await asyncio.to_thread(start_streaming)
         logger.info("Streamer FXCM finalizó correctamente")
     except Exception as e:
         logger.error(f"Error en streamer FXCM: {e}")
 
-
 # ================================
-# RETRAIN LOOP (cada 24 horas)
+# RETRAIN LOOP
 # ================================
 async def retrain_loop():
     while True:
@@ -157,14 +146,12 @@ async def retrain_loop():
                 if dataset and labels:
                     new_model = train_from_dataset(dataset, labels)
                     update_model(new_model)
-
                     try:
                         from app.ml_pipeline import save_model as _save
                         _save(new_model)
                         logger.info("Modelo guardado en disco")
                     except:
                         logger.info("save_model no disponible")
-
                     logger.info("Modelo retreinado exitosamente")
                 else:
                     logger.warning("Dataset insuficiente para entrenamiento")
@@ -177,10 +164,10 @@ async def retrain_loop():
         except asyncio.CancelledError:
             logger.info("Retrain loop cancelado")
             break
+
         except Exception as e:
             logger.error(f"Error retreinado: {e}")
             await asyncio.sleep(300)
-
 
 # ================================
 # STARTUP
@@ -190,13 +177,12 @@ async def startup_event():
     logger.info("Iniciando Delowyss Trading API...")
 
     if os.environ.get("RUN_WORKERS", "1") == "1":
-        asyncio.create_task(start_streaming_worker())
+        asyncio.create_task(start_streaming_async())
         asyncio.create_task(retrain_loop())
     else:
         logger.warning("RUN_WORKERS=0 → No se ejecutan workers en segundo plano")
 
     logger.info("Aplicación iniciada exitosamente")
-
 
 # ================================
 # HEALTH CHECK
@@ -213,7 +199,6 @@ async def health_check():
 
     return {"status": "healthy", "model": model_status, "database": db_status}
 
-
 # ================================
 # INFERENCIA
 # ================================
@@ -221,10 +206,8 @@ async def health_check():
 @limiter.limit("10/minute")
 async def infer(request: Request, payload: InferPayload, user=Depends(require_api_key)):
     valid_symbols = ["EUR/USD"]
-
     if payload.symbol not in valid_symbols:
         raise HTTPException(400, f"Símbolo inválido. Válidos: {valid_symbols}")
-
     if not payload.ticks or len(payload.ticks) < 10:
         raise HTTPException(400, "Se necesitan al menos 10 ticks")
 
@@ -235,12 +218,10 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
     try:
         ticks = [t.dict() for t in payload.ticks]
         features = extract_features_from_ticks(ticks)
-
         if not features:
             raise HTTPException(400, "No se pudieron extraer features")
 
         p_up, p_down = predict_from_features(current_model, features)
-
         conf = max(p_up, p_down)
         signal = "CALL" if p_up > p_down else "PUT"
         if conf < 0.7:
@@ -269,7 +250,6 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
         logger.error(f"Error en inferencia ({user.username}): {e}")
         raise HTTPException(500, "Error interno")
 
-
 # ================================
 # ADMIN — CREAR USUARIO
 # ================================
@@ -277,7 +257,6 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
 @limiter.limit("5/minute")
 async def create_user(request: Request, username: str, password: str, plan: str = "weekly", x_master: str = Header(None)):
     verify_master(x_master)
-
     if plan not in ["weekly", "monthly", "premium"]:
         raise HTTPException(400, "Plan inválido")
     if len(password) < 8:
@@ -288,7 +267,6 @@ async def create_user(request: Request, username: str, password: str, plan: str 
         with get_session() as session:
             if session.query(User).filter(User.username == username).first():
                 raise HTTPException(400, "Usuario ya existe")
-
             user = User(
                 username=username,
                 password_hash=hash_password(password),
@@ -297,13 +275,11 @@ async def create_user(request: Request, username: str, password: str, plan: str 
             )
             session.add(user)
             session.commit()
-
         logger.info(f"Usuario creado: {username}")
         return {"username": username, "api_key": api_key, "plan": plan}
     except Exception as e:
         logger.error(f"Error creando usuario {username}: {e}")
         raise HTTPException(500, "Error interno")
-
 
 # ================================
 # ADMIN — STATS
@@ -334,14 +310,18 @@ async def admin_stats(request: Request, x_master: str = Header(None)):
             "users": tot_users,
             "model_status": "loaded" if get_current_model() else "not_loaded",
             "user_stats": [
-                {"username": s.username, "plan": s.plan, "active": s.active, "signal": s.signal, "prediction_count": s.pred_count}
-                for s in user_stats
+                {
+                    "username": s.username,
+                    "plan": s.plan,
+                    "active": s.active,
+                    "signal": s.signal,
+                    "prediction_count": s.pred_count
+                } for s in user_stats
             ]
         }
     except Exception as e:
         logger.error(f"Error stats admin: {e}")
         raise HTTPException(500, "Error interno")
-
 
 # ================================
 # USUARIO AUTENTICADO
@@ -349,13 +329,7 @@ async def admin_stats(request: Request, x_master: str = Header(None)):
 @app.get("/me")
 @limiter.limit("30/minute")
 async def me(request: Request, user=Depends(require_api_key)):
-    return {
-        "username": user.username,
-        "plan": user.plan,
-        "active": user.active,
-        "joined_date": getattr(user, "created_at", None)
-    }
-
+    return {"username": user.username, "plan": user.plan, "active": user.active, "joined_date": getattr(user, "created_at", None)}
 
 # ================================
 # ADMIN — ESTADO DEL MODELO
@@ -365,7 +339,6 @@ async def model_status(x_master: str = Header(None)):
     verify_master(x_master)
     model = get_current_model()
     return {"model_loaded": model is not None, "model_type": type(model).__name__ if model else None, "last_retrain": "TODO"}
-
 
 # ================================
 # GLOBAL EXCEPTION

@@ -9,11 +9,13 @@ import os
 import asyncio
 import threading
 import logging
+import time
 from contextvars import ContextVar
 from typing import Optional
 from fastapi import FastAPI, Depends, HTTPException, Request, Header
 from fastapi.responses import JSONResponse
 from sqlalchemy import func
+from sqlalchemy.sql import text
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -30,8 +32,16 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-# Rate Limiter
-limiter = Limiter(key_func=get_remote_address)
+# Rate Limiter — intenta usar X-Forwarded-For si existe (útil detrás de proxies)
+def _key_func(req: Request):
+    # slowapi's get_remote_address expects a request-like object; prefer X-Forwarded-For
+    xff = req.headers.get("x-forwarded-for")
+    if xff:
+        # X-Forwarded-For may contain multiple IPs — tomar la primera
+        return xff.split(",")[0].strip()
+    return get_remote_address(req)
+
+limiter = Limiter(key_func=_key_func)
 app = FastAPI(title="Delowyss Trading API")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
@@ -44,10 +54,12 @@ MODEL: ContextVar = ContextVar('model')
 model_lock = threading.Lock()
 MIN_TRAINING_SAMPLES = 1000
 
+
 def update_model(new_model):
     with model_lock:
         MODEL.set(new_model)
         logger.info("Modelo actualizado exitosamente")
+
 
 def get_current_model():
     try:
@@ -67,9 +79,9 @@ except Exception as e:
 # FXCM streamer
 async def start_streaming_async():
     try:
-        loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, start_streaming)
-        logger.info("Streamer FXCM iniciado exitosamente")
+        # start_streaming puede ser bloqueante/infinito — ejecutarlo en hilo separado
+        await asyncio.to_thread(start_streaming)
+        logger.info("Streamer FXCM finalizó correctamente")
     except Exception as e:
         logger.error(f"Error iniciando streamer FXCM: {e}")
 
@@ -78,54 +90,79 @@ async def retrain_loop():
     while True:
         try:
             logger.info("Iniciando proceso de retreinado...")
+            # consultar solo últimos 24 horas para evitar cargar toda la tabla
+            one_day_ago = int(time.time() * 1000) - 86_400_000
             with get_session() as session:
-                ticks = session.query(Tick).order_by(Tick.t_ms).all()
+                ticks = session.query(Tick).filter(Tick.t_ms >= one_day_ago).order_by(Tick.t_ms).all()
             logger.info(f"Recolectados {len(ticks)} ticks para entrenamiento")
-            
+
             if len(ticks) >= MIN_TRAINING_SAMPLES:
                 # Construir dataset por ventana 1 min
                 dataset = []
                 labels = []
                 window_size_ms = 60_000
-                start_time = ticks[0].t_ms
-                window_ticks = []
-                for t in ticks:
-                    if t.t_ms < start_time + window_size_ms:
-                        window_ticks.append({"mid": t.mid})
-                    else:
-                        # label: siguiente tick open vs close
-                        if len(window_ticks) >= 5:
-                            features = extract_features_from_ticks(window_ticks)
-                            if features:
-                                dataset.append(features)
-                                # label simple: última sube o baja
-                                next_tick = t
-                                label = 1 if next_tick.mid > window_ticks[-1]["mid"] else 0
-                                labels.append(label)
-                        # nueva ventana
-                        start_time += window_size_ms
-                        window_ticks = [{"mid": t.mid}]
+                if not ticks:
+                    logger.warning("No hay ticks después del filtro de tiempo")
+                else:
+                    start_time = ticks[0].t_ms
+                    window_ticks = []
+                    for t in ticks:
+                        # si el tick cae dentro de la ventana actual
+                        if t.t_ms < start_time + window_size_ms:
+                            window_ticks.append({"mid": t.mid})
+                        else:
+                            # procesar ventana anterior
+                            if len(window_ticks) >= 5:
+                                features = extract_features_from_ticks(window_ticks)
+                                if features:
+                                    dataset.append(features)
+                                    # etiqueta: comparar siguiente tick con último de la ventana
+                                    next_tick = t
+                                    delta = next_tick.mid - window_ticks[-1]["mid"]
+                                    label = 1 if delta > 0 else 0
+                                    labels.append(label)
+                            # empezar nueva ventana desde el tick actual
+                            start_time = t.t_ms
+                            window_ticks = [{"mid": t.mid}]
+                    # nota: no olvidamos la última ventana (no tiene "next_tick")
                 if dataset and labels:
                     new_model = train_from_dataset(dataset, labels)
                     update_model(new_model)
+                    # intentar persistir modelo si ml_pipeline ofrece save_model
+                    try:
+                        from app.ml_pipeline import save_model as _save_model
+                        _save_model(new_model)
+                        logger.info("Modelo guardado en disco")
+                    except Exception:
+                        # no fallamos si no existe save_model; ya está actualizado en memoria
+                        logger.info("save_model no disponible o falló; modelo en memoria solamente")
                     logger.info("Modelo retreinado y actualizado exitosamente")
                 else:
                     logger.warning("No se generó dataset válido para entrenamiento")
             else:
                 logger.warning(f"Insuficientes datos: {len(ticks)} < {MIN_TRAINING_SAMPLES}")
-            await asyncio.sleep(3600*24)
+            # dormir 24 horas (se puede ajustar con variable de entorno)
+            sleep_seconds = int(os.environ.get("RETRAIN_INTERVAL_SECONDS", 3600 * 24))
+            await asyncio.sleep(sleep_seconds)
         except asyncio.CancelledError:
             logger.info("Loop de retreinado cancelado")
             break
         except Exception as e:
             logger.error(f"Error en loop de retreinado: {e}")
+            # esperar un poco antes de reintentar
             await asyncio.sleep(300)
 
 @app.on_event("startup")
 async def startup_event():
     logger.info("Iniciando Delowyss Trading API")
-    asyncio.create_task(start_streaming_async())
-    asyncio.create_task(retrain_loop())
+
+    # Evitar loops duplicados si Render/otro PaaS inicia múltiples procesos
+    if os.environ.get("RUN_WORKERS", "1") == "1":
+        asyncio.create_task(start_streaming_async())
+        asyncio.create_task(retrain_loop())
+    else:
+        logger.warning("RUN_WORKERS=0 → workers desactivados; solo servidor web iniciado")
+
     logger.info("Aplicación iniciada exitosamente")
 
 # Health check
@@ -135,7 +172,7 @@ async def health_check():
     db_status = "connected"
     try:
         with get_session() as session:
-            session.execute("SELECT 1")
+            session.execute(text("SELECT 1"))
     except Exception as e:
         db_status = f"error: {e}"
         logger.error(f"Health check DB error: {e}")
@@ -184,7 +221,7 @@ async def infer(request: Request, payload: InferPayload, user=Depends(require_ap
     except HTTPException:
         raise
     except Exception as e:
-        logger.error(f"Error inferencia usuario {user.username}: {e}")
+        logger.error(f"Error inferencia usuario {getattr(user, 'username', 'unknown')}: {e}")
         raise HTTPException(status_code=500, detail="Error interno")
 
 # Admin endpoints
@@ -255,4 +292,3 @@ async def model_status(x_master: str = Header(None)):
 async def global_exception_handler(request: Request, exc: Exception):
     logger.error(f"Excepción no manejada en {request.url}: {exc}")
     return JSONResponse(status_code=500, content={"detail": "Error interno del servidor"})
-
